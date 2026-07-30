@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { DocumentVersion, User } from "@/types"
-import { apiGetVersions, apiRollbackVersion, apiGetUsers } from "@/api/mock"
+import { apiGetVersions, apiRollbackVersion, apiGetUsers } from "@/api"
 import { useWikiStore } from "@/stores/wiki"
 
 function computeDiff(oldText: string, newText: string): { type: "added" | "removed" | "unchanged"; text: string }[] {

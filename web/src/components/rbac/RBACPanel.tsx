@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { Permission, User } from "@/types"
-import { apiGetPermissions, apiSetPermission, apiDeletePermission, apiGetUsers } from "@/api/mock"
+import { apiGetPermissions, apiSetPermission, apiDeletePermission, apiGetUsers } from "@/api"
 import { useWikiStore } from "@/stores/wiki"
 
 export function RBACPanel() {

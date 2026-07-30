@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import type { Workspace, TreeNode, Document, User } from "@/types"
-import { apiGetWorkspaces, apiGetTree, apiGetDocument, apiSaveDocument } from "@/api/mock"
+import { apiGetWorkspaces, apiGetTree, apiGetDocument, apiSaveDocument } from "@/api"
 
 interface WikiState {
   currentWorkspace: Workspace | null

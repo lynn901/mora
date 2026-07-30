@@ -14,6 +14,7 @@ import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
 import { useWikiStore } from "@/stores/wiki"
 import type { Workspace } from "@/types"
+import { login, getToken } from "@/api"
 
 type SidePanel = "tree" | "search" | "rbac" | "history"
 
@@ -26,13 +27,33 @@ export function WikiLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
 
+  const [authReady, setAuthReady] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+
   useEffect(() => {
+    async function ensureAuth() {
+      if (getToken()) {
+        setAuthReady(true)
+        return
+      }
+      try {
+        await login("admin@wiki.local", "admin123")
+        setAuthReady(true)
+      } catch (e) {
+        setAuthError((e as Error).message)
+      }
+    }
+    ensureAuth()
+  }, [])
+
+  useEffect(() => {
+    if (!authReady) return
     loadWorkspaces()
     const check = () => setIsMobile(window.innerWidth < 768)
     check()
     window.addEventListener("resize", check)
     return () => window.removeEventListener("resize", check)
-  }, [])
+  }, [authReady])
 
   const panelContent: Record<SidePanel, React.ReactNode> = {
     tree: <DirectoryTree />,
@@ -46,6 +67,26 @@ export function WikiLayout() {
     search: <Search className="size-4" />,
     rbac: <Shield className="size-4" />,
     history: <Clock className="size-4" />,
+  }
+
+  if (authError) {
+    return (
+      <div className="flex items-center justify-center h-screen" role="alert">
+        <div className="text-center">
+          <p className="text-destructive font-medium">Authentication failed</p>
+          <p className="text-sm text-muted-foreground mt-1">{authError}</p>
+          <Button variant="outline" className="mt-4" onClick={() => { setAuthError(null); login("admin@wiki.local", "admin123").then(() => setAuthReady(true)).catch((e) => setAuthError((e as Error).message)) }}>Retry</Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!authReady) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="size-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
   }
 
   if (error) {

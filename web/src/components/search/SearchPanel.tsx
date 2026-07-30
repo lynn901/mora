@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import type { SearchResult, SearchFilters } from "@/types"
-import { apiSearch, apiGetWorkspaces, apiGetUsers } from "@/api/mock"
+import { apiSearch, apiGetWorkspaces, apiGetUsers } from "@/api"
 import type { Workspace, User as UserType } from "@/types"
 
 function highlightText(text: string, query: string) {

@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import type { CollaboratorPresence, Comment } from "@/types"
-import { apiGetPresences, apiGetComments, apiAddComment, apiResolveComment } from "@/api/mock"
+import { apiGetPresences, apiGetComments, apiAddComment, apiResolveComment } from "@/api"
 
 interface CollabState {
   presences: CollaboratorPresence[]
