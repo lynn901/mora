@@ -9,6 +9,10 @@
 #
 # 联调种子（迁移 010）注入：管理员 admin@wiki.local/admin123、演示工作区、
 # 激活的 embedding 模型、MCP dev token(wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4)。
+#
+# 宿主端口冲突时用环境变量覆盖（无需改文件）：
+#   WIKI_API_PORT=9000 MCP_SERVER_PORT=9001 docker compose up -d
+# 或先清理残留容器：docker compose down && docker compose up -d
 
 services:
   # ---------- 基础设施 ----------
@@ -93,7 +97,7 @@ services:
       dockerfile: deployments/Dockerfile
       args:
         TARGET: wiki-api
-    ports: ["8990:8080"]
+    ports: ["${WIKI_API_PORT:-8990}:8080"]
     depends_on:
       postgres: { condition: service_healthy }
       valkey: { condition: service_healthy }
@@ -158,7 +162,7 @@ services:
       dockerfile: deployments/Dockerfile
       args:
         TARGET: mcp-server
-    ports: ["8081:8081"]
+    ports: ["${MCP_SERVER_PORT:-8081}:8081"]
     depends_on:
       postgres: { condition: service_healthy }
       valkey: { condition: service_healthy }
