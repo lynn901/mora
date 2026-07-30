@@ -61,9 +61,9 @@ func (f Filter) Build() Query {
 	}
 
 	sb.WriteString(`SELECT d.id, d.title,
-		ts_headline(`)
+		ts_headline('`)
 	sb.WriteString(quoteIdent(cfg))
-	sb.WriteString(`, coalesce(d.title,'') || ' ' || coalesce(d.content_text,''), plainto_tsquery('`)
+	sb.WriteString(`', coalesce(d.title,'') || ' ' || coalesce(d.content_text,''), plainto_tsquery('`)
 	sb.WriteString(quoteIdent(cfg))
 	sb.WriteString(`', $1), 'StartSel=<em>,StopSel=</em>') AS snippet,
 		ts_rank_cd(to_tsvector('`)
@@ -80,10 +80,12 @@ func (f Filter) Build() Query {
 	sb.WriteString(quoteIdent(cfg))
 	sb.WriteString(`', $1)`)
 	args = append(args, f.Query)
+	argIdx++
 
 	// Workspace filter
 	sb.WriteString(` AND d.workspace_id = $`)
 	sb.WriteString(itoa(argIdx))
+	sb.WriteString(`::uuid`)
 	args = append(args, f.WorkspaceID)
 	argIdx++
 
