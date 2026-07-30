@@ -1,0 +1,11 @@
+# E2E 夹具专用 override：额外暴露 postgres 到宿主机 :5432，
+# 供 tests/e2e 播种非管理员用户与自定义作用域 Token（需 DATABASE_URL）。
+# 仅用于本地/联调 E2E，生产部署不应使用。
+#
+# 用法:
+#   docker compose -f deployments/docker-compose.yml \
+#                  -f tests/e2e/docker-compose.e2e.override.yml up -d
+services:
+  postgres:
+    ports:
+      - "5432:5432"
