@@ -68,7 +68,7 @@ func (f Filter) Build() Query {
 	sb.WriteString(`', $1), 'StartSel=<em>,StopSel=</em>') AS snippet,
 		ts_rank_cd(to_tsvector('`)
 	sb.WriteString(quoteIdent(cfg))
-	sb.WriteString(`, coalesce(d.title,'') || ' ' || coalesce(d.content_text,'')), plainto_tsquery('`)
+	sb.WriteString(`', coalesce(d.title,'') || ' ' || coalesce(d.content_text,'')), plainto_tsquery('`)
 	sb.WriteString(quoteIdent(cfg))
 	sb.WriteString(`', $1)) AS score,
 		d.workspace_id, d.directory_id, d.updated_at
@@ -76,7 +76,7 @@ func (f Filter) Build() Query {
 	WHERE d.status != 'deleted'
 	  AND to_tsvector('`)
 	sb.WriteString(quoteIdent(cfg))
-	sb.WriteString(`, coalesce(d.title,'') || ' ' || coalesce(d.content_text,'')) @@ plainto_tsquery('`)
+	sb.WriteString(`', coalesce(d.title,'') || ' ' || coalesce(d.content_text,'')) @@ plainto_tsquery('`)
 	sb.WriteString(quoteIdent(cfg))
 	sb.WriteString(`', $1)`)
 	args = append(args, f.Query)
@@ -169,10 +169,12 @@ func (f Filter) Build() Query {
 	return Query{SQL: sb.String(), Args: args}
 }
 
-// quoteIdent returns the FTS config name for safe interpolation. The config is
-// interpolated into string literals, so it MUST be a strict allowlist of
-// [a-zA-Z0-9_] only — anything else (quotes, semicolons, spaces) is rejected
-// and falls back to "simple" to prevent SQL injection.
+// quoteIdent returns the FTS config name sanitized for safe interpolation.
+// The config is interpolated into SQL alongside pre-existing string-literal
+// quotes in the template (e.g. to_tsvector('...cfg...')), so this function
+// returns the BARE identifier (no surrounding quotes) after validating it is
+// a strict allowlist of [a-zA-Z0-9_] only. Anything else falls back to
+// "simple" to prevent SQL injection.
 func quoteIdent(s string) string {
 	if !isSafeIdent(s) {
 		return "simple"
