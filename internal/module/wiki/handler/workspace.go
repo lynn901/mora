@@ -48,9 +48,12 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) Get(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	// Param name matches the :workspace_id wildcard shared by all
+	// /workspaces/:workspace_id/* routes; gin forbids mixing :id and
+	// :workspace_id at the same path segment (route-tree conflict panic).
+	id, err := uuid.Parse(c.Param("workspace_id"))
 	if err != nil {
-		response.Fail(c, badRequestErr("invalid id"))
+		response.Fail(c, badRequestErr("invalid workspace_id"))
 		return
 	}
 	ws, err := h.repo.Get(c.Request.Context(), id)

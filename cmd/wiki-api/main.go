@@ -119,7 +119,7 @@ func main() {
 
 	authed.GET("/workspaces", wsH.List)
 	authed.POST("/workspaces", wsH.Create)
-	authed.GET("/workspaces/:id", wsH.Get)
+	authed.GET("/workspaces/:workspace_id", wsH.Get)
 
 	authed.GET("/workspaces/:workspace_id/directories", dirH.ListTree)
 	authed.POST("/workspaces/:workspace_id/directories", dirH.Create)
