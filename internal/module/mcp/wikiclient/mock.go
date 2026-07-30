@@ -2,6 +2,7 @@ package wikiclient
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"strings"
 	"sync"
@@ -260,9 +261,11 @@ func (m *Mock) GetDocument(_ context.Context, auth *AuthContext, documentID stri
 			body = blocksToMarkdown(doc.content)
 		}
 	}
+	// body may be markdown (not JSON); wrap it as a JSON string so RawMessage is valid.
+	bodyJSON, _ := json.Marshal(body)
 	return &Document{
 		DocumentMeta: doc.DocumentMeta,
-		Content:      body,
+		Content:      bodyJSON,
 		Format:       outFormat,
 	}, nil
 }

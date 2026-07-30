@@ -75,16 +75,21 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		f.UpdatedBefore = &ub
 	}
 
-	vis, err := h.rbac.VisibleDocuments(c.Request.Context(), auth.UserID, auth.Groups, wsID)
-	if err != nil {
-		response.Fail(c, err)
-		return
-	}
-	if _, all := vis[domain.UUID{}]; all || auth.IsAdmin {
+	// Admin sees all; non-admin resolves visible docs via RBAC.
+	if auth.IsAdmin {
 		f.VisibleAll = true
 	} else {
-		for id := range vis {
-			f.VisibleDocs = append(f.VisibleDocs, id)
+		vis, err := h.rbac.VisibleDocuments(c.Request.Context(), auth.UserID, auth.Groups, wsID)
+		if err != nil {
+			response.Fail(c, err)
+			return
+		}
+		if _, all := vis[domain.UUID{}]; all {
+			f.VisibleAll = true
+		} else {
+			for id := range vis {
+				f.VisibleDocs = append(f.VisibleDocs, id)
+			}
 		}
 	}
 

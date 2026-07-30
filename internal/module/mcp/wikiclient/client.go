@@ -19,6 +19,7 @@ package wikiclient
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	domainerr "github.com/wiki/wiki-backend/internal/pkg/errors"
@@ -74,8 +75,8 @@ type DocumentMeta struct {
 // Document is a full document including body, returned by get_document.
 type Document struct {
 	DocumentMeta
-	Content string `json:"content"`
-	Format  string `json:"format"`
+	Content json.RawMessage `json:"content"`
+	Format  string          `json:"format"`
 }
 
 // VersionSummary is a document version history entry (design doc 04 §6).

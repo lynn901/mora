@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,10 +103,9 @@ func (r *PermissionRepo) DocumentLocation(ctx context.Context, docID domain.UUID
 	return wsID, dirID, err
 }
 
-func groupIDsArray(ids []domain.UUID) []byte {
+func groupIDsArray(ids []domain.UUID) []uuid.UUID {
 	if len(ids) == 0 {
-		return []byte(`{}`)
+		return []uuid.UUID{}
 	}
-	b, _ := json.Marshal(ids)
-	return b
+	return ids
 }
