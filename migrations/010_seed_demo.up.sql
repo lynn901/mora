@@ -27,10 +27,11 @@ WHERE u.email = 'admin@wiki.local' AND r.name = 'viewer' AND r.is_system = true
   )
 LIMIT 1;
 
--- 4. 激活 Embedding 模型（TEI / Qwen3-Embedding-0.6B / dim 1024）—— rag-worker 索引与检索必需。
---    与 config 默认 EMBEDDING_PROVIDER=tei / EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B / EMBEDDING_DIM=1024 对齐。
+-- 4. 激活 Embedding 模型（TEI / all-MiniLM-L6-v2 / dim 384）—— rag-worker 索引与检索必需。
+--    与 config 默认 EMBEDDING_PROVIDER=tei / EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2 / EMBEDDING_DIM=384 对齐。
+--    轻量模型（~80MB）适合 CPU 联调；生产可切换 Qwen/Qwen3-Embedding-0.6B（dim 1024，需 ≥4GB 内存）。
 INSERT INTO embedding_models (provider, model_name, dimension, max_token, status)
-VALUES ('tei', 'Qwen/Qwen3-Embedding-0.6B', 1024, 8192, 'active')
+VALUES ('tei', 'sentence-transformers/all-MiniLM-L6-v2', 384, 256, 'active')
 ON CONFLICT (provider, model_name) DO UPDATE SET
     dimension = EXCLUDED.dimension, max_token = EXCLUDED.max_token,
     status = 'active', updated_at = now();

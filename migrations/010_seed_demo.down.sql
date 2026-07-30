@@ -8,7 +8,7 @@ WHERE target_type = 'workspace' AND target_id = '11111111-1111-1111-1111-1111111
   AND subject_type = 'user'
   AND subject_id = (SELECT id FROM users WHERE email = 'admin@wiki.local');
 
-DELETE FROM embedding_models WHERE provider = 'tei' AND model_name = 'Qwen/Qwen3-Embedding-0.6B';
+DELETE FROM embedding_models WHERE provider = 'tei' AND model_name = 'sentence-transformers/all-MiniLM-L6-v2';
 
 DELETE FROM workspaces WHERE id = '11111111-1111-1111-1111-111111111111';
 

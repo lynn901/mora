@@ -79,7 +79,7 @@ func Load() (*Config, error) {
 		RerankerModel:         getenv("RERANKER_MODEL", ""),
 		JWTSecret:             getenv("JWT_SECRET", ""),
 		EmbeddingProvider:     getenv("EMBEDDING_PROVIDER", "tei"),
-		EmbeddingModel:        getenv("EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B"),
+		EmbeddingModel:        getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
 		FTSConfig:             getenv("FTS_CONFIG", ""),
 		VersionRetentionDays:  getenvInt("VERSION_RETENTION_DAYS", 90),
 		VersionRetentionCount: getenvInt("VERSION_RETENTION_COUNT", 100),
@@ -98,7 +98,7 @@ func Load() (*Config, error) {
 		ConsumerName:          getenv("CONSUMER_NAME", "rag-worker-1"),
 		LogLevel:              strings.ToLower(getenv("LOG_LEVEL", "info")),
 	}
-	cfg.EmbeddingDim = getenvInt("EMBEDDING_DIM", 1024)
+	cfg.EmbeddingDim = getenvInt("EMBEDDING_DIM", 384)
 	cfg.PostgresDSN = cfg.DatabaseURL
 
 	ttl, err := time.ParseDuration(getenv("JWT_TTL", "8h"))

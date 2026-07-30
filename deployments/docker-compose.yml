@@ -54,9 +54,11 @@ services:
 
   tei:
     # HuggingFace Text Embeddings Inference（本地推理，默认 TEI）。
-    # 首次启动需从 HuggingFace 下载模型（约 1.2GB）；模型缓存挂载到 tei_cache 卷以复用。
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
-    command: ["--model-id", "${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}", "--port", "8080"]
+    # cpu-latest 镜像修复了 cpu-1.5 的 HF 下载 bug（relative URL without a base）。
+    # 默认模型 all-MiniLM-L6-v2（dim 384，~80MB）轻量稳定，适合 CPU 联调；
+    # 生产可改 EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B（需 ≥4GB 内存）。
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
+    command: ["--model-id", "${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}", "--port", "8080"]
     volumes: ["tei_cache:/data"]
     healthcheck:
       # TEI 监听 8080；用 bash /dev/tcp 探测端口（模型加载完成后才监听）。
@@ -64,7 +66,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 60
-      start_period: 60s
+      start_period: 120s
     restart: unless-stopped
 
   ollama:
@@ -109,8 +111,8 @@ services:
       QDRANT_URL: "http://qdrant:6333"
       TEI_URL: "http://tei:8080"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-tei}"
-      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}"
-      EMBEDDING_DIM: "${EMBEDDING_DIM:-1024}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+      EMBEDDING_DIM: "${EMBEDDING_DIM:-384}"
       FTS_CONFIG: "${FTS_CONFIG:-simple}" # postgres:16 无 zhparser，用 simple；装了 zhparser 改 chinese_zh
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-wiki-internal-token}"
@@ -144,8 +146,8 @@ services:
       TEI_URL: "http://tei:8080"
       OLLAMA_URL: "http://ollama:11434"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-tei}"
-      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}"
-      EMBEDDING_DIM: "${EMBEDDING_DIM:-1024}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+      EMBEDDING_DIM: "${EMBEDDING_DIM:-384}"
       CONSUMER_NAME: "rag-worker-1"
       HEALTH_ADDR: ":8082"
     healthcheck:
