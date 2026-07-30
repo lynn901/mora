@@ -93,7 +93,7 @@ services:
       dockerfile: deployments/Dockerfile
       args:
         TARGET: wiki-api
-    ports: ["8080:8080"]
+    ports: ["8990:8080"]
     depends_on:
       postgres: { condition: service_healthy }
       valkey: { condition: service_healthy }
