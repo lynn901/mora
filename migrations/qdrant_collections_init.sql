@@ -1,0 +1,26 @@
+-- migrations/qdrant_collections_init.sql
+-- Qdrant Collection 初始化（非 SQL，由 rag-worker 启动时通过 REST API 创建；此文件为可读规格）
+-- 依据：03-data-model.md §3.1 / 05-rag-pipeline-design.md §4.1
+--
+-- PUT /collections/{collection_name}
+-- collection_name = wiki_chunks_{provider}_{model_slug}_{dim}   例: wiki_chunks_tei_qwen3_embedding_1024
+--
+-- 维度变更必须新建 Collection，禁止混维度查询（一模型一 Collection）。
+-- 模型切换：新模型建新 Collection → 存量重建双写 → 灰度切换查询指向 → 下线旧 Collection。
+--
+-- 请求体示例（dense + sparse）：
+-- {
+--   "vectors": { "size": 1024, "distance": "Cosine" },
+--   "sparse_vectors": { "bm25": {} },
+--   "hnsw_config": { "m": 16, "ef_construct": 100, "full_scan_threshold": 10000 },
+--   "optimizers_config": { "default_segment_number": 2 },
+--   "on_disk_payload": false
+-- }
+--
+-- Payload 索引（加速 RBAC 过滤）：
+--   PUT /collections/{name}/index
+--   { "field_name": "workspace_id",  "field_schema": "keyword" }
+--   { "field_name": "status",        "field_schema": "keyword" }
+--   { "field_name": "document_id",   "field_schema": "keyword" }
+--   { "field_name": "visible_to",    "field_schema": "keyword" }   -- 多值数组
+--   { "field_name": "tags",          "field_schema": "keyword" }   -- 多值数组

@@ -1,0 +1,158 @@
+openapi: 3.0.3
+info:
+  title: Wiki RAG API
+  version: "1.0"
+  description: |
+    Automated RAG & vector engine (PRD §4 模块二 / YS-8). 摘自 04-api-contract.md §9。
+    RBAC 为硬约束：未授权文档/chunk 不返回、不计入 total（存在性不泄露）。
+security:
+  - BearerAuth: []
+paths:
+  /api/v1/rag/search:
+    post:
+      tags: [RAG]
+      summary: 语义混合检索（Dense + BM25 + RRF + Reranking + RBAC payload 过滤）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { type: string }
+                workspace_id: { type: string, format: uuid }
+                directory_id: { type: string, format: uuid }
+                tags: { type: array, items: { type: string } }
+                top_k: { type: integer, default: 50 }
+                top_n: { type: integer, default: 10 }
+                rerank: { type: boolean, default: false }
+                filters:
+                  type: object
+                  properties:
+                    updated_after: { type: string, format: date-time }
+      responses:
+        "200":
+          description: 检索结果（经 RBAC 过滤）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            document_id: { type: string, format: uuid }
+                            title: { type: string }
+                            chunk_text: { type: string }
+                            chunk_index: { type: integer }
+                            section_path: { type: string }
+                            score: { type: number }
+                            dense_score: { type: number }
+                            bm25_score: { type: number }
+                            rerank_score: { type: number }
+                            workspace_id: { type: string }
+                            source_url: { type: string }
+                      total: { type: integer }
+        "401": { description: 未认证 }
+
+  /api/v1/documents/{id}/index-status:
+    get:
+      tags: [RAG]
+      summary: 查询文档知识索引状态（徽标）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: 索引状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data:
+                    type: object
+                    properties:
+                      index_status: { type: string, enum: [pending, processing, indexed, failed] }
+                      last_indexed_at: { type: string, format: date-time, nullable: true }
+                      chunk_count: { type: integer }
+                      error: { type: string }
+        "404": { description: 无权或不存在（不泄露存在性） }
+
+  /api/v1/admin/embedding-models:
+    get:
+      tags: [RAG Admin]
+      summary: 列出 Embedding 模型配置
+      responses:
+        "200": { description: 模型列表 }
+    post:
+      tags: [RAG Admin]
+      summary: 添加/更新 Embedding 模型配置
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, model_name, dimension]
+              properties:
+                provider: { type: string, enum: [tei, ollama] }
+                model_name: { type: string }
+                dimension: { type: integer }
+                max_token: { type: integer }
+                instruction_query: { type: string }
+                instruction_doc: { type: string }
+                active: { type: boolean }
+      responses:
+        "201": { description: 配置成功 }
+
+  /api/v1/admin/embedding-models/{id}/test:
+    post:
+      tags: [RAG Admin]
+      summary: 连通性测试（HealthCheck + 单条 Embedding）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: 测试结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data:
+                    type: object
+                    properties:
+                      ok: { type: boolean }
+                      latency_ms: { type: integer }
+                      dimension: { type: integer }
+                      error: { type: string }
+
+  /api/v1/admin/embedding-models/{id}/rebuild:
+    post:
+      tags: [RAG Admin]
+      summary: 触发存量向量重建（模型切换）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspace_id: { type: string, format: uuid }
+      responses:
+        "202": { description: 重建已启动（异步，幂等） }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer

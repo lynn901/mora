@@ -1,0 +1,49 @@
+# Wiki 平台单机部署（试用 / ≤50 人）。
+# 一键 `docker compose up -d` 拉起全部组件，数据卷本地挂载，100% 私有化。
+# 对应架构设计 02-system-architecture.md §3.1。
+
+services:
+  wiki-api:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_started }
+    environment:
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: "postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable"
+      VALKEY_URL: "redis://valkey:6379"
+      JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+      FTS_CONFIG: chinese_zh
+      COLLAB_MAX_CONCURRENT: "50"
+      RATE_LIMIT_DOC_PER_MIN: "300"
+      RATE_LIMIT_SEARCH_PER_MIN: "200"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    volumes: ["pg_data:/var/lib/postgresql/data"]
+    environment:
+      POSTGRES_DB: wiki
+      POSTGRES_USER: wiki
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wiki"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:7.2
+    volumes: ["valkey_data:/data"]
+    restart: unless-stopped
+
+  # RAG Worker / MCP Server / yjs-server / Qdrant / MinIO / TEI 在各自任务
+  # (YS-8/YS-9/YS-7) 中接入；本 compose 聚焦 Wiki 后端核心 + 依赖。
+
+volumes:
+  pg_data:
+  valkey_data:

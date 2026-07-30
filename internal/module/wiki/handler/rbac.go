@@ -1,0 +1,89 @@
+package handler
+
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/wiki/wiki-backend/internal/domain"
+	"github.com/wiki/wiki-backend/internal/module/wiki/service"
+	"github.com/wiki/wiki-backend/internal/pkg/response"
+)
+
+type RBACHandler struct {
+	repo service.PermissionRepo
+}
+
+func NewRBACHandler(repo service.PermissionRepo) *RBACHandler {
+	return &RBACHandler{repo: repo}
+}
+
+func (h *RBACHandler) List(c *gin.Context) {
+	var tt domain.TargetType
+	if v := c.Query("target_type"); v != "" {
+		tt = domain.TargetType(v)
+	}
+	var targetID, subjectID *domain.UUID
+	if v := c.Query("target_id"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			targetID = &id
+		}
+	}
+	if v := c.Query("subject_id"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			subjectID = &id
+		}
+	}
+	items, err := h.repo.List(c.Request.Context(), tt, targetID, subjectID)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"items": items})
+}
+
+type grantReq struct {
+	SubjectType  domain.SubjectType  `json:"subject_type" binding:"required"`
+	SubjectID    domain.UUID         `json:"subject_id" binding:"required"`
+	RoleID       domain.UUID         `json:"role_id" binding:"required"`
+	TargetType   domain.TargetType   `json:"target_type" binding:"required"`
+	TargetID     domain.UUID         `json:"target_id" binding:"required"`
+	Effect       domain.Effect       `json:"effect"`
+	InheritScope domain.InheritScope `json:"inherit_scope"`
+}
+
+func (h *RBACHandler) Grant(c *gin.Context) {
+	auth := MustAuth(c)
+	var req grantReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, badRequestErr("invalid body"))
+		return
+	}
+	if req.Effect == "" {
+		req.Effect = domain.EffectAllow
+	}
+	if req.InheritScope == "" {
+		req.InheritScope = domain.InheritSubtree
+	}
+	p := &domain.Permission{
+		SubjectType: req.SubjectType, SubjectID: req.SubjectID, RoleID: req.RoleID,
+		TargetType: req.TargetType, TargetID: req.TargetID,
+		Effect: req.Effect, InheritScope: req.InheritScope, CreatedBy: &auth.UserID,
+	}
+	if err := h.repo.Grant(c.Request.Context(), p); err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.Created(c, p)
+}
+
+func (h *RBACHandler) Revoke(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Fail(c, badRequestErr("invalid id"))
+		return
+	}
+	if err := h.repo.Revoke(c.Request.Context(), id); err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.NoContent(c)
+}

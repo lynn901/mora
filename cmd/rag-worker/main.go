@@ -1,0 +1,132 @@
+// Command rag-worker runs the RAG indexing pipeline consumer (05 §2.3). It reads
+// document events from Valkey Streams, drives the pipeline (extract → chunk →
+// embed → Qdrant → receipt) with idempotency/retry/dead-letter, and also runs a
+// crash-recovery reclaim loop for idle messages. Configuration is env-based,
+// matching deployments/docker-compose.yml.
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+	"github.com/wiki/wiki-backend/internal/domain"
+	"github.com/wiki/wiki-backend/internal/infra/mq"
+	"github.com/wiki/wiki-backend/internal/infra/pg"
+	"github.com/wiki/wiki-backend/internal/infra/qdrant"
+	"github.com/wiki/wiki-backend/internal/infra/ragwiring"
+	"github.com/wiki/wiki-backend/internal/module/rag/pipeline"
+	"github.com/wiki/wiki-backend/internal/module/rag/worker"
+)
+
+func env(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// --- Postgres ---
+	pool, err := pgxpool.New(ctx, env("DATABASE_URL", "postgres://wiki:wiki@postgres:5432/wiki?sslmode=disable"))
+	if err != nil {
+		log.Fatalf("pg connect: %v", err)
+	}
+	defer pool.Close()
+
+	// --- Valkey (Redis-compatible) ---
+	rdb := redis.NewClient(&redis.Options{Addr: env("VALKEY_URL", "valkey:6379")})
+	defer rdb.Close()
+
+	// --- RAG ports ---
+	models := pg.NewModelStore(pool)
+	docs := pg.NewDocumentStore(pool)
+	rbac := pg.NewRBACResolver(pool)
+	vectors := qdrant.New(env("QDRANT_URL", "http://qdrant:6333"))
+	status := pg.NewIndexStatusStore(pool)
+	queue := mq.New(rdb)
+	idem := &ragwiring.ValkeyIdempotencyStore{Rdb: rdb}
+	factory := &ragwiring.DefaultProviderFactory{
+		TEIURL:      env("TEI_URL", "http://tei:8080"),
+		OllamaURL:   env("OLLAMA_URL", "http://ollama:11434"),
+		RerankModel: env("RERANKER_MODEL", ""),
+	}
+
+	pipe := pipeline.New(pipeline.Pipeline{
+		Cfg:     pipeline.DefaultConfig(),
+		Docs:    docs, RBAC: rbac, Vectors: vectors, Models: models, Factory: factory, Status: status,
+	})
+
+	w := worker.New(worker.Worker{
+		Queue: queue, Idem: idem, Status: status, Pipeline: pipe,
+		Consumer: env("CONSUMER_NAME", "rag-worker-1"),
+		Cfg:      pipeline.DefaultConfig(),
+		Logf:     func(f string, a ...any) { log.Printf(f, a...) },
+	})
+
+	// crash-recovery reclaim loop (steal idle > 60s messages)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := w.Reclaim(ctx, 60*time.Second); err != nil && ctx.Err() == nil {
+					log.Printf("reclaim error: %v", err)
+				}
+			}
+		}
+	}()
+
+	// compensation scanner: re-publish pending/stale tasks
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				runCompensation(ctx, pool, queue)
+			}
+		}
+	}()
+
+	log.Printf("rag-worker starting (consumer=%s)", env("CONSUMER_NAME", "rag-worker-1"))
+	if err := w.Run(ctx); err != nil && ctx.Err() == nil {
+		log.Fatalf("rag-worker exited: %v", err)
+	}
+	_ = domain.EventDocumentCreate // keep domain import
+}
+
+// runCompensation re-publishes events for stale pending/failed tasks so they are
+// not lost on a crash before stream ACK (05 §2.5).
+func runCompensation(ctx context.Context, pool *pgxpool.Pool, queue *mq.ValkeyQueue) {
+	store := pg.NewIndexStatusStore(pool)
+	tasks, err := store.PendingTasks(ctx, time.Now().Add(-5*time.Minute), 100)
+	if err != nil {
+		log.Printf("compensation scan error: %v", err)
+		return
+	}
+	for _, t := range tasks {
+		ev := domain.DocEvent{
+			EventID:    t.EventID,
+			EventType:  t.EventType,
+			DocumentID: t.DocumentID,
+			Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		}
+		if _, err := queue.Publish(ctx, ev); err != nil {
+			log.Printf("compensation re-publish %s: %v", t.EventID, err)
+		}
+	}
+}
