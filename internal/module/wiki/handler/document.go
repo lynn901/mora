@@ -29,12 +29,11 @@ type createDocReq struct {
 }
 
 func (h *DocumentHandler) Create(c *gin.Context) {
-	wsID, err := pagination.RequireUUID(c, "workspace_id")
+	wsUUID, err := uuid.Parse(c.Param("workspace_id"))
 	if err != nil {
-		response.Fail(c, err)
+		response.Fail(c, badRequestErr("invalid workspace_id"))
 		return
 	}
-	wsUUID, _ := uuid.Parse(wsID)
 	var req createDocReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Fail(c, badRequestErr("invalid body"))
