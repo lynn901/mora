@@ -50,14 +50,30 @@ deployments/             Dockerfile + docker-compose
 
 ## 运行
 
+一键拉起全部后端组件（3 应用 + 4 基础设施 + 迁移 init 容器）：
+
 ```bash
-# 1. 启动依赖（Postgres + Valkey）
-docker compose -f deployments/docker-compose.yml up -d postgres valkey
+# 全部 7 个服务 + 迁移：postgres/valkey/qdrant/tei + wiki-api/rag-worker/mcp-server
+docker compose -f deployments/docker-compose.yml up -d
 
-# 2. 跑迁移
-psql $DATABASE_URL -f migrations/001_users.up.sql   # ... 001-009
+# 迁移由 migrate init 容器自动执行（001-010，幂等，schema_migrations 记录）
+# 健康检查通过后即可访问：
+#   wiki-api   http://localhost:8080  (/healthz /ready)
+#   mcp-server http://localhost:8081  (/mcp/health)
 
-# 3. 启动服务
+# 联调种子（迁移 010）已注入：admin@wiki.local/admin123、演示工作区、
+#   激活的 embedding 模型、MCP dev token (wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4)
+
+# 可选 Ollama（替代 TEI 作为 Embedding Provider）：
+docker compose -f deployments/docker-compose.yml --profile ollama up -d
+```
+
+> TEI 首次启动需从 HuggingFace 下载 embedding 模型（约 1.2GB，缓存于 `tei_cache` 卷）。
+> 完全离线环境请预置模型或改用 Ollama 本地模型。
+
+本地直接运行（不走容器）：
+
+```bash
 DATABASE_URL=postgres://wiki:wiki@localhost:5432/wiki go run ./cmd/wiki-api
 ```
 

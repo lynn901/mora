@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -103,10 +104,38 @@ func main() {
 	}()
 
 	log.Printf("rag-worker starting (consumer=%s)", env("CONSUMER_NAME", "rag-worker-1"))
+
+	// Health probe: the worker has no public HTTP port, but docker compose needs
+	// a healthcheck to gate dependents on service_healthy. This lightweight
+	// /healthz server (default :8082) returns 200 while the process is alive.
+	go startHealthServer(ctx, env("HEALTH_ADDR", ":8082"))
+
 	if err := w.Run(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("rag-worker exited: %v", err)
 	}
 	_ = domain.EventDocumentCreate // keep domain import
+}
+
+// startHealthServer serves /healthz until ctx is cancelled. It only reports
+// process liveness (the worker loop owns its own retry/dead-letter handling).
+func startHealthServer(ctx context.Context, addr string) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	srv := &http.Server{Addr: addr, Handler: mux}
+	go func() {
+		log.Printf("rag-worker health listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("health server: %v", err)
+		}
+	}()
+	<-ctx.Done()
+	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutCtx)
 }
 
 // runCompensation re-publishes events for stale pending/failed tasks so they are

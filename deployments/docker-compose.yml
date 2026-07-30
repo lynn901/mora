@@ -1,26 +1,17 @@
 # Wiki 平台单机部署（试用 / ≤50 人）。
-# 一键 `docker compose up -d` 拉起全部组件，数据卷本地挂载，100% 私有化。
+# 一键 `docker compose up -d` 拉起全部组件：3 应用（wiki-api / rag-worker / mcp-server）
+# + 4 基础设施（postgres / valkey / qdrant / tei）+ 1 迁移 init 容器，数据卷本地挂载，100% 私有化。
 # 对应架构设计 02-system-architecture.md §3.1。
+#
+# 启动顺序：postgres(healthy) → valkey/qdrant/tei(started) → migrate(completed)
+#           → wiki-api(healthy) → rag-worker + mcp-server(healthy)。
+# 默认 TEI 作为 Embedding 推理；可选 Ollama：`docker compose --profile ollama up -d`。
+#
+# 联调种子（迁移 010）注入：管理员 admin@wiki.local/admin123、演示工作区、
+# 激活的 embedding 模型、MCP dev token(wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4)。
 
 services:
-  wiki-api:
-    build:
-      context: ..
-      dockerfile: deployments/Dockerfile
-    ports: ["8080:8080"]
-    depends_on:
-      postgres: { condition: service_healthy }
-      valkey: { condition: service_started }
-    environment:
-      HTTP_ADDR: ":8080"
-      DATABASE_URL: "postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable"
-      VALKEY_URL: "redis://valkey:6379"
-      JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
-      FTS_CONFIG: chinese_zh
-      COLLAB_MAX_CONCURRENT: "50"
-      RATE_LIMIT_DOC_PER_MIN: "300"
-      RATE_LIMIT_SEARCH_PER_MIN: "200"
-    restart: unless-stopped
+  # ---------- 基础设施 ----------
 
   postgres:
     image: postgres:16
@@ -30,20 +21,169 @@ services:
       POSTGRES_USER: wiki
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wiki"]
+      test: ["CMD-SHELL", "pg_isready -U wiki -d wiki"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
     restart: unless-stopped
 
   valkey:
     image: valkey/valkey:7.2
     volumes: ["valkey_data:/data"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
-  # RAG Worker / MCP Server / yjs-server / Qdrant / MinIO / TEI 在各自任务
-  # (YS-8/YS-9/YS-7) 中接入；本 compose 聚焦 Wiki 后端核心 + 依赖。
+  qdrant:
+    image: qdrant/qdrant:v1.11.0
+    volumes: ["qdrant_data:/qdrant/storage"]
+    healthcheck:
+      # qdrant 镜像无 curl/wget；用 bash /dev/tcp 探测 6333 端口存活。
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  tei:
+    # HuggingFace Text Embeddings Inference（本地推理，默认 TEI）。
+    # 首次启动需从 HuggingFace 下载模型（约 1.2GB）；模型缓存挂载到 tei_cache 卷以复用。
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    command: ["--model-id", "${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}", "--port", "8080"]
+    volumes: ["tei_cache:/data"]
+    healthcheck:
+      # TEI 监听 8080；用 bash /dev/tcp 探测端口（模型加载完成后才监听）。
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8080'"]
+      interval: 10s
+      timeout: 3s
+      retries: 60
+      start_period: 60s
+    restart: unless-stopped
+
+  ollama:
+    # Ollama 作为 TEI 的备选 Embedding Provider（EMBEDDING_PROVIDER=ollama）。
+    # 默认不启动；`docker compose --profile ollama up -d` 拉起后需 `ollama pull <model>`。
+    profiles: ["ollama"]
+    image: ollama/ollama:0.3.0
+    volumes: ["ollama_data:/root/.ollama"]
+    restart: unless-stopped
+
+  # ---------- 迁移 init 容器 ----------
+
+  migrate:
+    image: postgres:16
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ../migrations:/migrations:ro
+      - ./run-migrations.sh:/run-migrations.sh:ro
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki}
+    entrypoint: ["sh", "/run-migrations.sh"]
+    restart: "no" # 一次性任务，由 schema_migrations 保证幂等
+
+  # ---------- 应用服务 ----------
+
+  wiki-api:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        TARGET: wiki-api
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    environment:
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: "postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable"
+      VALKEY_URL: "valkey:6379"
+      QDRANT_URL: "http://qdrant:6333"
+      TEI_URL: "http://tei:8080"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-tei}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}"
+      EMBEDDING_DIM: "${EMBEDDING_DIM:-1024}"
+      FTS_CONFIG: "${FTS_CONFIG:-simple}" # postgres:16 无 zhparser，用 simple；装了 zhparser 改 chinese_zh
+      JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-wiki-internal-token}"
+      COLLAB_MAX_CONCURRENT: "50"
+      RATE_LIMIT_DOC_PER_MIN: "300"
+      RATE_LIMIT_SEARCH_PER_MIN: "200"
+    healthcheck:
+      test: ["CMD", "/app/healthcheck", "http://localhost:8080/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  rag-worker:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        TARGET: rag-worker
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      tei: { condition: service_started } # TEI 模型加载较慢；worker 自带重试，不阻塞启动
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DATABASE_URL: "postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable"
+      VALKEY_URL: "valkey:6379"
+      QDRANT_URL: "http://qdrant:6333"
+      TEI_URL: "http://tei:8080"
+      OLLAMA_URL: "http://ollama:11434"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-tei}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}"
+      EMBEDDING_DIM: "${EMBEDDING_DIM:-1024}"
+      CONSUMER_NAME: "rag-worker-1"
+      HEALTH_ADDR: ":8082"
+    healthcheck:
+      test: ["CMD", "/app/healthcheck", "http://localhost:8082/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        TARGET: mcp-server
+    ports: ["8081:8081"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+      wiki-api: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    environment:
+      HTTP_ADDR: ":8081"
+      DATABASE_URL: "postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable"
+      VALKEY_URL: "valkey:6379"
+      WIKI_API_URL: "http://wiki-api:8080"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-wiki-internal-token}"
+      MCP_RATE_LIMIT_READ: "100"
+      MCP_RATE_LIMIT_WRITE: "20"
+      # 不设 MCP_USE_MOCK → prod 模式（PG token/session/audit + Valkey 限流 + HTTP WikiClient）
+    healthcheck:
+      test: ["CMD", "/app/healthcheck", "http://localhost:8081/mcp/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
 
 volumes:
   pg_data:
   valkey_data:
+  qdrant_data:
+  tei_cache:
+  ollama_data:

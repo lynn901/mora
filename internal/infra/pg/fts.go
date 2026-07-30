@@ -22,9 +22,41 @@ type FTSStore struct {
 	// default resolution against the permissions table is used. YS-6 may inject
 	// its optimized rbac_doc_visible(...) predicate here.
 	VisibilitySQL string
+	// Config is the PostgreSQL text-search configuration name used by to_tsvector
+	// / ts_headline / plainto_tsquery. It MUST match the config the documents
+	// GIN index was built with (003_documents.up.sql picks chinese_zh when
+	// zhparser is installed, else simple). Default "simple" so BM25 works on a
+	// stock postgres:16 image without zhparser; wiki-api injects cfg.FTSConfig.
+	Config string
 }
 
-func NewFTSStore(pool *pgxpool.Pool) *FTSStore { return &FTSStore{Pool: pool} }
+// NewFTSStore returns an FTSStore using the "simple" text-search configuration
+// (safe on stock postgres without zhparser). Use SetConfig / the Config field to
+// switch to "chinese_zh" when zhparser is installed.
+func NewFTSStore(pool *pgxpool.Pool) *FTSStore { return &FTSStore{Pool: pool, Config: "simple"} }
+
+// tsConfig returns a sanitized text-search configuration identifier safe to
+// interpolate into the query (TS config names are identifiers, not bind params).
+func (s *FTSStore) tsConfig() string {
+	cfg := s.Config
+	if cfg == "" {
+		cfg = "simple"
+	}
+	var b strings.Builder
+	for _, r := range cfg {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	out := b.String()
+	if out == "" {
+		return "simple"
+	}
+	return out
+}
 
 const defaultVisibilitySQL = `
   EXISTS (
@@ -57,13 +89,14 @@ func (s *FTSStore) SearchBM25(ctx context.Context, req rag.FTSRequest) ([]rag.FT
 	if vis == "" {
 		vis = defaultVisibilitySQL
 	}
+	cfg := s.tsConfig()
 	q := `
         SELECT d.id, d.title,
-               ts_headline('chinese_zh', coalesce(d.content_text,''), q.qry) AS snippet,
-               ts_rank_cd(to_tsvector('chinese_zh', coalesce(d.title,'') || ' ' || coalesce(d.content_text,'')), q.qry) AS score,
+               ts_headline(` + cfg + `, coalesce(d.content_text,''), q.qry) AS snippet,
+               ts_rank_cd(to_tsvector(` + cfg + `, coalesce(d.title,'') || ' ' || coalesce(d.content_text,'')), q.qry) AS score,
                d.workspace_id
-        FROM documents d, plainto_tsquery('chinese_zh', $1) AS q(qry)
-        WHERE to_tsvector('chinese_zh', coalesce(d.title,'') || ' ' || coalesce(d.content_text,'')) @@ q.qry
+        FROM documents d, plainto_tsquery(` + cfg + `, $1) AS q(qry)
+        WHERE to_tsvector(` + cfg + `, coalesce(d.title,'') || ' ' || coalesce(d.content_text,'')) @@ q.qry
           AND d.status = 'published'
           AND ($5::text = '' OR d.workspace_id = $5)
           AND ($6::text = '' OR d.directory_id::text = $6)

@@ -20,10 +20,32 @@ import (
 const ctxAuth = "auth_ctx"
 
 // AuthMiddleware validates the JWT Bearer token and injects AuthContext.
-func AuthMiddleware(tm *auth.TokenManager) gin.HandlerFunc {
+//
+// It also accepts the INTERNAL_SERVICE_TOKEN as a trusted internal-service
+// credential (design doc 02 §2.2): when the Bearer token matches the configured
+// internal token, the caller is treated as a trusted service (the MCP Server
+// calling wiki-api). The end-principal is carried in the X-Identity-Id header
+// (set by the MCP HTTPClient) and used as the AuthState UserID so RBAC is
+// enforced as that principal; if absent, the caller is treated as admin.
+func AuthMiddleware(tm *auth.TokenManager, internalToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		token := auth.ExtractBearer(header)
+
+		// Trusted internal service token (MCP → wiki-api).
+		if internalToken != "" && token == internalToken {
+			st := AuthState{IsAdmin: true}
+			if iid := c.GetHeader("X-Identity-Id"); iid != "" {
+				if uid := parseUUID(iid); uid != uuid.Nil {
+					st.UserID = uid
+					st.IsAdmin = false // RBAC enforced as the propagated principal
+				}
+			}
+			c.Set(ctxAuth, st)
+			c.Next()
+			return
+		}
+
 		if token == "" {
 			response.Fail(c, pkgerr.Unauthorized("missing token"))
 			c.Abort()

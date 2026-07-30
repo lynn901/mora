@@ -11,6 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"github.com/wiki/wiki-backend/internal/domain"
+	"github.com/wiki/wiki-backend/internal/module/rag"
 	"github.com/wiki/wiki-backend/internal/module/wiki/service"
 )
 
@@ -60,4 +62,58 @@ func (p *NoopPublisher) PublishDocumentEvent(ctx context.Context, evt service.Do
 	evt.Timestamp = time.Now().UTC()
 	p.Events = append(p.Events, evt)
 	return nil
+}
+
+// QueuePublisher adapts a rag.EventQueue (Valkey Streams producer) to the
+// service.EventPublisher interface. It is the production publisher used by
+// wiki-api: document lifecycle events are mapped from service.DocumentEvent
+// to the canonical domain.DocEvent and published through the same ValkeyQueue
+// the rag-worker consumes, so producer and consumer share one stream format
+// (field "event" = JSON(domain.DocEvent)) and one event-type vocabulary
+// ("document.create" / "document.update" / ...). Without this adapter the
+// worker's fieldsToEvent decoder would reject every event as malformed.
+type QueuePublisher struct {
+	Queue rag.EventQueue
+}
+
+// NewQueuePublisher wraps a rag.EventQueue (e.g. *mq.ValkeyQueue) as an
+// EventPublisher. Pass a non-nil queue to switch wiki-api from Noop to real
+// Valkey Streams publishing.
+func NewQueuePublisher(q rag.EventQueue) *QueuePublisher {
+	return &QueuePublisher{Queue: q}
+}
+
+func (p *QueuePublisher) PublishDocumentEvent(ctx context.Context, evt service.DocumentEvent) error {
+	if evt.EventID == "" {
+		evt.EventID = uuid.NewString()
+	}
+	if evt.Timestamp.IsZero() {
+		evt.Timestamp = time.Now().UTC()
+	}
+	_, err := p.Queue.Publish(ctx, domain.DocEvent{
+		EventID:     evt.EventID,
+		EventType:   mapEventType(evt.Type),
+		DocumentID:  evt.DocumentID.String(),
+		WorkspaceID: evt.WorkspaceID.String(),
+		VersionNo:   evt.VersionNo,
+		Timestamp:   evt.Timestamp.UTC().Format(time.RFC3339),
+	})
+	return err
+}
+
+// mapEventType translates the wiki-service event vocabulary into the canonical
+// domain.EventType the RAG pipeline switches on (05-rag-pipeline-design §2.1).
+func mapEventType(t service.DocumentEventType) domain.EventType {
+	switch t {
+	case service.EventCreate:
+		return domain.EventDocumentCreate
+	case service.EventUpdate:
+		return domain.EventDocumentUpdate
+	case service.EventDelete:
+		return domain.EventDocumentDelete
+	case service.EventPermissionChange:
+		return domain.EventPermissionChange
+	default:
+		return domain.EventType(t)
+	}
 }

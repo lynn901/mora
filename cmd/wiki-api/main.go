@@ -17,13 +17,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/wiki/wiki-backend/internal/domain"
+	"github.com/wiki/wiki-backend/internal/infra/mq"
+	"github.com/wiki/wiki-backend/internal/infra/pg"
+	"github.com/wiki/wiki-backend/internal/infra/postgres"
+	"github.com/wiki/wiki-backend/internal/infra/qdrant"
+	"github.com/wiki/wiki-backend/internal/infra/ragwiring"
+	ragsearch "github.com/wiki/wiki-backend/internal/module/rag/search"
 	wh "github.com/wiki/wiki-backend/internal/module/wiki/handler"
 	"github.com/wiki/wiki-backend/internal/module/wiki/service"
+	"github.com/wiki/wiki-backend/internal/pkg/response"
 	"github.com/wiki/wiki-backend/internal/platform/auth"
 	"github.com/wiki/wiki-backend/internal/platform/config"
 	"github.com/wiki/wiki-backend/internal/platform/ratelimit"
-	"github.com/wiki/wiki-backend/internal/infra/postgres"
 	"github.com/wiki/wiki-backend/internal/module/wiki/collab"
 	"github.com/wiki/wiki-backend/internal/module/wiki/event"
 	auditpkg "github.com/wiki/wiki-backend/internal/platform/audit"
@@ -56,8 +63,16 @@ func main() {
 	// engine's Repository: GrantsFor, DirectoryAncestors, DocumentLocation).
 	engine := newRBACEngine(permRepo, dirRepo)
 
-	// Event publisher: Redis if configured, else noop.
+	// Event publisher: Valkey Streams (real) when configured, else noop. The
+	// QueuePublisher maps service.DocumentEvent → domain.DocEvent and publishes
+	// through mq.ValkeyQueue so the rag-worker consumes one canonical stream
+	// format + event-type vocabulary (previously Noop never reached the worker).
 	var pub service.EventPublisher = event.NewNoopPublisher()
+	rdb := newRedisClient(cfg.ValkeyURL)
+	if rdb != nil {
+		defer rdb.Close()
+		pub = event.NewQueuePublisher(mq.New(rdb))
+	}
 
 	docSvc := service.NewDocumentService(docRepo, verRepo, engine, pub)
 
@@ -74,6 +89,19 @@ func main() {
 	commentH := wh.NewCommentHandler(commentRepo)
 	rbacH := wh.NewRBACHandler(permRepo)
 
+	// RAG hybrid search (Dense+BM25+rerank) — mounts POST /api/v1/rag/search,
+	// the endpoint the MCP search_knowledge_base tool calls. The searcher reuses
+	// the same RAG ports the rag-worker indexes through (Qdrant, PG FTS, TEI) so
+	// search and indexing stay consistent. RBAC is enforced as a hard filter on
+	// both paths using the caller's ViewerScope.
+	ragSearcher := ragsearch.New(ragsearch.HybridSearcher{
+		Models:  pg.NewModelStore(pool),
+		Factory: &ragwiring.DefaultProviderFactory{TEIURL: cfg.TEIURL, OllamaURL: cfg.OllamaURL, RerankModel: cfg.RerankerModel},
+		Vectors: qdrant.New(cfg.QdrantURL),
+		FTS:     &pg.FTSStore{Pool: pool, Config: cfg.FTSConfig},
+		RBAC:    pg.NewRBACResolver(pool),
+	})
+
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(wh.CORSMiddleware())
@@ -84,7 +112,7 @@ func main() {
 
 	// authenticated
 	authed := api.Group("")
-	authed.Use(wh.AuthMiddleware(tm))
+	authed.Use(wh.AuthMiddleware(tm, cfg.InternalToken))
 	authed.Use(wh.AuditMiddleware(auditLogger))
 	docLimit := ratelimit.New(cfg.RateLimitDocPerMin)
 	searchLimit := ratelimit.New(cfg.RateLimitSearchPerMin)
@@ -111,6 +139,8 @@ func main() {
 	searchGroup := authed.Group("")
 	searchGroup.Use(wh.RateLimitMiddleware(searchLimit))
 	searchGroup.GET("/search", searchH.Search)
+	// RAG semantic hybrid search (consumed by MCP search_knowledge_base).
+	searchGroup.POST("/rag/search", ragSearchHandler(ragSearcher))
 
 	authed.GET("/documents/:id/comments", commentH.List)
 	authed.POST("/documents/:id/comments", commentH.Create)
@@ -192,3 +222,56 @@ var errInvalidCreds = errString("invalid credentials")
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+// ragSearchRequest mirrors the MCP wikiclient.SearchRequest body (04 §9).
+type ragSearchRequest struct {
+	Query       string   `json:"query"`
+	WorkspaceID string   `json:"workspace_id"`
+	DirectoryID string   `json:"directory_id"`
+	Tags        []string `json:"tags"`
+	TopK        int      `json:"top_k"`
+	TopN        int      `json:"top_n"`
+	Rerank      bool     `json:"rerank"`
+}
+
+// ragSearchHandler returns a Gin handler that runs RAG hybrid search as the
+// authenticated caller. The MCP Server reaches this via the internal service
+// token (X-Identity-Id carries the principal); JWT callers use their own id.
+func ragSearchHandler(s *ragsearch.HybridSearcher) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req ragSearchRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.Fail(c, err)
+			return
+		}
+		st := wh.MustAuth(c)
+		res, err := s.Search(c.Request.Context(), ragsearch.SearchRequest{
+			Query:       req.Query,
+			UserID:      st.UserID.String(),
+			WorkspaceID: req.WorkspaceID,
+			DirectoryID: req.DirectoryID,
+			Tags:        req.Tags,
+			TopK:        req.TopK,
+			TopN:        req.TopN,
+			Rerank:      req.Rerank,
+		})
+		if err != nil {
+			response.Fail(c, err)
+			return
+		}
+		response.OK(c, res)
+	}
+}
+
+// newRedisClient builds a Redis/Valkey client from a URL that may be either a
+// "redis://..." scheme URL or a bare "host:port" addr (the rag-worker/mcp-server
+// use bare addrs). Returns nil when url is empty (Noop publisher path).
+func newRedisClient(url string) *redis.Client {
+	if url == "" {
+		return nil
+	}
+	if opts, err := redis.ParseURL(url); err == nil {
+		return redis.NewClient(opts)
+	}
+	return redis.NewClient(&redis.Options{Addr: url})
+}
