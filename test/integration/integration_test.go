@@ -21,6 +21,7 @@ import (
 	"github.com/wiki/wiki-backend/internal/infra/postgres"
 	"github.com/wiki/wiki-backend/internal/module/wiki/event"
 	"github.com/wiki/wiki-backend/internal/module/wiki/service"
+	"github.com/wiki/wiki-backend/internal/pkg/pagination"
 	"github.com/wiki/wiki-backend/internal/platform/rbac"
 )
 
@@ -41,6 +42,8 @@ type Suite struct {
 	docs  *postgres.DocumentRepo
 	vers  *postgres.VersionRepo
 	ws    *postgres.WorkspaceRepo
+	users *postgres.UserRepo
+	roles *postgres.RoleRepo
 }
 
 func TestSuite(t *testing.T) {
@@ -60,6 +63,8 @@ func (s *Suite) SetupSuite() {
 	s.docs = postgres.NewDocumentRepo(s.db)
 	s.vers = postgres.NewVersionRepo(s.db)
 	s.ws = postgres.NewWorkspaceRepo(s.db)
+	s.users = postgres.NewUserRepo(s.db)
+	s.roles = postgres.NewRoleRepo(s.db)
 }
 
 func (s *Suite) TearDownSuite() { s.pool.Close() }
@@ -238,6 +243,84 @@ func (s *Suite) TestAC8_SearchRBACFiltering() {
 	require.NoError(s.T(), err)
 	assert.Contains(s.T(), vis, visibleDoc.ID)
 	assert.NotContains(s.T(), vis, hiddenDoc.ID, "hidden doc must not be visible")
+}
+
+// TestUsersAndRoles_Query: GET /users RBAC scoping + GET /roles dictionary.
+// A non-admin viewer must only see users who share a readable workspace (plus
+// themselves); a stranger with no grants sees only themselves. Roles return the
+// system dictionary that Permission.role_id references.
+func (s *Suite) TestUsersAndRoles_Query() {
+	ctx := context.Background()
+	owner := s.seedUser("owner-u@x.com", "Owner")
+	alice := s.seedUser("alice-u@x.com", "Alice")
+	stranger := s.seedUser("stranger-u@x.com", "Stranger")
+	ws := s.seedWorkspace(owner, "ws-users")
+
+	// alice can read ws (viewer role); stranger has no grants; owner owns ws.
+	roleViewer := s.roleID("viewer")
+	require.NoError(s.T(), s.perms.Grant(ctx, &domain.Permission{
+		SubjectType: domain.SubjectUser, SubjectID: alice, RoleID: roleViewer,
+		TargetType: domain.TargetWorkspace, TargetID: ws.ID, Effect: domain.EffectAllow,
+	}))
+
+	// admin sees everyone
+	all, total, err := s.users.List(ctx, service.UserQuery{ViewerID: owner, IsAdmin: true, Params: pagination.Params{Page: 1, PageSize: 50}})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 3, total)
+	assert.Len(s.T(), all, 3)
+
+	// owner (non-admin) sees self + alice (co-reader of ws), not stranger
+	ownerView, total, err := s.users.List(ctx, service.UserQuery{ViewerID: owner, Params: pagination.Params{Page: 1, PageSize: 50}})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 2, total)
+	s.assertUserIDs(s.T(), ownerView, owner, alice)
+
+	// alice (non-admin) sees self + owner (symmetric co-membership)
+	aliceView, total, err := s.users.List(ctx, service.UserQuery{ViewerID: alice, Params: pagination.Params{Page: 1, PageSize: 50}})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 2, total)
+	s.assertUserIDs(s.T(), aliceView, alice, owner)
+
+	// stranger (non-admin, no grants) sees only themselves — no enumeration leak
+	strangerView, total, err := s.users.List(ctx, service.UserQuery{ViewerID: stranger, Params: pagination.Params{Page: 1, PageSize: 50}})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 1, total, "stranger must not enumerate other users")
+	s.assertUserIDs(s.T(), strangerView, stranger)
+
+	// search filter narrows by name/email substring
+	searched, total, err := s.users.List(ctx, service.UserQuery{ViewerID: owner, IsAdmin: true, Search: "alice", Params: pagination.Params{Page: 1, PageSize: 50}})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 1, total)
+	require.Len(s.T(), searched, 1)
+	assert.Equal(s.T(), "Alice", searched[0].Name)
+	// password_hash never returned
+	assert.Equal(s.T(), "", searched[0].PasswordHash)
+
+	// roles dictionary: system roles present, viewer carries read
+	roles, err := s.roles.List(ctx)
+	require.NoError(s.T(), err)
+	names := make(map[string]bool, len(roles))
+	for _, ro := range roles {
+		names[ro.Name] = true
+		if ro.Name == "viewer" {
+			assert.Contains(s.T(), ro.Permissions, domain.ActionRead)
+		}
+	}
+	for _, n := range []string{"super_admin", "workspace_admin", "editor", "viewer"} {
+		assert.True(s.T(), names[n], "system role %q should be present", n)
+	}
+}
+
+func (s *Suite) assertUserIDs(t *testing.T, got []domain.User, want ...domain.UUID) {
+	t.Helper()
+	gotIDs := make(map[domain.UUID]bool, len(got))
+	for _, u := range got {
+		gotIDs[u.ID] = true
+	}
+	for _, w := range want {
+		assert.True(t, gotIDs[w], "expected user %s in list", w)
+	}
+	assert.Len(t, got, len(want), "user list length mismatch")
 }
 
 // roleID fetches a system role id by name.

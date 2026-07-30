@@ -79,6 +79,28 @@ type PermissionRepo interface {
 	GrantsFor(ctx context.Context, subjectID domain.UUID, groupIDs []domain.UUID, workspaceID domain.UUID) ([]domain.Grant, error)
 }
 
+// UserQuery parameters for listing users visible to a viewer. RBAC scoping is
+// enforced by the repository: a non-admin viewer only receives users who share
+// at least one readable workspace (plus the viewer themselves), preventing
+// unauthorized user enumeration. Admins receive all active users.
+type UserQuery struct {
+	ViewerID domain.UUID
+	IsAdmin  bool
+	Search   string // optional case-insensitive name/email substring filter
+	pagination.Params
+}
+
+// UserRepo lists users within the caller's visible scope (04-api-contract §3.5).
+type UserRepo interface {
+	List(ctx context.Context, q UserQuery) ([]domain.User, int, error)
+}
+
+// RoleRepo lists roles — the relatively static dictionary that Permission.role_id
+// references (04-api-contract §3.5). Cacheable by consumers.
+type RoleRepo interface {
+	List(ctx context.Context) ([]domain.Role, error)
+}
+
 // EventPublisher publishes document change events to the message queue
 // (Valkey Streams), consumed by the RAG worker. Wiki never calls RAG directly.
 type EventPublisher interface {

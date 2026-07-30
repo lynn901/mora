@@ -256,6 +256,111 @@ Authorization: Bearer <jwt>
 
 ---
 
+## 3.5 用户与角色域
+
+> 补充查询端点（YS-13 联调发现）：供 RBAC UI 用户名/角色名显示、文档版本作者名、
+> 全文检索「按创建人筛选」下拉渲染。无写操作。
+
+```yaml
+  /users:
+    get:
+      tags: [User]
+      summary: 列出当前用户可见范围内的用户
+      description: |
+        RBAC 受约束：非管理员仅返回与当前用户共享至少一个可读工作区的用户
+        （工作区 owner 或具 read 允许授权，含用户组继承），外加用户自身；
+        管理员返回全部 active 用户。避免越权用户枚举。password_hash 永不返回。
+      security: [BearerAuth: []]
+      parameters:
+        - { name: search, in: query, schema: { type: string }, description: "按 name/email 模糊筛选（可选）" }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/User' }
+                      total: { type: integer }
+                      page: { type: integer }
+                      page_size: { type: integer }
+```
+
+**示例**：
+
+```bash
+GET /api/v1/users?search=ali&page_size=20
+Authorization: Bearer <jwt>
+
+# 响应（仅含当前用户可见范围内的用户）
+{
+  "code": 0,
+  "data": {
+    "items": [
+      { "id": "user-uuid", "email": "alice@wiki.local", "name": "Alice", "avatar_url": "", "status": "active" }
+    ],
+    "total": 1,
+    "page": 1,
+    "page_size": 20
+  }
+}
+```
+
+```yaml
+  /roles:
+    get:
+      tags: [Role]
+      summary: 列出角色字典
+      description: |
+        返回角色列表（id / name / scope / permissions / is_system），对齐
+        Permission.role_id。角色为相对静态字典，消费方可缓存。供 RBAC 配置
+        与角色名显示，替代前端名称匹配 workaround。
+      security: [BearerAuth: []]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Role' }
+```
+
+**角色列表示例**：
+
+```bash
+GET /api/v1/roles
+Authorization: Bearer <jwt>
+
+# 响应
+{
+  "code": 0,
+  "data": {
+    "items": [
+      { "id": "role-uuid-1", "name": "super_admin", "scope": "system", "permissions": ["read","write","admin"], "is_system": true },
+      { "id": "role-uuid-2", "name": "workspace_admin", "scope": "workspace", "permissions": ["read","write","admin"], "is_system": true },
+      { "id": "role-uuid-3", "name": "editor", "scope": "directory", "permissions": ["read","write"], "is_system": true },
+      { "id": "role-uuid-4", "name": "viewer", "scope": "directory", "permissions": ["read"], "is_system": true }
+    ]
+  }
+}
+```
+
+---
+
 ## 4. 目录域
 
 ```yaml
@@ -1160,6 +1265,20 @@ components:
         name: { type: string }
         avatar_url: { type: string }
         status: { type: string }
+
+    Role:
+      type: object
+      description: 角色字典项，Permission.role_id 引用其 id
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: viewer }
+        scope: { type: string, enum: [system, workspace, directory, page] }
+        workspace_id: { type: string, format: uuid, description: "workspace 以下级角色关联的工作区（系统级为空）" }
+        permissions:
+          type: array
+          items: { type: string, enum: [read, write, admin] }
+        is_system: { type: boolean, description: 系统内置角色 }
+        created_at: { type: string, format: date-time }
 
     Workspace:
       type: object
