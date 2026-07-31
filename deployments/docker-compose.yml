@@ -1,4 +1,4 @@
-# Wiki 平台单机部署（试用 / ≤50 人）。
+# Mora 平台单机部署（试用 / ≤50 人）。
 # 一键 `docker compose up -d` 拉起全部组件：前端（nginx） + 3 应用（wiki-api / rag-worker / mcp-server）
 # + 4 基础设施（postgres / valkey / qdrant / tei）+ 1 迁移 init 容器，数据卷本地挂载，100% 私有化。
 # 对应架构设计 02-system-architecture.md §3.1。

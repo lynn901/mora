@@ -1,6 +1,6 @@
 # API 契约（OpenAPI / RESTful）
 
-> 文档版本：v1.0 ｜ 产出人：Wiki 知识库架构师 ｜ 对应任务：YS-5
+> 文档版本：v1.0 ｜ 产出人：Mora 知识库架构师 ｜ 对应任务：YS-5
 > 覆盖域：文档 / 目录 / RBAC / 版本 / 检索 / RAG / MCP
 
 ---
@@ -12,9 +12,9 @@
 ```yaml
 openapi: 3.0.3
 info:
-  title: Wiki 知识库平台 API
+  title: Mora 知识库平台 API
   version: 1.0.0
-  description: 团队智能 Wiki 与向量知识库平台 RESTful API
+  description: 团队智能 Mora 与向量知识库平台 RESTful API
 servers:
   - url: https://{host}/api/v1
     variables:

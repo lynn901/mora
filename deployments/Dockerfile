@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Wiki 平台后端镜像（多目标构建）。
+# Mora 平台后端镜像（多目标构建）。
 # 通过 --build-arg TARGET=<wiki-api|rag-worker|mcp-server> 选择构建哪个二进制；
 # 三个服务共用同一 Go builder 阶段，runtime 用 distroless 最小化攻击面。
 # 同时构建一个静态 healthcheck 探针：distroless 无 shell/curl，compose 的

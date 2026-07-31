@@ -1,7 +1,7 @@
 # 技术选型与基座决策书
 
-> 文档版本：v1.0 ｜ 产出人：Wiki 知识库架构师 ｜ 对应任务：YS-5
-> 父需求：YS-4《团队智能 Wiki 与向量知识库平台》｜ PRD v1.0 已通过评审
+> 文档版本：v1.0 ｜ 产出人：Mora 知识库架构师 ｜ 对应任务：YS-5
+> 父需求：YS-4《团队智能 Mora 与向量知识库平台》｜ PRD v1.0 已通过评审
 
 ---
 
@@ -40,7 +40,7 @@ PRD（YS-4）已通过评审，进入工程化阶段。本决策书为 Stage 1 �
 | **License** | AGPLv3（强传染） | MIT（宽松） | MIT（宽松） | 自定义（非 OSI，商用限制多） | 自有，无传染 |
 | **技术栈** | Node.js + Vue + Postgres | Node.js + React + Postgres + Redis | PHP + Laravel + MySQL | Rust + TypeScript + Node（多语言） | 自选，全栈统一 |
 | **社区活跃度** | 高（GitHub 25k+ star，活跃维护） | 高（30k+ star，活跃） | 中（16k+ star，维护稳定） | 高（超 50k star，但架构重） | N/A |
-| **功能覆盖度** | Wiki + 权限 + 全文检索 + 多语言；无原生 RAG/MCP | Wiki + 协同（CRDT Yjs）+ 权限；无 RAG/MCP | Wiki + 权限；架构偏简单，协同弱 | 白板 + 文档 + 块编辑；协同强；无 RAG/MCP | 按需实现 |
+| **功能覆盖度** | 知识库 + 权限 + 全文检索 + 多语言；无原生 RAG/MCP | 知识库 + 协同（CRDT Yjs）+ 权限；无 RAG/MCP | 知识库 + 权限；架构偏简单，协同弱 | 白板 + 文档 + 块编辑；协同强；无 RAG/MCP | 按需实现 |
 | **协同编辑** | 无实时协同（v2.x） | Yjs CRDT，实时协同成熟 | 无实时协同 | CRDT，白板+文档协同强 | 须自研/集成 Yjs |
 | **RAG/MCP 改造难度** | 高：无向量化基础，须从零接事件驱动 | 高：无向量化基础，但事件机制清晰 | 极高：架构简单，扩展性弱 | 极高：Rust 内核改造门槛大 | 可从设计原生集成 |
 | **私有化合规** | AGPLv3：私有化交付给客户须开源全部衍生代码（网络服务也触发），商用风险高 | MIT：无传染，可闭源私有化交付 | MIT：无传染 | 非 OSI License，商用须付费授权，条款复杂 | 无合规风险 |
@@ -101,7 +101,7 @@ PRD（YS-4）已通过评审，进入工程化阶段。本决策书为 Stage 1 �
 | **Reranker** | TEI（Cross-Encoder 模式） | 1.5+ | 复用 TEI，支持 BGE-reranker 等模型；P1 阶段引入 |
 | **可观测-指标** | Prometheus + Grafana | — | 行业标准；Qdrant/Redis/TEI 均原生暴露 Prometheus 指标 |
 | **可观测-日志** | 结构化日志（zerolog）+ Loki | — | Go zerolog 高性能结构化日志；Loki 聚合查询 |
-| **可观测-追踪** | OpenTelemetry | — | 分布式追踪，覆盖 Wiki→MQ→RAG→向量库 全链路 |
+| **可观测-追踪** | OpenTelemetry | — | 分布式追踪，覆盖 Mora→MQ→RAG→向量库 全链路 |
 | **前端框架** | React 18 + TypeScript | — | YS-7 已预定义；函数组件 + Hooks |
 | **前端 UI** | shadcn/ui + Tailwind CSS | — | YS-7 已预定义；设计 token 可控 |
 | **前端编辑器** | TipTap（基于 ProseMirror）+ Yjs 绑定 | — | 块编辑器基础；Yjs CRDT 协同；支持 Markdown 序列化 |
@@ -157,13 +157,13 @@ PRD（YS-4）已通过评审，进入工程化阶段。本决策书为 Stage 1 �
 
 | 通信路径 | 协议 | 说明 |
 |---|---|---|
-| 前端 ↔ Wiki 后端 | HTTPS / REST / WebSocket | REST API + SSE（实时通知）+ WebSocket（协同编辑 Yjs sync） |
-| Wiki 后端 → MQ | Redis Streams（Valkey） | 文档变更事件投递 |
+| 前端 ↔ Mora 后端 | HTTPS / REST / WebSocket | REST API + SSE（实时通知）+ WebSocket（协同编辑 Yjs sync） |
+| Mora 后端 → MQ | Redis Streams（Valkey） | 文档变更事件投递 |
 | MQ → RAG Worker | Redis Streams 消费组 | 流水线消费 |
 | RAG Worker → TEI/Ollama | HTTP（内部） | Embedding/Rerank 调用 |
 | RAG Worker → Qdrant | gRPC（内部） | 向量读写 |
-| Wiki 后端 → Qdrant | gRPC（内部） | 检索查询（复用 RAG 检索服务或直连） |
-| MCP Server → Wiki/RBAC | HTTP（内部 REST） | 复用 Wiki API + RBAC 引擎 |
+| Mora 后端 → Qdrant | gRPC（内部） | 检索查询（复用 RAG 检索服务或直连） |
+| MCP Server → Mora/RBAC | HTTP（内部 REST） | 复用 Mora API + RBAC 引擎 |
 | MCP Server → RAG 检索 | HTTP（内部） | 调用检索接口 |
 | 所有组件 → Prometheus | HTTP /metrics | 指标暴露 |
 | 所有组件 → Postgres | TCP（pgx） | 元数据读写 |

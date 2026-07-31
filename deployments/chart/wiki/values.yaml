@@ -1,4 +1,4 @@
-# values.yaml — Wiki 平台 Helm Chart 默认值
+# values.yaml — Mora 平台 Helm Chart 默认值
 # 覆盖方式：helm install wiki ./deployments/chart/wiki -f my-values.yaml
 
 global:

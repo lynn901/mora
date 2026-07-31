@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deployments/backup.sh
-# Wiki 平台数据备份：PG dump + Qdrant 快照 + 应用配置文件（如.env）。
+# Mora 平台数据备份：PG dump + Qdrant 快照 + 应用配置文件（如.env）。
 # 支持保留策略：自动清除超过 BACKUP_RETENTION_DAYS（默认 30）天的旧备份。
 # 用法: ./deployments/backup.sh [output_dir]
 #        BACKUP_RETENTION_DAYS=7 ./deployments/backup.sh
@@ -14,7 +14,7 @@ COMPOSE_FILE="deployments/docker-compose.yml"
 COMPOSE_PROJECT="wiki"
 
 mkdir -p "$BACKUP_DIR"
-echo "=== Wiki 备份开始 → $BACKUP_DIR ==="
+echo "=== Mora 备份开始 → $BACKUP_DIR ==="
 
 # 1. PostgreSQL dump
 echo "--- PostgreSQL dump ---"

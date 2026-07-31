@@ -1,4 +1,4 @@
-# Makefile — Wiki 平台一键部署命令
+# Makefile — Mora 平台一键部署命令
 # 用法:  make build   — 构建所有镜像
 #        make up      — 一键拉起（后台）
 #        make down    — 停止服务

@@ -1,6 +1,6 @@
 # 数据模型设计
 
-> 文档版本：v1.0 ｜ 产出人：Wiki 知识库架构师 ｜ 对应任务：YS-5
+> 文档版本：v1.0 ｜ 产出人：Mora 知识库架构师 ｜ 对应任务：YS-5
 > 依据：PRD §6 实体关系 ｜ 技术选型：PostgreSQL 16+ + Qdrant 1.8+
 
 ---
@@ -487,7 +487,7 @@ Collection: wiki_chunks_{model_id}_{dim}
 
 **可见性维护**：
 - 文档创建/更新时：RAG Worker 根据当前权限计算 `visible_to`，写入 payload。
-- 权限变更时：Wiki API 发布 `permission_change` 事件 → RAG Worker 重新计算受影响文档所有 chunk 的 `visible_to`，批量更新 Qdrant payload（`set_payload`）。
+- 权限变更时：Mora API 发布 `permission_change` 事件 → RAG Worker 重新计算受影响文档所有 chunk 的 `visible_to`，批量更新 Qdrant payload（`set_payload`）。
 - 重算完成前：旧 `visible_to` 保守生效（可能少给权限，不会多给）。
 
 ### 3.4 混合检索（Dense + Sparse/BM25）

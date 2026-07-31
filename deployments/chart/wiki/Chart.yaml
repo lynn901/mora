@@ -1,7 +1,7 @@
-# Chart.yaml — Wiki 平台 Helm Chart
+# Chart.yaml — Mora 平台 Helm Chart
 apiVersion: v2
 name: wiki
-description: Wiki 协同知识库平台 — 生产级 K8s 部署
+description: Mora 协同知识库平台 — 生产级 K8s 部署
 type: application
 version: 1.0.0
 appVersion: "1.0.0"

@@ -1,6 +1,6 @@
-# Wiki 后端核心（YS-6）
+# Mora 后端核心（YS-6）
 
-协同 Wiki 平台后端，Go 模块化单体实现。依据 Stage 1 交付的 7 份设计文档
+协同 Mora 平台后端，Go 模块化单体实现。依据 Stage 1 交付的 7 份设计文档
 （技术选型 / 架构 / 数据模型 / API 契约 / RAG / MCP / 安全可观测）落地。
 
 > 父需求：YS-4 ｜ 依赖：YS-5《技术选型与系统架构设计》（已 done）
@@ -196,7 +196,7 @@ Helm Chart 位于 `deployments/chart/wiki/`，含 10 个模板文件：
 | `qdrant.yaml` | Qdrant | Deployment + Service + PVC |
 | `tei.yaml` | TEI | Deployment + Service + PVC, 模型参数注入 |
 | `migrate-job.yaml` | DB 迁移 | Helm hook Job (post-install/post-upgrade) |
-| `wiki-api.yaml` | Wiki API | Deployment + Service + HPA, rolling update |
+| `wiki-api.yaml` | Mora API | Deployment + Service + HPA, rolling update |
 | `rag-worker.yaml` | RAG Worker | Deployment, rolling update |
 | `mcp-server.yaml` | MCP Server | Deployment + Service, rolling update |
 | `frontend.yaml` | Nginx 前端 | Deployment + Service + Ingress (TLS 可选) |

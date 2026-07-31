@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Wiki 前端构建 + nginx 托管
+# Mora 前端构建 + nginx 托管
 # 多阶段构建：stage1 = node 构建 Vite 产物，stage2 = nginx:alpine 静态服务。
 # 镜像不含 node_modules，仅含 dist + nginx.conf。
 
