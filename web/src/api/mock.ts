@@ -14,9 +14,9 @@ import type {
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const mockUsers: User[] = [
-  { id: "u1", name: "Alice Chen", email: "alice@wiki.dev", role: "admin" },
-  { id: "u2", name: "Bob Wang", email: "bob@wiki.dev", role: "editor" },
-  { id: "u3", name: "Carol Li", email: "carol@wiki.dev", role: "viewer" },
+  { id: "u1", name: "Alice Chen", email: "alice@mora.dev", role: "admin" },
+  { id: "u2", name: "Bob Wang", email: "bob@mora.dev", role: "editor" },
+  { id: "u3", name: "Carol Li", email: "carol@mora.dev", role: "viewer" },
 ]
 
 const mockWorkspaces: Workspace[] = [
@@ -53,7 +53,7 @@ const mockTree: TreeNode[] = [
 const mockDocuments: Record<string, Document> = {
   n2: {
     id: "d1", workspaceId: "ws1", nodeId: "n2", title: "Introduction",
-    content: "# Introduction\n\nWelcome to the Wiki platform.\n\n## Overview\n\nThis is a **collaborative** wiki with:\n- Real-time editing\n- Version history\n- Full-text search\n\n```typescript\nconst greeting = 'Hello, Wiki!'\nconsole.log(greeting)\n```\n\n```mermaid\ngraph TD\n    A[User] --> B[Editor]\n    B --> C[Save]\n    C --> D[Version History]\n```",
+    content: "# Introduction\n\nWelcome to the Mora platform.\n\n## Overview\n\nThis is a **collaborative** knowledge base with:\n- Real-time editing\n- Version history\n- Full-text search\n\n```typescript\nconst greeting = 'Hello, Mora!'\nconsole.log(greeting)\n```\n\n```mermaid\ngraph TD\n    A[User] --> B[Editor]\n    B --> C[Save]\n    C --> D[Version History]\n```",
     contentFormat: "markdown", createdBy: "u1", updatedBy: "u1",
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z",
     tags: ["guide", "intro"], status: "published", versionNo: 3,
@@ -91,7 +91,7 @@ const mockDocuments: Record<string, Document> = {
 const mockVersions: Record<string, DocumentVersion[]> = {
   d1: [
     { id: "v1", documentId: "d1", version: 1, content: "# Introduction\n\nInitial draft.", contentFormat: "markdown", createdBy: "u1", createdAt: "2026-01-01T00:00:00Z", changeSummary: "Initial version" },
-    { id: "v2", documentId: "d1", version: 2, content: "# Introduction\n\nWelcome to the Wiki platform.\n\n## Overview\n\nThis is a collaborative wiki.", contentFormat: "markdown", createdBy: "u1", createdAt: "2026-03-01T00:00:00Z", changeSummary: "Added overview section" },
+    { id: "v2", documentId: "d1", version: 2, content: "# Introduction\n\nWelcome to the Mora platform.\n\n## Overview\n\nThis is a collaborative knowledge base.", contentFormat: "markdown", createdBy: "u1", createdAt: "2026-03-01T00:00:00Z", changeSummary: "Added overview section" },
     { id: "v3", documentId: "d1", version: 3, content: mockDocuments.n2!.content, contentFormat: "markdown", createdBy: "u2", createdAt: "2026-07-01T00:00:00Z", changeSummary: "Added code examples and diagram" },
   ],
 }

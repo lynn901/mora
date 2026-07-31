@@ -32,7 +32,7 @@ export function LoginPage() {
               <BookOpen className="size-5" />
             </div>
           </div>
-          <CardTitle className="text-xl">Sign in to Wiki</CardTitle>
+          <CardTitle className="text-xl">Sign in to Mora</CardTitle>
           <CardDescription>Enter your credentials to access your workspace</CardDescription>
         </CardHeader>
         <CardContent>
