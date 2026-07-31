@@ -1,0 +1,44 @@
+# .dockerignore — 减少构建上下文，加速层缓存
+# Go
+.git/
+.gitignore
+*.md
+design-docs/
+test/
+tests/
+tmp/
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go/bin/
+/vendor/
+
+# Environment
+.env
+.env.local
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / Frontend (not needed for Go build)
+web/node_modules/
+web/dist/
+web/.git/
+
+# Docker
+deployments/backup/
+deployments/export/

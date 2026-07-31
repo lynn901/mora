@@ -1,0 +1,181 @@
+# values.yaml — Wiki 平台 Helm Chart 默认值
+# 覆盖方式：helm install wiki ./deployments/chart/wiki -f my-values.yaml
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# 镜像仓库前缀（覆盖每个子值的 image.repository）
+image:
+  registry: ""
+  pullPolicy: IfNotPresent
+
+# ---------- 基础设施 ----------
+
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16"
+  auth:
+    database: wiki
+    username: wiki
+    password: ""  # 必填，建议 values 文件外部注入
+    existingSecret: ""
+    secretKey: ""
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: ""
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 250m
+      limits:
+        memory: 1Gi
+
+valkey:
+  enabled: true
+  image:
+    repository: valkey/valkey
+    tag: "7.2"
+  persistence:
+    size: 2Gi
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+
+qdrant:
+  enabled: true
+  image:
+    repository: qdrant/qdrant
+    tag: "v1.11.0"
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+
+tei:
+  enabled: true
+  image:
+    repository: ghcr.io/huggingface/text-embeddings-inference
+    tag: "cpu-latest"
+  modelId: "sentence-transformers/all-MiniLM-L6-v2"
+  persistence:
+    size: 5Gi
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 1
+    limits:
+      memory: 4Gi
+
+ollama:
+  enabled: false
+  image:
+    repository: ollama/ollama
+    tag: "0.3.0"
+  model: ""
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      memory: 4Gi
+      cpu: 2
+
+# ---------- 应用服务 ----------
+
+wikiApi:
+  image:
+    repository: wiki-api
+    tag: "latest"
+  replicaCount: 2
+  servicePort: 8080
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 200m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+ragWorker:
+  image:
+    repository: rag-worker
+    tag: "latest"
+  replicaCount: 1
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 200m
+
+mcpServer:
+  image:
+    repository: mcp-server
+    tag: "latest"
+  replicaCount: 2
+  servicePort: 8081
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 200m
+
+frontend:
+  image:
+    repository: wiki-frontend
+    tag: "latest"
+  replicaCount: 2
+  servicePort: 80
+  ingress:
+    enabled: true
+    host: ""
+    tls:
+      enabled: false
+      secretName: ""
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+
+# ---------- 全局配置 ----------
+
+config:
+  jwtSecret: ""  # 必填
+  jwtTTL: "8h"
+  internalServiceToken: ""  # 必填
+  embeddingProvider: "tei"
+  embeddingModel: "sentence-transformers/all-MiniLM-L6-v2"
+  embeddingDim: 384
+  ftsConfig: "simple"
+  collabMaxConcurrent: 50
+  rateLimitDocPerMin: 300
+  rateLimitSearchPerMin: 200
+  mcpRateLimitRead: 100
+  mcpRateLimitWrite: 20
+
+monitoring:
+  enabled: false
+  prometheus:
+    retention: 15d
+    storageSize: 10Gi
+  grafana:
+    adminPassword: "admin"
+
+# ---------- 持久化 ----------
+
+persistence:
+  defaultStorageClass: ""
+  postgresSize: 10Gi
+  valkeySize: 2Gi
+  qdrantSize: 10Gi
+  teiSize: 5Gi
+  ollamaSize: 10Gi
