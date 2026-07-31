@@ -54,6 +54,8 @@ func main() {
 	docRepo := postgres.NewDocumentRepo(db)
 	verRepo := postgres.NewVersionRepo(db)
 	permRepo := postgres.NewPermissionRepo(db)
+	userRepo := postgres.NewUserRepo(db)
+	roleRepo := postgres.NewRoleRepo(db)
 	commentRepo := postgres.NewCommentRepo(db)
 	auditRepo := postgres.NewAuditRepo(db)
 	searchExec := postgres.NewSearchExec(db)
@@ -99,6 +101,8 @@ func main() {
 	tagH := wh.NewTagHandler(tagRepo)
 	indexStatusH := wh.NewIndexStatusHandler(indexStatus, docSvc)
 	modelH := wh.NewEmbeddingModelHandler(modelStore, providerFactory, pub)
+	userH := wh.NewUserHandler(userRepo)
+	roleH := wh.NewRoleHandler(roleRepo)
 
 	// RAG hybrid search (Dense+BM25+rerank) — mounts POST /api/v1/rag/search,
 	// the endpoint the MCP search_knowledge_base tool calls. The searcher reuses
@@ -168,6 +172,10 @@ func main() {
 	authed.POST("/admin/embedding-models", modelH.Upsert)
 	authed.POST("/admin/embedding-models/:id/test", modelH.Test)
 	authed.POST("/admin/embedding-models/:id/rebuild", modelH.Rebuild)
+
+	// identity listing (04-api-contract §3.5): RBAC-scoped users + role dictionary.
+	authed.GET("/users", userH.List)
+	authed.GET("/roles", roleH.List)
 
 	// health
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
