@@ -199,6 +199,68 @@ func TestAC9_CreateUpdateDelete_PipelineAndBadge(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// DEFECT-06 regression: a non-published (draft) document must not leave the
+// index badge stuck at "processing". The pipeline skips drafts, resets the
+// badge to pending, clears stale vectors, logs the skip, and ACKs — no silent
+// stuck state. Publishing the draft then indexes it normally.
+// ---------------------------------------------------------------------------
+
+func TestDEFECT06_DraftSkipNotStuckThenPublishIndexes(t *testing.T) {
+	ctx := context.Background()
+	s := newStack(t)
+	coll := s.models.GetActiveOr(ctx).CollectionName()
+
+	// Capture pipeline diagnostics to prove the skip is logged, not silent.
+	skipLogged := false
+	s.pipe.Logf = func(f string, a ...any) {
+		if strings.Contains(f, "skip") {
+			skipLogged = true
+		}
+	}
+
+	// A draft document — e.g. freshly created via the wiki API (Create defaults
+	// to draft per AC-17) or MCP create_draft. It carries indexable content.
+	s.docs.Put(rag.DocumentSnapshot{
+		DocumentID: "docDraft", WorkspaceID: "ws1", DirectoryID: "dir1",
+		Title: "Draft Doc", Content: blocks("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda."),
+		VersionNo: 1, Status: domain.DocDraft,
+	})
+	s.rbac.SetReaders("docDraft", []string{domain.UserSubject("alice")})
+	ev := domain.DocEvent{EventID: "e-draft-1", EventType: domain.EventDocumentCreate, DocumentID: "docDraft", WorkspaceID: "ws1", VersionNo: 1, Timestamp: time.Now().Format(time.RFC3339)}
+	_, _ = s.queue.Publish(ctx, ev)
+	msgs, _ := s.queue.ReadGroup(ctx, "c1", 10, 0)
+	for _, m := range msgs {
+		s.worker.Process(ctx, m)
+	}
+
+	// Badge must be pending — NOT stuck at "processing" (DEFECT-06). No chunks,
+	// no vectors, and the event is ACKed (not dead-lettered / not retried).
+	info, _ := s.status.GetDocumentIndexStatus(ctx, "docDraft")
+	assert.Equal(t, domain.IndexPending, info.IndexStatus, "draft must not be stuck at processing (DEFECT-06)")
+	assert.Equal(t, 0, info.ChunkCount)
+	assert.Equal(t, 0, s.vectors.Count(coll), "draft must not be written to Qdrant")
+	assert.Empty(t, s.queue.Dead(), "draft skip must not dead-letter")
+	assert.True(t, skipLogged, "pipeline must log the skip reason (no silent failure)")
+
+	// Publishing the draft (update event, status=published) → indexed + searchable.
+	s.docs.Put(rag.DocumentSnapshot{
+		DocumentID: "docDraft", WorkspaceID: "ws1", DirectoryID: "dir1",
+		Title: "Draft Doc", Content: blocks("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda."),
+		VersionNo: 2, Status: domain.DocPublished,
+	})
+	upd := domain.DocEvent{EventID: "e-draft-2", EventType: domain.EventDocumentUpdate, DocumentID: "docDraft", WorkspaceID: "ws1", VersionNo: 2, PrevVersionNo: 1, Timestamp: time.Now().Format(time.RFC3339)}
+	_, _ = s.queue.Publish(ctx, upd)
+	msgs, _ = s.queue.ReadGroup(ctx, "c1", 10, 0)
+	for _, m := range msgs {
+		s.worker.Process(ctx, m)
+	}
+	info, _ = s.status.GetDocumentIndexStatus(ctx, "docDraft")
+	assert.Equal(t, domain.IndexIndexed, info.IndexStatus, "published doc must reach indexed")
+	assert.Greater(t, info.ChunkCount, 0)
+	assert.Greater(t, s.vectors.Count(coll), 0)
+}
+
+// ---------------------------------------------------------------------------
 // AC-10: update/delete cascade; search returns no stale content
 // ---------------------------------------------------------------------------
 

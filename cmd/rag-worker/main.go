@@ -64,6 +64,11 @@ func main() {
 	pipe := pipeline.New(pipeline.Pipeline{
 		Cfg:     pipeline.DefaultConfig(),
 		Docs:    docs, RBAC: rbac, Vectors: vectors, Models: models, Factory: factory, Status: status,
+		// Wire the pipeline logger so skip/index/error diagnostics are visible.
+		// Without this, pipeline.New defaults Logf to a no-op and every skip
+		// (e.g. a draft document) or swallowed error becomes invisible — the
+		// "silent stuck" failure mode of DEFECT-06.
+		Logf: func(f string, a ...any) { log.Printf(f, a...) },
 	})
 
 	w := worker.New(worker.Worker{

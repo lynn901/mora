@@ -107,23 +107,43 @@ func (p *Pipeline) handleIndex(ctx context.Context, ev domain.DocEvent) error {
 		return fmt.Errorf("get active model: %w", err)
 	}
 	coll := model.CollectionName()
+
+	snap, err := p.Docs.GetSnapshot(ctx, ev.DocumentID, ev.VersionNo)
+	if err != nil {
+		return fmt.Errorf("get snapshot: %w", err)
+	}
+	// Only published documents are indexed. Drafts/archived are skipped: their
+	// badge stays pending (indexed once published). Deleted documents arrive via
+	// document.delete. The skip is evaluated before touching the embedding
+	// provider so a non-published document is never blocked by provider
+	// availability — and never left stuck at "processing" (DEFECT-06).
+	if snap.Status != domain.DocPublished {
+		// The worker already set the badge to "processing"; leaving it there would
+		// look like a hung index and mask the real state (DEFECT-06). Reset to
+		// pending (will index once published) and best-effort remove any stale
+		// vectors/chunks from a prior published version so the document cannot
+		// surface in search. Cleanup is best-effort: a draft must reach "pending"
+		// even if the vector store is temporarily unavailable.
+		_ = p.Vectors.EnsureCollection(ctx, coll, model.Dimension)
+		if err := p.Vectors.DeleteByDocument(ctx, coll, ev.DocumentID); err != nil {
+			p.Logf("rag: skip %s: clear stale vectors: %v", ev.DocumentID, err)
+		}
+		if err := p.Status.DeleteAllChunkMeta(ctx, ev.DocumentID); err != nil {
+			p.Logf("rag: skip %s: clear chunk meta: %v", ev.DocumentID, err)
+		}
+		if err := p.Status.SetDocumentIndexStatus(ctx, ev.DocumentID, domain.IndexPending, ""); err != nil {
+			return fmt.Errorf("set index status (skip): %w", err)
+		}
+		p.Logf("rag: skip non-published document %s (status=%s); badge=pending", ev.DocumentID, snap.Status)
+		return nil
+	}
+
 	if err := p.Vectors.EnsureCollection(ctx, coll, model.Dimension); err != nil {
 		return fmt.Errorf("ensure collection: %w", err)
 	}
 	prov, err := p.Factory.For(ctx, model)
 	if err != nil {
 		return fmt.Errorf("provider for model: %w", err)
-	}
-
-	snap, err := p.Docs.GetSnapshot(ctx, ev.DocumentID, ev.VersionNo)
-	if err != nil {
-		return fmt.Errorf("get snapshot: %w", err)
-	}
-	// Only published documents are indexed (drafts/archived are skipped; their
-	// badge stays pending). Deleted documents arrive via document.delete.
-	if snap.Status != domain.DocPublished {
-		p.Logf("rag: skip non-published document %s (status=%s)", ev.DocumentID, snap.Status)
-		return nil
 	}
 
 	// Update: cascade-remove the previous version's chunks before writing the new.
