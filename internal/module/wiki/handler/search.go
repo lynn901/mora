@@ -35,10 +35,14 @@ func NewSearchHandler(rbac VisibilityProvider, exec SearchExecutor, ftsConfig st
 
 func (h *SearchHandler) Search(c *gin.Context) {
 	auth := MustAuth(c)
-	wsID, err := uuid.Parse(c.Query("workspace_id"))
-	if err != nil {
-		response.Fail(c, badRequestErr("workspace_id required"))
-		return
+	var wsID domain.UUID
+	if v := c.Query("workspace_id"); v != "" {
+		var err error
+		wsID, err = uuid.Parse(v)
+		if err != nil {
+			response.Fail(c, badRequestErr("invalid workspace_id"))
+			return
+		}
 	}
 	q := c.Query("q")
 	if q == "" {

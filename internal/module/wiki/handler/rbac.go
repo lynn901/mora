@@ -6,14 +6,16 @@ import (
 	"github.com/wiki/wiki-backend/internal/domain"
 	"github.com/wiki/wiki-backend/internal/module/wiki/service"
 	"github.com/wiki/wiki-backend/internal/pkg/response"
+	"github.com/wiki/wiki-backend/internal/platform/rbac"
 )
 
 type RBACHandler struct {
-	svc *service.PermissionService
+	svc    *service.PermissionService
+	engine *rbac.Engine
 }
 
-func NewRBACHandler(svc *service.PermissionService) *RBACHandler {
-	return &RBACHandler{svc: svc}
+func NewRBACHandler(svc *service.PermissionService, engine *rbac.Engine) *RBACHandler {
+	return &RBACHandler{svc: svc, engine: engine}
 }
 
 func (h *RBACHandler) List(c *gin.Context) {
@@ -86,4 +88,27 @@ func (h *RBACHandler) Revoke(c *gin.Context) {
 		return
 	}
 	response.NoContent(c)
+}
+
+type checkReq struct {
+	SubjectID  domain.UUID      `json:"subject_id" binding:"required"`
+	TargetType domain.TargetType `json:"target_type" binding:"required"`
+	TargetID   domain.UUID      `json:"target_id" binding:"required"`
+	Action     domain.Action    `json:"action" binding:"required"`
+}
+
+// Check evaluates whether a subject may perform an action on a target
+// (POST /permissions/check). Returns {allowed, reason}.
+func (h *RBACHandler) Check(c *gin.Context) {
+	var req checkReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, badRequestErr("invalid body"))
+		return
+	}
+	dec, err := h.engine.Check(c.Request.Context(), req.SubjectID, nil, req.TargetType, req.TargetID, req.Action)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"allowed": dec.Allowed, "reason": dec.Reason})
 }

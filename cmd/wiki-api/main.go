@@ -97,7 +97,7 @@ func main() {
 	searchH := wh.NewSearchHandler(engine, searchExec, cfg.FTSConfig)
 	commentH := wh.NewCommentHandler(commentRepo)
 	permSvc := service.NewPermissionService(permRepo, docRepo, pub)
-	rbacH := wh.NewRBACHandler(permSvc)
+	rbacH := wh.NewRBACHandler(permSvc, engine)
 	tagH := wh.NewTagHandler(tagRepo)
 	indexStatusH := wh.NewIndexStatusHandler(indexStatus, docSvc)
 	modelH := wh.NewEmbeddingModelHandler(modelStore, providerFactory, pub)
@@ -166,6 +166,7 @@ func main() {
 	authed.GET("/permissions", rbacH.List)
 	authed.POST("/permissions", rbacH.Grant)
 	authed.DELETE("/permissions/:id", rbacH.Revoke)
+	authed.POST("/permissions/check", rbacH.Check)
 
 	// Embedding-model admin (API 04 §9.2): list/upsert/test/rebuild.
 	authed.GET("/admin/embedding-models", modelH.List)

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/wiki/wiki-backend/internal/domain"
 	"github.com/wiki/wiki-backend/internal/pkg/pagination"
 )
@@ -82,12 +83,14 @@ func (f Filter) Build() Query {
 	args = append(args, f.Query)
 	argIdx++
 
-	// Workspace filter
-	sb.WriteString(` AND d.workspace_id = $`)
-	sb.WriteString(itoa(argIdx))
-	sb.WriteString(`::uuid`)
-	args = append(args, f.WorkspaceID)
-	argIdx++
+	// Workspace filter (optional: omitted when WorkspaceID is zero → search all)
+	if f.WorkspaceID != uuid.Nil {
+		sb.WriteString(` AND d.workspace_id = $`)
+		sb.WriteString(itoa(argIdx))
+		sb.WriteString(`::uuid`)
+		args = append(args, f.WorkspaceID)
+		argIdx++
+	}
 
 	// Directory filter
 	if f.DirectoryID != nil {
