@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { DirectoryTree } from "@/components/tree/DirectoryTree"
 import { BlockEditor } from "@/components/editor/BlockEditor"
+import { ErrorBoundary } from "@/components/error-boundary"
 import { SearchPanel } from "@/components/search/SearchPanel"
 import { RBACPanel } from "@/components/rbac/RBACPanel"
 import { CollabSidebar } from "@/components/collab/CollabSidebar"
@@ -199,7 +200,9 @@ export function WikiLayout() {
                 </div>
               </div>
               <div className="flex-1 overflow-auto">
-                <BlockEditor />
+                <ErrorBoundary>
+                  <BlockEditor />
+                </ErrorBoundary>
               </div>
             </>
           ) : (
