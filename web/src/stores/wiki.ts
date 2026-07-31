@@ -88,9 +88,12 @@ export const useWikiStore = create<WikiState>((set, get) => ({
       set({ currentDocument: saved, isDirty: false, isLoading: false })
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        set({ error: "Document has been modified by another user. Please refresh to load the latest version.", isLoading: false })
-        const doc = await apiGetDocument(currentDocument.id)
-        set({ currentDocument: doc })
+        try {
+          const doc = await apiGetDocument(currentDocument.id)
+          set({ currentDocument: doc, error: null, isLoading: false })
+        } catch {
+          set({ error: "Document has been modified by another user. Please refresh to load the latest version.", isLoading: false })
+        }
       } else {
         set({ error: (e as Error).message, isLoading: false })
       }

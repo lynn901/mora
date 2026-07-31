@@ -1,0 +1,12 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN npm install -g y-websocket
+
+EXPOSE 1234
+
+ENV HOST=0.0.0.0
+ENV PORT=1234
+
+CMD ["y-websocket-server"]

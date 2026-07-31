@@ -4,10 +4,8 @@ import StarterKit from "@tiptap/starter-kit"
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight"
 import TaskList from "@tiptap/extension-task-list"
 import TaskItem from "@tiptap/extension-task-item"
-import Underline from "@tiptap/extension-underline"
 import Placeholder from "@tiptap/extension-placeholder"
 import Image from "@tiptap/extension-image"
-import Link from "@tiptap/extension-link"
 import TextAlign from "@tiptap/extension-text-align"
 import { Collaboration } from "@tiptap/extension-collaboration"
 import { CollaborationCursor } from "@tiptap/extension-collaboration-cursor"
@@ -57,12 +55,14 @@ function renderSelection(user: Record<string, unknown>) {
 
 export function BlockEditor() {
   const { currentDocument, editorMode, setEditorMode, updateDocument, isDirty, saveDocument } = useWikiStore()
-  const { provider, isReadOnly } = useCollabStore()
+  const { provider, localMode, isReadOnly } = useCollabStore()
   const initRef = useRef<string | null>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const useCollab = provider && !localMode
+
   const collaborationExt = useMemo(() => {
-    if (!provider) return []
+    if (!useCollab || !provider?.doc) return []
     return [
       Collaboration.configure({
         document: provider.doc,
@@ -79,7 +79,7 @@ export function BlockEditor() {
         selectionRender: renderSelection,
       }),
     ]
-  }, [provider])
+  }, [useCollab, provider])
 
   const editor = useEditor({
     extensions: [
@@ -90,9 +90,7 @@ export function BlockEditor() {
       CodeBlockLowlight.configure({ lowlight }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Underline,
       Image,
-      Link.configure({ openOnClick: false }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder: "Start writing..." }),
       MarkdownExt,
@@ -111,13 +109,13 @@ export function BlockEditor() {
   }, [editor, isReadOnly])
 
   useEffect(() => {
-    if (editor && currentDocument && !provider) {
+    if (editor && currentDocument && !useCollab) {
       if (initRef.current !== currentDocument.id) {
         initRef.current = currentDocument.id
         editor.commands.setContent(currentDocument.content || "")
       }
     }
-  }, [editor, currentDocument?.id, currentDocument?.content, provider])
+  }, [editor, currentDocument?.id, currentDocument?.content, useCollab])
 
   useEffect(() => {
     return () => {
