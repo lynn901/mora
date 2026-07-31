@@ -98,7 +98,7 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile.web
-    ports: ["${WIKI_FRONTEND_PORT:-3000}:80"]
+    ports: ["${WIKI_FRONTEND_PORT:-3010}:80"]
     depends_on:
       wiki-api: { condition: service_healthy }
     healthcheck:
