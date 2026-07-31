@@ -96,6 +96,44 @@ func TestUserHandler_List_RBACScopedAndPaged(t *testing.T) {
 	assert.Equal(t, "", env.Data.Items[0].PasswordHash)
 }
 
+// TestUserHandler_List_NullAvatarURLSerialized locks in the DEFECT-04 fix:
+// a user whose avatar_url is NULL (nil *string) must still serialize to 200
+// with avatar_url omitted, and a set avatar must round-trip as a string.
+func TestUserHandler_List_NullAvatarURLSerialized(t *testing.T) {
+	viewer := mustParseUUID(t, "11111111-1111-1111-1111-111111111111")
+	peer := mustParseUUID(t, "22222222-2222-2222-2222-222222222222")
+	avatar := "https://cdn.local/a.png"
+	repo := &fakeUserRepo{
+		users: []domain.User{
+			{ID: viewer, Email: "me@x.com", Name: "Me", Status: "active"}, // avatar_url NULL
+			{ID: peer, Email: "peer@x.com", Name: "Peer", AvatarURL: &avatar, Status: "active"},
+		},
+		total: 2,
+	}
+	h := NewUserHandler(repo)
+	r := withAuth(AuthState{UserID: viewer, IsAdmin: true}, http.MethodGet, "/users", h.List)
+
+	req := httptest.NewRequest(http.MethodGet, "/users", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var env struct {
+		Code int `json:"code"`
+		Data struct {
+			Items []map[string]any `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.Equal(t, 0, env.Code)
+	require.Len(t, env.Data.Items, 2)
+	// NULL avatar_url is omitted (not a 500, not a JSON null error)
+	_, hasNull := env.Data.Items[0]["avatar_url"]
+	assert.False(t, hasNull, "NULL avatar_url must be omitted, not cause a 500")
+	// set avatar_url round-trips as a string
+	assert.Equal(t, avatar, env.Data.Items[1]["avatar_url"])
+}
+
 func TestUserHandler_List_AdminFlagPropagated(t *testing.T) {
 	admin := mustParseUUID(t, "99999999-9999-9999-9999-999999999999")
 	repo := &fakeUserRepo{users: []domain.User{}, total: 0}
