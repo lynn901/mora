@@ -204,6 +204,22 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  yjs-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.yjs
+    ports: ["${YJS_PORT:-1234}:1234"]
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "1234"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/1234'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
   # ---------- 可观测（profile: monitoring）----------
 
   prometheus:

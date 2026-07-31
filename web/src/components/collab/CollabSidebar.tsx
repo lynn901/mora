@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react"
-import { MessageSquare, X, Send, Check, Wifi, WifiOff, ShieldAlert } from "lucide-react"
+import { MessageSquare, X, Send, Check, Wifi, WifiOff, ShieldAlert, Edit3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -43,6 +43,19 @@ function StatusIndicator({ status }: { status: string }) {
           </span>
         </TooltipTrigger>
         <TooltipContent>Concurrency limit reached - viewing in read-only mode</TooltipContent>
+      </Tooltip>
+    )
+  }
+  if (status === "local-only") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+            <Edit3 className="size-3" />
+            Local
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>Local editing mode - changes save directly</TooltipContent>
       </Tooltip>
     )
   }

@@ -20,6 +20,7 @@ function pickColor(userId: string): string {
 interface CollabState {
   provider: WikiCollabProvider | null
   status: CollabProviderStatus
+  localMode: boolean
   presences: CollaboratorPresence[]
   comments: Comment[]
   showComments: boolean
@@ -36,6 +37,7 @@ interface CollabState {
 export const useCollabStore = create<CollabState>((set, get) => ({
   provider: null,
   status: "disconnected",
+  localMode: false,
   presences: [],
   comments: [],
   showComments: false,
@@ -63,6 +65,7 @@ export const useCollabStore = create<CollabState>((set, get) => ({
     provider.on("status", (newStatus: CollabProviderStatus) => {
       set({
         status: newStatus,
+        localMode: newStatus === "local-only",
         isReadOnly: newStatus === "degraded",
       })
     })
@@ -84,14 +87,14 @@ export const useCollabStore = create<CollabState>((set, get) => ({
     })
 
     provider.connect()
-    set({ provider, status: "connecting", presences: [], isReadOnly: false })
+    set({ provider, status: "connecting", localMode: false, presences: [], isReadOnly: false })
   },
 
   destroyCollab: () => {
     const { provider } = get()
     if (provider) {
       provider.destroy()
-      set({ provider: null, status: "disconnected", presences: [], isReadOnly: false })
+      set({ provider: null, status: "disconnected", localMode: false, presences: [], isReadOnly: false })
     }
   },
 

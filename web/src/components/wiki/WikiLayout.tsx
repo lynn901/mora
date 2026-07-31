@@ -45,7 +45,7 @@ export function WikiLayout() {
     return () => {
       destroyCollab()
     }
-  }, [currentDocument?.id])
+  }, [currentDocument?.id, currentDocument?.versionNo])
 
   const panelContent: Record<SidePanel, React.ReactNode> = {
     tree: <DirectoryTree />,

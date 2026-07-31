@@ -22,8 +22,9 @@ const MESSAGE_AWARENESS = 1
 const BACKOFF_BASE = 1000
 const BACKOFF_MAX = 30000
 const AWARENESS_INTERVAL = 15000
+const SYNC_TIMEOUT = 5000
 
-export type CollabProviderStatus = "connecting" | "connected" | "disconnected" | "degraded" | "denied"
+export type CollabProviderStatus = "connecting" | "connected" | "disconnected" | "degraded" | "denied" | "local-only"
 
 export interface CollabProviderEvents {
   status: (status: CollabProviderStatus) => void
@@ -79,6 +80,7 @@ export class WikiCollabProvider extends ObservableV2<CollabProviderEvents> {
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private awarenessTimer: ReturnType<typeof setInterval> | null = null
+  private syncTimer: ReturnType<typeof setTimeout> | null = null
   private _synced = false
   private shouldConnect = false
 
@@ -118,6 +120,7 @@ export class WikiCollabProvider extends ObservableV2<CollabProviderEvents> {
   disconnect() {
     this.shouldConnect = false
     this.clearTimers()
+    this.clearSyncTimeout()
     if (this.ws) {
       const ws = this.ws
       this.ws = null
@@ -162,6 +165,7 @@ export class WikiCollabProvider extends ObservableV2<CollabProviderEvents> {
       this.setStatus("connected")
       this.initSync()
       this.startAwarenessHeartbeat()
+      this.startSyncTimeout()
     })
 
     ws.addEventListener("close", () => {
@@ -259,6 +263,7 @@ export class WikiCollabProvider extends ObservableV2<CollabProviderEvents> {
       }
       if (!this._synced) {
         this._synced = true
+        this.clearSyncTimeout()
         this.emit("synced", [])
       }
     }
@@ -312,6 +317,7 @@ export class WikiCollabProvider extends ObservableV2<CollabProviderEvents> {
       readSyncStep2(decoding.createDecoder(updateData), this.doc, this)
       if (!this._synced) {
         this._synced = true
+        this.clearSyncTimeout()
         this.emit("synced", [])
       }
     }
@@ -369,5 +375,21 @@ export class WikiCollabProvider extends ObservableV2<CollabProviderEvents> {
       this.reconnectTimer = null
     }
     this.clearAwarenessTimer()
+  }
+
+  private startSyncTimeout() {
+    this.clearSyncTimeout()
+    this.syncTimer = setTimeout(() => {
+      if (!this._synced) {
+        this.setStatus("local-only")
+      }
+    }, SYNC_TIMEOUT)
+  }
+
+  private clearSyncTimeout() {
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer)
+      this.syncTimer = null
+    }
   }
 }

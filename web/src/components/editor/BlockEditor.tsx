@@ -57,12 +57,14 @@ function renderSelection(user: Record<string, unknown>) {
 
 export function BlockEditor() {
   const { currentDocument, editorMode, setEditorMode, updateDocument, isDirty, saveDocument } = useWikiStore()
-  const { provider, isReadOnly } = useCollabStore()
+  const { provider, localMode, isReadOnly } = useCollabStore()
   const initRef = useRef<string | null>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const useCollab = provider && !localMode
+
   const collaborationExt = useMemo(() => {
-    if (!provider) return []
+    if (!useCollab || !provider?.doc) return []
     return [
       Collaboration.configure({
         document: provider.doc,
@@ -79,7 +81,7 @@ export function BlockEditor() {
         selectionRender: renderSelection,
       }),
     ]
-  }, [provider])
+  }, [useCollab, provider])
 
   const editor = useEditor({
     extensions: [
@@ -111,13 +113,13 @@ export function BlockEditor() {
   }, [editor, isReadOnly])
 
   useEffect(() => {
-    if (editor && currentDocument && !provider) {
+    if (editor && currentDocument && !useCollab) {
       if (initRef.current !== currentDocument.id) {
         initRef.current = currentDocument.id
         editor.commands.setContent(currentDocument.content || "")
       }
     }
-  }, [editor, currentDocument?.id, currentDocument?.content, provider])
+  }, [editor, currentDocument?.id, currentDocument?.content, useCollab])
 
   useEffect(() => {
     return () => {
