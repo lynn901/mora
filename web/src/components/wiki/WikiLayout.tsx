@@ -13,6 +13,7 @@ import { RBACPanel } from "@/components/rbac/RBACPanel"
 import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
 import { useWikiStore } from "@/stores/wiki"
+import { useCollabStore } from "@/stores/collab"
 import type { Workspace } from "@/types"
 import { login, getToken } from "@/api"
 
@@ -29,6 +30,7 @@ export function WikiLayout() {
 
   const [authReady, setAuthReady] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
+  const { initCollab, destroyCollab } = useCollabStore()
 
   useEffect(() => {
     async function ensureAuth() {
@@ -54,6 +56,17 @@ export function WikiLayout() {
     window.addEventListener("resize", check)
     return () => window.removeEventListener("resize", check)
   }, [authReady])
+
+  useEffect(() => {
+    if (currentDocument) {
+      initCollab(currentDocument.id, "u1", "Alice Chen")
+    } else {
+      destroyCollab()
+    }
+    return () => {
+      destroyCollab()
+    }
+  }, [currentDocument?.id])
 
   const panelContent: Record<SidePanel, React.ReactNode> = {
     tree: <DirectoryTree />,

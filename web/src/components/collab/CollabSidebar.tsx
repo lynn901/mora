@@ -1,14 +1,63 @@
 import { useEffect, useState, useRef } from "react"
-import { MessageSquare, X, Send, Check, AtSign } from "lucide-react"
+import { MessageSquare, X, Send, Check, Wifi, WifiOff, ShieldAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import type { CollaboratorPresence, Comment } from "@/types"
 import { useCollabStore } from "@/stores/collab"
 import { useWikiStore } from "@/stores/wiki"
+
+function StatusIndicator({ status }: { status: string }) {
+  if (status === "connected") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+            <Wifi className="size-3" />
+            Live
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>Connected - editing in real-time</TooltipContent>
+      </Tooltip>
+    )
+  }
+  if (status === "connecting") {
+    return (
+      <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+        <Wifi className="size-3 animate-pulse" />
+        Connecting
+      </span>
+    )
+  }
+  if (status === "degraded") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+            <ShieldAlert className="size-3" />
+            Read-only
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>Concurrency limit reached - viewing in read-only mode</TooltipContent>
+      </Tooltip>
+    )
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <WifiOff className="size-3" />
+          Offline
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>Disconnected - changes won't sync</TooltipContent>
+    </Tooltip>
+  )
+}
 
 function PresenceAvatars({ presences }: { presences: CollaboratorPresence[] }) {
   return (
@@ -73,17 +122,14 @@ function CommentItem({ comment, onResolve }: { comment: Comment; onResolve: (id:
   )
 }
 
-import { Badge } from "@/components/ui/badge"
-
 export function CollabSidebar() {
   const { currentDocument } = useWikiStore()
-  const { presences, comments, showComments, toggleComments, loadPresences, loadComments, addComment, resolveComment } = useCollabStore()
+  const { presences, comments, showComments, status, toggleComments, loadComments, addComment, resolveComment } = useCollabStore()
   const [newComment, setNewComment] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (currentDocument) {
-      loadPresences(currentDocument.id)
       loadComments(currentDocument.id)
     }
   }, [currentDocument?.id])
@@ -104,6 +150,7 @@ export function CollabSidebar() {
     return (
       <div className="flex flex-col items-center gap-2 p-2">
         <PresenceAvatars presences={presences} />
+        <StatusIndicator status={status} />
         <Button variant="ghost" size="icon" className="size-8" onClick={toggleComments}>
           <MessageSquare className="size-4" />
         </Button>
@@ -121,6 +168,7 @@ export function CollabSidebar() {
         </div>
         <div className="flex items-center gap-2">
           <PresenceAvatars presences={presences} />
+          <StatusIndicator status={status} />
           <Button variant="ghost" size="icon" className="size-7" onClick={toggleComments}>
             <X className="size-3.5" />
           </Button>
