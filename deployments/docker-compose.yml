@@ -102,7 +102,9 @@ services:
     depends_on:
       wiki-api: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      # 用 127.0.0.1 而非 localhost：容器内 localhost 优先解析为 IPv6 ::1，
+      # 而 nginx `listen 80` 仅监听 IPv4，会导致 healthcheck 误报 unhealthy。
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
       interval: 10s
       timeout: 3s
       retries: 10
