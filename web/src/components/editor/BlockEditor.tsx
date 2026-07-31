@@ -86,6 +86,8 @@ export function BlockEditor() {
       StarterKit.configure({
         codeBlock: false,
         heading: { levels: [1, 2, 3] },
+        link: false,
+        underline: false,
       }),
       CodeBlockLowlight.configure({ lowlight }),
       TaskList,
