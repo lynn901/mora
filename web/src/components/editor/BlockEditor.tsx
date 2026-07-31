@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from "react"
+import { useEffect, useRef, useMemo, useCallback } from "react"
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight"
@@ -19,7 +19,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle"
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough, Code, CodeSquare,
   Heading1, Heading2, Heading3, List, ListOrdered, ListChecks,
-  Quote, AlignLeft, AlignCenter, AlignRight, Undo, Redo
+  Quote, AlignLeft, AlignCenter, AlignRight, Undo, Redo, Save
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki"
 import { useCollabStore } from "@/stores/collab"
@@ -56,9 +56,10 @@ function renderSelection(user: Record<string, unknown>) {
 }
 
 export function BlockEditor() {
-  const { currentDocument, editorMode, setEditorMode, updateDocument, isDirty } = useWikiStore()
+  const { currentDocument, editorMode, setEditorMode, updateDocument, isDirty, saveDocument } = useWikiStore()
   const { provider, isReadOnly } = useCollabStore()
   const initRef = useRef<string | null>(null)
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const collaborationExt = useMemo(() => {
     if (!provider) return []
@@ -85,7 +86,6 @@ export function BlockEditor() {
       StarterKit.configure({
         codeBlock: false,
         heading: { levels: [1, 2, 3] },
-        undoRedo: false,
       }),
       CodeBlockLowlight.configure({ lowlight }),
       TaskList,
@@ -111,16 +111,60 @@ export function BlockEditor() {
   }, [editor, isReadOnly])
 
   useEffect(() => {
-    if (editor && currentDocument && provider && initRef.current !== currentDocument.id) {
-      initRef.current = currentDocument.id
+    if (editor && currentDocument && !provider) {
+      if (initRef.current !== currentDocument.id) {
+        initRef.current = currentDocument.id
+        editor.commands.setContent(currentDocument.content || "")
+      }
     }
-  }, [editor, currentDocument?.id, provider])
+  }, [editor, currentDocument?.id, currentDocument?.content, provider])
 
   useEffect(() => {
     return () => {
       initRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    if (!editor || isReadOnly) return
+    const handler = () => {
+      if (editorMode === "wysiwyg") {
+        const html = editor.getHTML()
+        updateDocument({ content: html })
+      }
+    }
+    editor.on("update", handler)
+    return () => {
+      editor.off("update", handler)
+    }
+  }, [editor, editorMode, isReadOnly])
+
+  const scheduleAutoSave = useCallback(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      saveDocument()
+    }, 5000)
+  }, [saveDocument])
+
+  useEffect(() => {
+    if (isDirty && !isReadOnly) {
+      scheduleAutoSave()
+    }
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+      }
+    }
+  }, [isDirty, isReadOnly, scheduleAutoSave])
+
+  const handleSave = useCallback(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+    }
+    saveDocument()
+  }, [saveDocument])
 
   if (!editor) return null
 
@@ -207,10 +251,16 @@ export function BlockEditor() {
             <ToggleGroupItem value="wysiwyg">WYSIWYG</ToggleGroupItem>
             <ToggleGroupItem value="markdown">Markdown</ToggleGroupItem>
           </ToggleGroup>
+          {!isReadOnly && (
+            <Button variant="default" size="sm" className="h-7 px-3" onClick={handleSave} disabled={!isDirty} aria-label="Save document">
+              <Save className="size-3.5 mr-1" />
+              Save
+            </Button>
+          )}
           {isReadOnly && (
             <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Read-only</span>
           )}
-          {isDirty && !isReadOnly && <span className="text-xs text-muted-foreground">Saving...</span>}
+          {isDirty && !isReadOnly && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
         </div>
       </div>
 

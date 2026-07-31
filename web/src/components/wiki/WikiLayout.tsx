@@ -1,21 +1,19 @@
 import { useEffect, useState } from "react"
-import { BookOpen, Search, Shield, Clock, PanelLeftClose, PanelLeft, Menu, ChevronDown } from "lucide-react"
+import { BookOpen, Search, Shield, Clock, PanelLeftClose, PanelLeft, Menu, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { DirectoryTree } from "@/components/tree/DirectoryTree"
 import { BlockEditor } from "@/components/editor/BlockEditor"
 import { SearchPanel } from "@/components/search/SearchPanel"
 import { RBACPanel } from "@/components/rbac/RBACPanel"
 import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
+import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { useWikiStore } from "@/stores/wiki"
 import { useCollabStore } from "@/stores/collab"
-import type { Workspace } from "@/types"
-import { login, getToken } from "@/api"
+import { useAuthStore } from "@/stores/auth"
 
 type SidePanel = "tree" | "search" | "rbac" | "history"
 
@@ -27,39 +25,20 @@ export function WikiLayout() {
   const [activePanel, setActivePanel] = useState<SidePanel>("tree")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
-
-  const [authReady, setAuthReady] = useState(false)
-  const [authError, setAuthError] = useState<string | null>(null)
   const { initCollab, destroyCollab } = useCollabStore()
+  const { user, logout } = useAuthStore()
 
   useEffect(() => {
-    async function ensureAuth() {
-      if (getToken()) {
-        setAuthReady(true)
-        return
-      }
-      try {
-        await login("admin@wiki.local", "admin123")
-        setAuthReady(true)
-      } catch (e) {
-        setAuthError((e as Error).message)
-      }
-    }
-    ensureAuth()
-  }, [])
-
-  useEffect(() => {
-    if (!authReady) return
     loadWorkspaces()
     const check = () => setIsMobile(window.innerWidth < 768)
     check()
     window.addEventListener("resize", check)
     return () => window.removeEventListener("resize", check)
-  }, [authReady])
+  }, [])
 
   useEffect(() => {
     if (currentDocument) {
-      initCollab(currentDocument.id, "u1", "Alice Chen")
+      initCollab(currentDocument.id, "u1", user?.name || "User")
     } else {
       destroyCollab()
     }
@@ -80,26 +59,6 @@ export function WikiLayout() {
     search: <Search className="size-4" />,
     rbac: <Shield className="size-4" />,
     history: <Clock className="size-4" />,
-  }
-
-  if (authError) {
-    return (
-      <div className="flex items-center justify-center h-screen" role="alert">
-        <div className="text-center">
-          <p className="text-destructive font-medium">Authentication failed</p>
-          <p className="text-sm text-muted-foreground mt-1">{authError}</p>
-          <Button variant="outline" className="mt-4" onClick={() => { setAuthError(null); login("admin@wiki.local", "admin123").then(() => setAuthReady(true)).catch((e) => setAuthError((e as Error).message)) }}>Retry</Button>
-        </div>
-      </div>
-    )
-  }
-
-  if (!authReady) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="size-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
   }
 
   if (error) {
@@ -145,6 +104,14 @@ export function WikiLayout() {
               ))}
             </SelectContent>
           </Select>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="size-7 shrink-0 ml-auto" onClick={logout} aria-label="Sign out">
+                <LogOut className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Sign out</TooltipContent>
+          </Tooltip>
         </div>
 
         <div className="flex border-b">
@@ -198,9 +165,11 @@ export function WikiLayout() {
                   <CollabSidebar />
                 </div>
               </div>
-              <div className="flex-1 overflow-auto">
-                <BlockEditor />
-              </div>
+              <ErrorBoundary>
+                <div className="flex-1 overflow-auto">
+                  <BlockEditor />
+                </div>
+              </ErrorBoundary>
             </>
           ) : (
             <div className="flex items-center justify-center flex-1">

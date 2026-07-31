@@ -40,6 +40,7 @@ export interface Document {
   updatedAt: string
   tags: string[]
   status: "draft" | "published" | "archived"
+  versionNo: number
 }
 
 export interface DocumentVersion {

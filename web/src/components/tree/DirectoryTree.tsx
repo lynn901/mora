@@ -75,12 +75,16 @@ function TreeNodeItem({ node, depth, onSelect, selectedId }: TreeNodeItemProps) 
 }
 
 export function DirectoryTree() {
-  const { tree, selectedNodeId, selectNode, currentWorkspace } = useWikiStore()
+  const { tree, selectedNodeId, selectNode, currentWorkspace, createDocument } = useWikiStore()
   const [search, setSearch] = useState("")
 
   const handleSelect = useCallback((nodeId: string) => {
     selectNode(nodeId)
   }, [selectNode])
+
+  const handleCreate = useCallback(() => {
+    createDocument("Untitled Document")
+  }, [createDocument])
 
   const filterTree = useCallback((nodes: TreeNode[], query: string): TreeNode[] => {
     if (!query) return nodes
@@ -108,7 +112,7 @@ export function DirectoryTree() {
         />
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-7 shrink-0">
+            <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={handleCreate} aria-label="Create new page">
               <Plus className="size-3.5" />
             </Button>
           </TooltipTrigger>

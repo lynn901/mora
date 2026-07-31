@@ -6,6 +6,13 @@ interface ApiResponse<T> {
   message: string
 }
 
+export class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message)
+    this.name = "ApiError"
+  }
+}
+
 export function getToken(): string | null {
   return localStorage.getItem("wiki_token")
 }
@@ -47,7 +54,7 @@ async function request<T>(
       clearToken()
       window.location.reload()
     }
-    throw new Error(msg)
+    throw new ApiError(msg, res.status)
   }
 
   return json.data

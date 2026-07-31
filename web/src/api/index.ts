@@ -175,6 +175,7 @@ function mapDocument(doc: BackendDocument): Document {
     updatedAt: doc.updated_at || doc.created_at,
     tags: doc.tags || [],
     status: (doc.status as Document["status"]) || "draft",
+    versionNo: doc.version_no,
   }
 }
 
@@ -330,6 +331,8 @@ export async function apiSaveDocument(doc: Document): Promise<Document> {
     title: doc.title,
     status: doc.status,
     tags: doc.tags,
+  }, {
+    "If-Match": String(doc.versionNo),
   })
   return mapDocument(updated)
 }
