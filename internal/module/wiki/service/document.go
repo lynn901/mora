@@ -12,6 +12,7 @@ import (
 
 	"github.com/wiki/wiki-backend/internal/domain"
 	"github.com/wiki/wiki-backend/internal/module/wiki/version"
+	"github.com/wiki/wiki-backend/internal/pkg/pagination"
 	"github.com/wiki/wiki-backend/internal/platform/rbac"
 	pkgerr "github.com/wiki/wiki-backend/internal/pkg/errors"
 )
@@ -119,6 +120,11 @@ func (s *DocumentService) Update(ctx context.Context, auth AuthContext, id domai
 	if status != "" {
 		d.Status = status
 	}
+	// Content changed → reset the index badge so the UI reflects pending re-index
+	// and callers can poll for the new indexed state (AC-9/AC-10).
+	if content != nil {
+		d.IndexStatus = domain.IndexPending
+	}
 	d.UpdatedBy = &auth.UserID
 	if err := s.docs.Update(ctx, d, prevVersion); err != nil {
 		return nil, err
@@ -130,6 +136,7 @@ func (s *DocumentService) Update(ctx context.Context, auth AuthContext, id domai
 	})
 	_ = s.events.PublishDocumentEvent(ctx, DocumentEvent{
 		Type: EventUpdate, DocumentID: d.ID, WorkspaceID: d.WorkspaceID, VersionNo: d.VersionNo,
+		PrevVersionNo: prevVersion,
 	})
 	return d, nil
 }
@@ -195,6 +202,28 @@ func (s *DocumentService) Rollback(ctx context.Context, auth AuthContext, id dom
 		Type: EventUpdate, DocumentID: d.ID, WorkspaceID: d.WorkspaceID, VersionNo: d.VersionNo,
 	})
 	return d, nil
+}
+
+// ListVersions returns the version history of a document after an RBAC read
+// check (existence never leaks). Used by GET /documents/:id/versions.
+func (s *DocumentService) ListVersions(ctx context.Context, auth AuthContext, id domain.UUID, p pagination.Params) ([]domain.DocumentVersion, int, error) {
+	if _, err := s.Get(ctx, auth, id); err != nil {
+		return nil, 0, err
+	}
+	return s.versions.List(ctx, id, p)
+}
+
+// GetVersion returns a specific version snapshot after an RBAC read check.
+// Used by GET /documents/:id?version=N so callers can read historical content.
+func (s *DocumentService) GetVersion(ctx context.Context, auth AuthContext, id domain.UUID, versionNo int) (*domain.DocumentVersion, error) {
+	if _, err := s.Get(ctx, auth, id); err != nil {
+		return nil, err
+	}
+	v, err := s.versions.Get(ctx, id, versionNo)
+	if err != nil {
+		return nil, mapNotFound(err)
+	}
+	return v, nil
 }
 
 // DiffVersions computes the block-level diff between two versions.

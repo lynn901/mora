@@ -28,8 +28,7 @@ func (s *Suite) TestAC9_AutoPipelineAndBadge() {
 
 	// Update → badge resets and pipeline re-indexes.
 	updated, _, _ := s.updateDoc(admin, published.ID, indexed.VersionNo, "# "+keyword+"\n\nupdated content v2")
-	require.Equal(s.T(), "indexed", indexed.VersionNo+1-1, "version must increment") // sanity: version changed
-	_ = updated
+	require.Equal(s.T(), indexed.VersionNo+1, updated.VersionNo, "version must increment")
 	// Re-publish not needed (update keeps status); wait for re-index to settle.
 	s.waitForIndexStatus(admin, published.ID, "indexed")
 }

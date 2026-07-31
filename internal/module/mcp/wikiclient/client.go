@@ -35,6 +35,7 @@ type AuthContext struct {
 	IdentityName string
 	Scope        rbac.Scope
 	Groups       []string
+	IsAdmin      bool
 }
 
 // Workspace is a Wiki workspace visible to the caller.

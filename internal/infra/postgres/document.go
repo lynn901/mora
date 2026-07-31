@@ -112,9 +112,9 @@ func (r *DocumentRepo) Update(ctx context.Context, d *domain.Document, prevVersi
 	content, _ := json.Marshal(d.Content)
 	tag, err := r.db.Pool.Exec(ctx, `
 		UPDATE documents SET title=$3, content=$4, content_text=$5, format=$6, status=$7,
-			version_no=version_no+1, updated_by=$8, updated_at=now()
+			index_status=$8, version_no=version_no+1, updated_by=$9, updated_at=now()
 		WHERE id=$1 AND version_no=$2 AND status != 'deleted'`,
-		d.ID, prevVersion, d.Title, content, d.ContentText, d.Format, d.Status, d.UpdatedBy)
+		d.ID, prevVersion, d.Title, content, d.ContentText, d.Format, d.Status, d.IndexStatus, d.UpdatedBy)
 	if err != nil {
 		return err
 	}
@@ -137,6 +137,40 @@ func (r *DocumentRepo) SoftDelete(ctx context.Context, id, userID domain.UUID) e
 		return errNotFound
 	}
 	return nil
+}
+
+// DocumentIDsForTarget enumerates non-deleted document IDs affected by a
+// permission target. For a directory it uses the ltree path to include the
+// entire subtree (the directories table path column is LTREE with a GIST index).
+func (r *DocumentRepo) DocumentIDsForTarget(ctx context.Context, targetType domain.TargetType, targetID domain.UUID) ([]domain.UUID, error) {
+	var query string
+	switch targetType {
+	case domain.TargetDocument:
+		query = `SELECT id FROM documents WHERE id=$1 AND status != 'deleted'`
+	case domain.TargetDirectory:
+		query = `SELECT d.id FROM documents d
+			JOIN directories dir ON d.directory_id = dir.id
+			WHERE d.status != 'deleted'
+			  AND dir.path <@ (SELECT path FROM directories WHERE id=$1)`
+	case domain.TargetWorkspace:
+		query = `SELECT id FROM documents WHERE workspace_id=$1 AND status != 'deleted'`
+	default:
+		return nil, nil
+	}
+	rows, err := r.db.Pool.Query(ctx, query, targetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.UUID
+	for rows.Next() {
+		var id domain.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func itoa(n int) string {

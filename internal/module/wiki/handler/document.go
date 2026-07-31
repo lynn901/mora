@@ -109,6 +109,38 @@ func (h *DocumentHandler) Get(c *gin.Context) {
 		response.Fail(c, err)
 		return
 	}
+	// version query param: overlay content from a historical version.
+	if v := c.Query("version"); v != "" {
+		if vno, err := parseInt(v); err == nil && vno > 0 {
+			ver, err := h.svc.GetVersion(c.Request.Context(), auth, id, vno)
+			if err != nil {
+				response.Fail(c, err)
+				return
+			}
+			out.Content = ver.Content
+			out.VersionNo = ver.VersionNo
+		}
+	}
+	// format query param: render blocks to markdown when requested.
+	if f := c.Query("format"); f == string(domain.FormatMarkdown) {
+		response.OK(c, gin.H{
+			"id":            out.ID,
+			"workspace_id":  out.WorkspaceID,
+			"directory_id":  out.DirectoryID,
+			"title":         out.Title,
+			"content":       wikicontent.BlocksToMarkdown(out.Content),
+			"format":        domain.FormatMarkdown,
+			"status":        out.Status,
+			"index_status":  out.IndexStatus,
+			"version_no":    out.VersionNo,
+			"tags":          out.Tags,
+			"created_by":    out.CreatedBy,
+			"updated_by":    out.UpdatedBy,
+			"created_at":    out.CreatedAt,
+			"updated_at":    out.UpdatedAt,
+		})
+		return
+	}
 	response.OK(c, out)
 }
 
@@ -164,14 +196,13 @@ func (h *DocumentHandler) ListVersions(c *gin.Context) {
 		return
 	}
 	auth := svcAuth(MustAuth(c))
-	// reuse Get for read permission check
-	if _, err := h.svc.Get(c.Request.Context(), auth, id); err != nil {
+	p := pagination.From(c)
+	items, total, err := h.svc.ListVersions(c.Request.Context(), auth, id, p)
+	if err != nil {
 		response.Fail(c, err)
 		return
 	}
-	// version listing delegated; we expose diff via service directly
-	response.OK(c, gin.H{"note": "use /documents/{id}/versions via VersionHandler"})
-	_ = id
+	response.Paged(c, items, total, p.Page, p.PageSize)
 }
 
 func (h *DocumentHandler) DiffVersions(c *gin.Context) {

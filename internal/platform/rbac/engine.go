@@ -36,6 +36,11 @@ type Repository interface {
 
 	// DocumentLocation returns the workspace_id and directory_id of a document.
 	DocumentLocation(ctx context.Context, documentID uuid.UUID) (workspaceID, directoryID uuid.UUID, err error)
+
+	// DocumentsInDirectorySubtree returns the IDs of non-deleted documents in a
+	// directory and all its descendants. Used by VisibleDocuments to expand a
+	// directory-level read grant into the visible document set.
+	DocumentsInDirectorySubtree(ctx context.Context, directoryID uuid.UUID) ([]uuid.UUID, error)
 }
 
 // NewEngine constructs an engine backed by repo.
@@ -79,6 +84,29 @@ func (e *Engine) VisibleDocuments(ctx context.Context, subject uuid.UUID, groupI
 		return nil, err
 	}
 	visible := make(map[uuid.UUID]bool)
+	// First pass: collect explicit deny targets so they can be removed from the
+	// visible set (deny > allow > inherited > default-deny, PRD F1.4).
+	deniedDocs := make(map[uuid.UUID]bool)
+	for _, g := range grants {
+		if g.Effect == domain.EffectDeny && hasAction(g.Actions, domain.ActionRead) {
+			switch g.TargetType {
+			case domain.TargetWorkspace:
+				// Workspace-wide deny: nothing visible.
+				return map[uuid.UUID]bool{}, nil
+			case domain.TargetDirectory:
+				docIDs, err := e.repo.DocumentsInDirectorySubtree(ctx, g.TargetID)
+				if err != nil {
+					return nil, err
+				}
+				for _, id := range docIDs {
+					deniedDocs[id] = true
+				}
+			case domain.TargetDocument:
+				deniedDocs[g.TargetID] = true
+			}
+		}
+	}
+	// Second pass: add allow-granted docs, minus denied.
 	for _, g := range grants {
 		if g.Effect == domain.EffectAllow && hasAction(g.Actions, domain.ActionRead) {
 			switch g.TargetType {
@@ -86,9 +114,26 @@ func (e *Engine) VisibleDocuments(ctx context.Context, subject uuid.UUID, groupI
 				// Workspace-level read grants visibility to all docs in workspace.
 				// Caller should mark all workspace docs visible; encoded as nil-key sentinel.
 				visible[uuid.Nil] = true
+				// Apply denies even under workspace-wide allow.
+				for id := range deniedDocs {
+					visible[id] = false
+				}
 				return visible, nil
+			case domain.TargetDirectory:
+				// Directory-level read (subtree inheritance) → expand to docs.
+				docIDs, err := e.repo.DocumentsInDirectorySubtree(ctx, g.TargetID)
+				if err != nil {
+					return nil, err
+				}
+				for _, id := range docIDs {
+					if !deniedDocs[id] {
+						visible[id] = true
+					}
+				}
 			case domain.TargetDocument:
-				visible[g.TargetID] = true
+				if !deniedDocs[g.TargetID] {
+					visible[g.TargetID] = true
+				}
 			}
 		}
 	}

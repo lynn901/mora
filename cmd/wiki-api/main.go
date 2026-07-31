@@ -58,10 +58,11 @@ func main() {
 	auditRepo := postgres.NewAuditRepo(db)
 	searchExec := postgres.NewSearchExec(db)
 	auditLogger := auditpkg.NewLogger(auditRepo)
+	tagRepo := postgres.NewTagRepo(db)
 
 	// RBAC engine backed by the permission repo (which also implements the
 	// engine's Repository: GrantsFor, DirectoryAncestors, DocumentLocation).
-	engine := newRBACEngine(permRepo, dirRepo)
+	engine := newRBACEngine(permRepo, dirRepo, docRepo)
 
 	// Event publisher: Valkey Streams (real) when configured, else noop. The
 	// QueuePublisher maps service.DocumentEvent → domain.DocEvent and publishes
@@ -76,6 +77,12 @@ func main() {
 
 	docSvc := service.NewDocumentService(docRepo, verRepo, engine, pub)
 
+	// RAG index-status + embedding-model stores (shared with rag-worker; the
+	// wiki-api exposes the admin/index-status HTTP routes the MCP + E2E expect).
+	indexStatus := pg.NewIndexStatusStore(pool)
+	modelStore := pg.NewModelStore(pool)
+	providerFactory := &ragwiring.DefaultProviderFactory{TEIURL: cfg.TEIURL, OllamaURL: cfg.OllamaURL, RerankModel: cfg.RerankerModel}
+
 	tm := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
 	userLookup := &pgUserLookup{db: db}
 	collabHub := collab.NewHub(cfg.CollabMaxConcurrent)
@@ -87,7 +94,11 @@ func main() {
 	docH := wh.NewDocumentHandler(docSvc)
 	searchH := wh.NewSearchHandler(engine, searchExec, cfg.FTSConfig)
 	commentH := wh.NewCommentHandler(commentRepo)
-	rbacH := wh.NewRBACHandler(permRepo)
+	permSvc := service.NewPermissionService(permRepo, docRepo, pub)
+	rbacH := wh.NewRBACHandler(permSvc)
+	tagH := wh.NewTagHandler(tagRepo)
+	indexStatusH := wh.NewIndexStatusHandler(indexStatus, docSvc)
+	modelH := wh.NewEmbeddingModelHandler(modelStore, providerFactory, pub)
 
 	// RAG hybrid search (Dense+BM25+rerank) — mounts POST /api/v1/rag/search,
 	// the endpoint the MCP search_knowledge_base tool calls. The searcher reuses
@@ -95,8 +106,8 @@ func main() {
 	// search and indexing stay consistent. RBAC is enforced as a hard filter on
 	// both paths using the caller's ViewerScope.
 	ragSearcher := ragsearch.New(ragsearch.HybridSearcher{
-		Models:  pg.NewModelStore(pool),
-		Factory: &ragwiring.DefaultProviderFactory{TEIURL: cfg.TEIURL, OllamaURL: cfg.OllamaURL, RerankModel: cfg.RerankerModel},
+		Models:  modelStore,
+		Factory: providerFactory,
 		Vectors: qdrant.New(cfg.QdrantURL),
 		FTS:     &pg.FTSStore{Pool: pool, Config: cfg.FTSConfig},
 		RBAC:    pg.NewRBACResolver(pool),
@@ -120,6 +131,7 @@ func main() {
 	authed.GET("/workspaces", wsH.List)
 	authed.POST("/workspaces", wsH.Create)
 	authed.GET("/workspaces/:workspace_id", wsH.Get)
+	authed.GET("/workspaces/:workspace_id/tags", tagH.List)
 
 	authed.GET("/workspaces/:workspace_id/directories", dirH.ListTree)
 	authed.POST("/workspaces/:workspace_id/directories", dirH.Create)
@@ -135,6 +147,7 @@ func main() {
 	docGroup.GET("/documents/:id/versions", docH.ListVersions)
 	docGroup.GET("/documents/:id/versions/diff", docH.DiffVersions)
 	docGroup.POST("/documents/:id/versions/:version_no/rollback", docH.Rollback)
+	docGroup.GET("/documents/:id/index-status", indexStatusH.Get)
 
 	searchGroup := authed.Group("")
 	searchGroup.Use(wh.RateLimitMiddleware(searchLimit))
@@ -149,6 +162,12 @@ func main() {
 	authed.GET("/permissions", rbacH.List)
 	authed.POST("/permissions", rbacH.Grant)
 	authed.DELETE("/permissions/:id", rbacH.Revoke)
+
+	// Embedding-model admin (API 04 §9.2): list/upsert/test/rebuild.
+	authed.GET("/admin/embedding-models", modelH.List)
+	authed.POST("/admin/embedding-models", modelH.Upsert)
+	authed.POST("/admin/embedding-models/:id/test", modelH.Test)
+	authed.POST("/admin/embedding-models/:id/rebuild", modelH.Rebuild)
 
 	// health
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
@@ -248,6 +267,7 @@ func ragSearchHandler(s *ragsearch.HybridSearcher) gin.HandlerFunc {
 		res, err := s.Search(c.Request.Context(), ragsearch.SearchRequest{
 			Query:       req.Query,
 			UserID:      st.UserID.String(),
+			IsAdmin:     st.IsAdmin,
 			WorkspaceID: req.WorkspaceID,
 			DirectoryID: req.DirectoryID,
 			Tags:        req.Tags,

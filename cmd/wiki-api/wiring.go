@@ -16,9 +16,9 @@ import (
 )
 
 // newRBACEngine builds the RBAC engine from the postgres permission + directory
-// repos via the RBACAdapter.
-func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo) *rbac.Engine {
-	return rbac.NewEngine(postgres.NewRBACAdapter(perms, dirs))
+// + document repos via the RBACAdapter.
+func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo, docs *postgres.DocumentRepo) *rbac.Engine {
+	return rbac.NewEngine(postgres.NewRBACAdapter(perms, dirs, docs))
 }
 
 var collabUpgrader = websocket.Upgrader{

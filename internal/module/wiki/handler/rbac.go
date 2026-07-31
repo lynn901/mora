@@ -9,11 +9,11 @@ import (
 )
 
 type RBACHandler struct {
-	repo service.PermissionRepo
+	svc *service.PermissionService
 }
 
-func NewRBACHandler(repo service.PermissionRepo) *RBACHandler {
-	return &RBACHandler{repo: repo}
+func NewRBACHandler(svc *service.PermissionService) *RBACHandler {
+	return &RBACHandler{svc: svc}
 }
 
 func (h *RBACHandler) List(c *gin.Context) {
@@ -32,7 +32,7 @@ func (h *RBACHandler) List(c *gin.Context) {
 			subjectID = &id
 		}
 	}
-	items, err := h.repo.List(c.Request.Context(), tt, targetID, subjectID)
+	items, err := h.svc.List(c.Request.Context(), tt, targetID, subjectID)
 	if err != nil {
 		response.Fail(c, err)
 		return
@@ -68,7 +68,7 @@ func (h *RBACHandler) Grant(c *gin.Context) {
 		TargetType: req.TargetType, TargetID: req.TargetID,
 		Effect: req.Effect, InheritScope: req.InheritScope, CreatedBy: &auth.UserID,
 	}
-	if err := h.repo.Grant(c.Request.Context(), p); err != nil {
+	if err := h.svc.Grant(c.Request.Context(), p); err != nil {
 		response.Fail(c, err)
 		return
 	}
@@ -81,7 +81,7 @@ func (h *RBACHandler) Revoke(c *gin.Context) {
 		response.Fail(c, badRequestErr("invalid id"))
 		return
 	}
-	if err := h.repo.Revoke(c.Request.Context(), id); err != nil {
+	if err := h.svc.Revoke(c.Request.Context(), id); err != nil {
 		response.Fail(c, err)
 		return
 	}

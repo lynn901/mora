@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/wiki/wiki-backend/internal/domain"
 )
 
@@ -65,20 +67,45 @@ func (r *PermissionRepo) Revoke(ctx context.Context, id domain.UUID) error {
 	return err
 }
 
+// Get returns a single permission by id. Used by revoke to learn the target
+// (type + id) before deletion so affected documents can be enumerated.
+func (r *PermissionRepo) Get(ctx context.Context, id domain.UUID) (*domain.Permission, error) {
+	var p domain.Permission
+	var createdBy *domain.UUID
+	err := r.db.Pool.QueryRow(ctx,
+		`SELECT id, subject_type, subject_id, role_id, target_type, target_id, effect, inherit_scope, created_at, created_by
+		 FROM permissions WHERE id=$1`, id).
+		Scan(&p.ID, &p.SubjectType, &p.SubjectID, &p.RoleID, &p.TargetType, &p.TargetID, &p.Effect, &p.InheritScope, &p.CreatedAt, &createdBy)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errNotFound
+		}
+		return nil, err
+	}
+	p.CreatedBy = createdBy
+	return &p, nil
+}
+
 // GrantsFor resolves effective grants for a subject within a workspace.
 // It joins roles to expand role.permissions JSONB into individual actions,
 // and includes both direct user grants and group grants (via group_members).
+// Grants are scoped to the given workspace: workspace-level grants on OTHER
+// workspaces do not leak here (prevents cross-workspace RBAC bypass).
 func (r *PermissionRepo) GrantsFor(ctx context.Context, subjectID domain.UUID, groupIDs []domain.UUID, workspaceID domain.UUID) ([]domain.Grant, error) {
-	// subject_id matching: the user directly OR any of the user's groups.
 	rows, err := r.db.Pool.Query(ctx, `
 		SELECT p.subject_type, p.subject_id,
 		       jsonb_array_elements_text(ro.permissions) AS action,
 		       p.target_type, p.target_id, p.effect, p.inherit_scope
 		FROM permissions p
 		JOIN roles ro ON ro.id = p.role_id
-		WHERE (p.subject_type = 'user' AND p.subject_id = $1)
-		   OR (p.subject_type = 'group' AND p.subject_id = ANY($2::uuid[]))
-		ORDER BY p.created_at`, subjectID, groupIDsArray(groupIDs))
+		WHERE ((p.subject_type = 'user' AND p.subject_id = $1)
+		    OR (p.subject_type = 'group' AND p.subject_id = ANY($2::uuid[])))
+		  AND (
+		    (p.target_type = 'workspace' AND p.target_id = $3)
+		    OR (p.target_type = 'directory' AND p.target_id IN (SELECT id FROM directories WHERE workspace_id = $3))
+		    OR (p.target_type = 'document'  AND p.target_id IN (SELECT id FROM documents WHERE workspace_id = $3))
+		  )
+		ORDER BY p.created_at`, subjectID, groupIDsArray(groupIDs), workspaceID)
 	if err != nil {
 		return nil, err
 	}
