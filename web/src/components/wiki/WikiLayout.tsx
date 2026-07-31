@@ -13,6 +13,7 @@ import { RBACPanel } from "@/components/rbac/RBACPanel"
 import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
 import { useWikiStore } from "@/stores/wiki"
+import { useCollabStore } from "@/stores/collab"
 import type { Workspace } from "@/types"
 
 type SidePanel = "tree" | "search" | "rbac" | "history"
@@ -26,6 +27,8 @@ export function WikiLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
 
+  const { initCollab, destroyCollab } = useCollabStore()
+
   useEffect(() => {
     loadWorkspaces()
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -33,6 +36,17 @@ export function WikiLayout() {
     window.addEventListener("resize", check)
     return () => window.removeEventListener("resize", check)
   }, [])
+
+  useEffect(() => {
+    if (currentDocument) {
+      initCollab(currentDocument.id, "u1", "Alice Chen")
+    } else {
+      destroyCollab()
+    }
+    return () => {
+      destroyCollab()
+    }
+  }, [currentDocument?.id])
 
   const panelContent: Record<SidePanel, React.ReactNode> = {
     tree: <DirectoryTree />,

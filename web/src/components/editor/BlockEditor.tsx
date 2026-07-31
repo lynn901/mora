@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useMemo } from "react"
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight"
@@ -9,18 +9,20 @@ import Placeholder from "@tiptap/extension-placeholder"
 import Image from "@tiptap/extension-image"
 import Link from "@tiptap/extension-link"
 import TextAlign from "@tiptap/extension-text-align"
+import { Collaboration } from "@tiptap/extension-collaboration"
+import { CollaborationCursor } from "@tiptap/extension-collaboration-cursor"
 import { common, createLowlight } from "lowlight"
 import { Markdown } from "tiptap-markdown"
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle"
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough, Code, CodeSquare,
   Heading1, Heading2, Heading3, List, ListOrdered, ListChecks,
-  Quote, Link as LinkIcon, Image as ImageIcon, AlignLeft, AlignCenter, AlignRight, Undo, Redo
+  Quote, AlignLeft, AlignCenter, AlignRight, Undo, Redo
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki"
+import { useCollabStore } from "@/stores/collab"
 
 const lowlight = createLowlight(common)
 
@@ -30,15 +32,60 @@ const MarkdownExt = Markdown.configure({
   transformPastedText: true,
 })
 
+function renderCursor(user: Record<string, unknown>) {
+  const cursor = document.createElement("span")
+  cursor.classList.add("collaboration-cursor__caret")
+  cursor.setAttribute("style", `border-color: ${user.color as string}`)
+
+  const label = document.createElement("div")
+  label.classList.add("collaboration-cursor__label")
+  label.setAttribute("style", `background-color: ${user.color as string}`)
+  label.insertBefore(document.createTextNode(user.name as string), null)
+
+  cursor.insertBefore(label, null)
+  return cursor
+}
+
+function renderSelection(user: Record<string, unknown>) {
+  return {
+    nodeName: "span",
+    class: "collaboration-cursor__selection",
+    style: `background-color: ${user.color as string}`,
+    "data-user": user.name as string,
+  }
+}
+
 export function BlockEditor() {
-  const { currentDocument, editorMode, setEditorMode, updateDocument, isDirty, saveDocument } = useWikiStore()
-  const autoSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { currentDocument, editorMode, setEditorMode, updateDocument, isDirty } = useWikiStore()
+  const { provider, isReadOnly } = useCollabStore()
+  const initRef = useRef<string | null>(null)
+
+  const collaborationExt = useMemo(() => {
+    if (!provider) return []
+    return [
+      Collaboration.configure({
+        document: provider.doc,
+        field: "default",
+        provider,
+      }),
+      CollaborationCursor.configure({
+        provider,
+        user: {
+          name: provider.awareness.getLocalState()?.user?.name || "Anonymous",
+          color: provider.awareness.getLocalState()?.user?.color || "#999",
+        },
+        render: renderCursor,
+        selectionRender: renderSelection,
+      }),
+    ]
+  }, [provider])
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         codeBlock: false,
         heading: { levels: [1, 2, 3] },
+        undoRedo: false,
       }),
       CodeBlockLowlight.configure({ lowlight }),
       TaskList,
@@ -49,31 +96,29 @@ export function BlockEditor() {
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder: "Start writing..." }),
       MarkdownExt,
+      ...collaborationExt,
     ],
-    content: currentDocument?.content || "",
-    onUpdate: ({ editor }) => {
-      const content = editor.getHTML()
-      updateDocument({ content })
-      if (autoSaveRef.current) clearTimeout(autoSaveRef.current)
-      autoSaveRef.current = setTimeout(() => { saveDocument() }, 5000)
-    },
+    editable: !isReadOnly,
     editorProps: {
       attributes: { class: "prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[300px] px-8 py-6" },
     },
   })
 
   useEffect(() => {
-    if (editor && currentDocument) {
-      const currentContent = editor.getHTML()
-      if (currentContent !== currentDocument.content) {
-        editor.commands.setContent(currentDocument.content)
-      }
+    if (editor) {
+      editor.setEditable(!isReadOnly)
     }
-  }, [currentDocument?.id])
+  }, [editor, isReadOnly])
+
+  useEffect(() => {
+    if (editor && currentDocument && provider && initRef.current !== currentDocument.id) {
+      initRef.current = currentDocument.id
+    }
+  }, [editor, currentDocument?.id, provider])
 
   useEffect(() => {
     return () => {
-      if (autoSaveRef.current) clearTimeout(autoSaveRef.current)
+      initRef.current = null
     }
   }, [])
 
@@ -162,7 +207,10 @@ export function BlockEditor() {
             <ToggleGroupItem value="wysiwyg">WYSIWYG</ToggleGroupItem>
             <ToggleGroupItem value="markdown">Markdown</ToggleGroupItem>
           </ToggleGroup>
-          {isDirty && <span className="text-xs text-muted-foreground">Saving...</span>}
+          {isReadOnly && (
+            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Read-only</span>
+          )}
+          {isDirty && !isReadOnly && <span className="text-xs text-muted-foreground">Saving...</span>}
         </div>
       </div>
 
@@ -176,6 +224,7 @@ export function BlockEditor() {
             onChange={(e) => updateDocument({ content: e.target.value })}
             placeholder="Write in Markdown..."
             aria-label="Markdown editor"
+            readOnly={isReadOnly}
           />
         )}
       </div>
