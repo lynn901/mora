@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react"
+import { useNavigate } from "react-router-dom"
 import { BookOpen } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -7,6 +8,7 @@ import { useAuthStore } from "@/stores/auth"
 
 export function LoginPage() {
   const { login, isLoading, error } = useAuthStore()
+  const navigate = useNavigate()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
 
@@ -15,6 +17,7 @@ export function LoginPage() {
     if (!email || !password) return
     try {
       await login(email, password)
+      navigate("/")
     } catch {
       // error is handled by the store
     }
