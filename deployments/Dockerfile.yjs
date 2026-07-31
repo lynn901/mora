@@ -2,7 +2,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN npm install -g y-websocket
+RUN npm install -g y-websocket@2.1.0
 
 EXPOSE 1234
 
