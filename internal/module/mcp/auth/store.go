@@ -22,6 +22,7 @@ type TokenRecord struct {
 	IdentityName string
 	Scope        rbac.Scope
 	Groups       []string
+	IsAdmin      bool
 	ExpiresAt    *time.Time // nil = never expires
 	RevokedAt    *time.Time // non-nil = revoked
 	CreatedAt    time.Time
@@ -107,6 +108,7 @@ func NewPostgresTokenStore(pool *pgxpool.Pool) *PostgresTokenStore {
 const tokenLookupSQL = `
 SELECT t.id, t.name, t.prefix, t.identity_type, t.identity_id,
        COALESCE(u.name, sa.name, '') AS identity_name,
+       COALESCE(u.email, '') AS identity_email,
        t.scope, t.expires_at, t.revoked_at, t.created_at
 FROM api_tokens t
 LEFT JOIN users u ON t.identity_type = 'user' AND t.identity_id = u.id
@@ -119,8 +121,9 @@ func (s *PostgresTokenStore) Lookup(ctx context.Context, tokenHash string) (*Tok
 	var t TokenRecord
 	var identityType string
 	var scope string
+	var email string
 	err := row.Scan(&t.ID, &t.Name, &t.Prefix, &identityType, &t.IdentityID,
-		&t.IdentityName, &scope, &t.ExpiresAt, &t.RevokedAt, &t.CreatedAt)
+		&t.IdentityName, &email, &scope, &t.ExpiresAt, &t.RevokedAt, &t.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -129,6 +132,7 @@ func (s *PostgresTokenStore) Lookup(ctx context.Context, tokenHash string) (*Tok
 	}
 	t.IdentityType = rbac.IdentityType(identityType)
 	t.Scope = rbac.Scope(scope)
+	t.IsAdmin = email == "admin@wiki.local"
 	// Groups resolution: fetch group memberships for the identity (defence in
 	// depth; the Wiki RBAC engine is authoritative). Left empty here as the
 	// groups table is owned by the wiki module; MCP relies on identity-id based

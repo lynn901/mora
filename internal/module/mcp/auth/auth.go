@@ -25,6 +25,7 @@ type AuthContext struct {
 	IdentityName string
 	Scope        rbac.Scope
 	Groups       []string
+	IsAdmin      bool
 }
 
 // AllowsWrite reports whether the token scope permits write tools (design doc
@@ -114,6 +115,7 @@ func AuthMiddleware(store TokenStore) gin.HandlerFunc {
 			IdentityName: rec.IdentityName,
 			Scope:        rec.Scope,
 			Groups:       rec.Groups,
+			IsAdmin:      rec.IsAdmin,
 		}
 		c.Set("auth_ctx", ac)
 		// Best-effort last-used update.

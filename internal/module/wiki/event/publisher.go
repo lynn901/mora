@@ -47,6 +47,18 @@ func (p *RedisPublisher) PublishDocumentEvent(ctx context.Context, evt service.D
 	}).Err()
 }
 
+func (p *RedisPublisher) PublishModelRebuild(ctx context.Context, workspaceID string) error {
+	_, err := p.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: streamKey,
+		Values: map[string]any{
+			"event_id":   "model-rebuild-" + uuid.NewString(),
+			"event_type": string(domain.EventModelRebuild),
+			"payload":    "{}",
+		},
+	}).Result()
+	return err
+}
+
 // NoopPublisher is a fallback publisher used when no MQ is configured (e.g.
 // unit tests, single-node without RAG). It records events in-memory.
 type NoopPublisher struct {
@@ -61,6 +73,10 @@ func (p *NoopPublisher) PublishDocumentEvent(ctx context.Context, evt service.Do
 	}
 	evt.Timestamp = time.Now().UTC()
 	p.Events = append(p.Events, evt)
+	return nil
+}
+
+func (p *NoopPublisher) PublishModelRebuild(ctx context.Context, workspaceID string) error {
 	return nil
 }
 
@@ -91,12 +107,26 @@ func (p *QueuePublisher) PublishDocumentEvent(ctx context.Context, evt service.D
 		evt.Timestamp = time.Now().UTC()
 	}
 	_, err := p.Queue.Publish(ctx, domain.DocEvent{
-		EventID:     evt.EventID,
-		EventType:   mapEventType(evt.Type),
-		DocumentID:  evt.DocumentID.String(),
-		WorkspaceID: evt.WorkspaceID.String(),
-		VersionNo:   evt.VersionNo,
-		Timestamp:   evt.Timestamp.UTC().Format(time.RFC3339),
+		EventID:       evt.EventID,
+		EventType:     mapEventType(evt.Type),
+		DocumentID:    evt.DocumentID.String(),
+		WorkspaceID:   evt.WorkspaceID.String(),
+		VersionNo:     evt.VersionNo,
+		PrevVersionNo: evt.PrevVersionNo,
+		Timestamp:     evt.Timestamp.UTC().Format(time.RFC3339),
+	})
+	return err
+}
+
+// PublishModelRebuild emits a model.rebuild event onto the canonical doc_events
+// stream. The rag-worker consumes it (domain.EventModelRebuild) and re-indexes
+// all published documents for the active model (05 §5.3).
+func (p *QueuePublisher) PublishModelRebuild(ctx context.Context, workspaceID string) error {
+	_, err := p.Queue.Publish(ctx, domain.DocEvent{
+		EventID:     "model-rebuild-" + uuid.NewString(),
+		EventType:   domain.EventModelRebuild,
+		WorkspaceID: workspaceID,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	})
 	return err
 }

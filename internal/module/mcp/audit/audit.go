@@ -119,6 +119,15 @@ func (s *PostgresStore) Record(ctx context.Context, r *Record) error {
 	}
 	defer tx.Rollback(ctx)
 
+	// audit_logs.target_id is a UUID column; pass NULL when the target resource
+	// is empty or not a valid UUID (many tool calls have no specific target).
+	var targetID any
+	if r.TargetResource != "" {
+		if _, err := uuid.Parse(r.TargetResource); err == nil {
+			targetID = r.TargetResource
+		}
+	}
+
 	// audit_logs is append-only (design doc 03 §2.6): actor, action, target,
 	// detail. We insert first to obtain an audit_log_id to reference.
 	var auditLogID string
@@ -126,7 +135,7 @@ func (s *PostgresStore) Record(ctx context.Context, r *Record) error {
 		INSERT INTO audit_logs (actor_type, actor_id, action, target_type, target_id, detail, created_at)
 		VALUES ('api_token', $1, $2, 'mcp_tool', $3, $4, now())
 		RETURNING id`,
-		r.TokenID, "mcp:"+r.ToolName, r.TargetResource, r.ParamsSummary,
+		r.TokenID, "mcp:"+r.ToolName, targetID, r.ParamsSummary,
 	).Scan(&auditLogID)
 	if err != nil {
 		return err
@@ -151,11 +160,13 @@ func (s *PostgresStore) List(ctx context.Context, f Filter) ([]Record, error) {
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, session_id, tool_name, params_summary, result_status, target_resource, duration_ms, audit_log_id, created_at
-		FROM mcp_tool_calls
-		WHERE ($1::uuid IS NULL OR token_id_to_str(session_id) = $1)
-		ORDER BY created_at DESC LIMIT $2`,
-		f.TokenID, limit,
+		SELECT c.id, c.session_id, c.tool_name, c.params_summary, c.result_status, c.target_resource, c.duration_ms, c.audit_log_id, c.created_at
+		FROM mcp_tool_calls c
+		JOIN mcp_sessions s ON c.session_id = s.id
+		WHERE ($1::text = '' OR s.token_id::text = $1)
+		  AND ($2::text = '' OR c.tool_name = $2)
+		ORDER BY c.created_at DESC LIMIT $3`,
+		f.TokenID, f.ToolName, limit,
 	)
 	if err != nil {
 		return nil, err

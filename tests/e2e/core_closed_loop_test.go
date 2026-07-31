@@ -150,11 +150,31 @@ func hasTool(tools []map[string]any, name string) bool {
 }
 
 func mcpResultContainsDoc(res map[string]any, docID string) bool {
+	// search_knowledge_base / list_documents return {items:[...], total:N} as data.
 	if data, ok := res["data"].([]any); ok {
 		for _, it := range data {
 			if m, ok := it.(map[string]any); ok {
 				if id, _ := m["document_id"].(string); id == docID {
 					return true
+				}
+				if id, _ := m["id"].(string); id == docID {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	// data may be a map with an "items" key (search/list result envelope).
+	if data, ok := res["data"].(map[string]any); ok {
+		if items, ok := data["items"].([]any); ok {
+			for _, it := range items {
+				if m, ok := it.(map[string]any); ok {
+					if id, _ := m["document_id"].(string); id == docID {
+						return true
+					}
+					if id, _ := m["id"].(string); id == docID {
+						return true
+					}
 				}
 			}
 		}

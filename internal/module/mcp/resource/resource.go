@@ -144,5 +144,6 @@ func toWikiAuth(ac *auth.AuthContext) *wikiclient.AuthContext {
 		IdentityName: ac.IdentityName,
 		Scope:        ac.Scope,
 		Groups:       ac.Groups,
+		IsAdmin:      ac.IsAdmin,
 	}
 }

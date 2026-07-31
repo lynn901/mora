@@ -45,6 +45,16 @@ func (f *fakeRepo) DocumentLocation(_ context.Context, docID uuid.UUID) (uuid.UU
 	return loc[0], loc[1], nil
 }
 
+func (f *fakeRepo) DocumentsInDirectorySubtree(_ context.Context, dirID uuid.UUID) ([]uuid.UUID, error) {
+	var out []uuid.UUID
+	for docID, loc := range f.docLoc {
+		if loc[1] == dirID {
+			out = append(out, docID)
+		}
+	}
+	return out, nil
+}
+
 func newFake() *fakeRepo {
 	return &fakeRepo{
 		ancestors: map[uuid.UUID][]uuid.UUID{},

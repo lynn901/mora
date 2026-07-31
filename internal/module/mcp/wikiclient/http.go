@@ -79,6 +79,9 @@ func (c *HTTPClient) identityHeaders(auth *AuthContext, h http.Header) {
 	h.Set("X-Identity-Id", auth.IdentityID)
 	h.Set("X-Identity-Name", auth.IdentityName)
 	h.Set("X-Token-Scope", string(auth.Scope))
+	if auth.IsAdmin {
+		h.Set("X-Identity-Admin", "true")
+	}
 }
 
 // mapStatus translates Wiki API HTTP status into a domain error for the
@@ -99,10 +102,12 @@ func mapStatus(status int) error {
 }
 
 // envelope is the standard Wiki API response wrapper (design doc 04 §1.3).
+// The Wiki API returns {code,data,message}; the message field carries the
+// upstream error detail (previously decoded as "msg", which was always empty).
 type envelope struct {
-	Code int             `json:"code"`
-	Msg  string          `json:"msg,omitempty"`
-	Data json.RawMessage `json:"data,omitempty"`
+	Code    int             `json:"code"`
+	Message string          `json:"message,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 func (c *HTTPClient) get(ctx context.Context, auth *AuthContext, path string, out any) error {
@@ -128,7 +133,7 @@ func (c *HTTPClient) get(ctx context.Context, auth *AuthContext, path string, ou
 		return fmt.Errorf("decode envelope: %w", err)
 	}
 	if env.Code != 0 {
-		return fmt.Errorf("upstream code %d: %s", env.Code, env.Msg)
+		return fmt.Errorf("upstream code %d: %s", env.Code, env.Message)
 	}
 	if out == nil || len(env.Data) == 0 {
 		return nil
@@ -137,11 +142,17 @@ func (c *HTTPClient) get(ctx context.Context, auth *AuthContext, path string, ou
 }
 
 func (c *HTTPClient) post(ctx context.Context, auth *AuthContext, path string, body, out any) error {
+	return c.sendJSON(ctx, auth, http.MethodPost, path, body, out)
+}
+
+// sendJSON issues an authenticated JSON request, maps the HTTP status, and
+// unwraps the {code,data,message} envelope into out. Used by POST/PATCH writes.
+func (c *HTTPClient) sendJSON(ctx context.Context, auth *AuthContext, method, path string, body, out any) error {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -164,7 +175,7 @@ func (c *HTTPClient) post(ctx context.Context, auth *AuthContext, path string, b
 		return fmt.Errorf("decode envelope: %w", err)
 	}
 	if env.Code != 0 {
-		return fmt.Errorf("upstream code %d: %s", env.Code, env.Msg)
+		return fmt.Errorf("upstream code %d: %s", env.Code, env.Message)
 	}
 	if out == nil || len(env.Data) == 0 {
 		return nil
@@ -298,13 +309,21 @@ func (c *HTTPClient) Search(ctx context.Context, auth *AuthContext, req SearchRe
 }
 
 // CreateDraft calls POST /api/v1/workspaces/{ws}/documents with status=draft.
+// The wiki-api create handler accepts `markdown` (string) or `content` ([]Block);
+// Content here is a string (Markdown or Block JSON), dispatched by Format.
 func (c *HTTPClient) CreateDraft(ctx context.Context, auth *AuthContext, req CreateDraftRequest) (*DraftResult, error) {
 	body := map[string]any{
-		"title":        req.Title,
-		"format":       req.Format,
-		"content":      req.Content,
-		"status":       "draft",
-		"directory_id": req.ParentID,
+		"title": req.Title,
+	}
+	if req.ParentID != "" {
+		body["directory_id"] = req.ParentID
+	}
+	if req.Format == "blocks" {
+		body["content"] = json.RawMessage(req.Content)
+		body["format"] = "blocks"
+	} else {
+		body["markdown"] = req.Content
+		body["format"] = "markdown"
 	}
 	var doc Document
 	if err := c.post(ctx, auth, "/api/v1/workspaces/"+req.WorkspaceID+"/documents", body, &doc); err != nil {
@@ -319,38 +338,20 @@ func (c *HTTPClient) CreateDraft(ctx context.Context, auth *AuthContext, req Cre
 }
 
 // UpdateDocument calls PATCH /api/v1/documents/{id} (produces a new draft version).
+// The wiki-api update handler accepts `markdown` (string) or `content` ([]Block);
+// it has no `format` field. Content here is a string dispatched by Format.
 func (c *HTTPClient) UpdateDocument(ctx context.Context, auth *AuthContext, req UpdateDocumentRequest) (*DraftResult, error) {
 	body := map[string]any{
-		"content": req.Content,
-		"format":  req.Format,
 		"status":  "draft",
 		"summary": req.Summary,
 	}
-	b, _ := json.Marshal(body)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.baseURL+"/api/v1/documents/"+req.DocumentID, bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.internalToken != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.internalToken)
-	}
-	c.identityHeaders(auth, httpReq.Header)
-	resp, err := c.http.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if err := mapStatus(resp.StatusCode); err != nil {
-		return nil, err
-	}
-	var env envelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, fmt.Errorf("decode envelope: %w", err)
+	if req.Format == "blocks" {
+		body["content"] = json.RawMessage(req.Content)
+	} else {
+		body["markdown"] = req.Content
 	}
 	var doc Document
-	if err := json.Unmarshal(env.Data, &doc); err != nil {
+	if err := c.sendJSON(ctx, auth, http.MethodPatch, "/api/v1/documents/"+req.DocumentID, body, &doc); err != nil {
 		return nil, err
 	}
 	return &DraftResult{

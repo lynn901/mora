@@ -38,7 +38,10 @@ func AuthMiddleware(tm *auth.TokenManager, internalToken string) gin.HandlerFunc
 			if iid := c.GetHeader("X-Identity-Id"); iid != "" {
 				if uid := parseUUID(iid); uid != uuid.Nil {
 					st.UserID = uid
-					st.IsAdmin = false // RBAC enforced as the propagated principal
+					// The MCP server propagates X-Identity-Admin when the bound
+					// token's identity is the platform admin, so the admin bypass
+					// (RBAC, search visible_to) applies through the MCP path too.
+					st.IsAdmin = c.GetHeader("X-Identity-Admin") == "true"
 				}
 			}
 			c.Set(ctxAuth, st)

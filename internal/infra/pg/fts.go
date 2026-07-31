@@ -59,30 +59,32 @@ func (s *FTSStore) tsConfig() string {
 }
 
 const defaultVisibilitySQL = `
-  EXISTS (
-    SELECT 1 FROM permissions p
-    WHERE p.effect = 'allow'
-      AND p.subject_id = ANY($3)
-      AND (
-        p.target_type = 'document' AND p.target_id = d.id
-        OR p.target_type = 'directory' AND p.inherit_scope = 'subtree'
-           AND p.target_id = d.directory_id
-        OR p.target_type = 'workspace' AND p.inherit_scope = 'subtree'
-           AND p.target_id = d.workspace_id
-      )
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM permissions p2
-    WHERE p2.effect = 'deny'
-      AND p2.subject_id = ANY($3)
-      AND (
-        p2.target_type = 'document' AND p2.target_id = d.id
-        OR p2.target_type = 'directory' AND p2.inherit_scope = 'subtree'
-           AND p2.target_id = d.directory_id
-        OR p2.target_type = 'workspace' AND p2.inherit_scope = 'subtree'
-           AND p2.target_id = d.workspace_id
-      )
-  )`
+  ($3::text[] IS NULL OR $3::text[] = '{}' OR (
+    EXISTS (
+      SELECT 1 FROM permissions p
+      WHERE p.effect = 'allow'
+        AND p.subject_id = ANY($3)
+        AND (
+          p.target_type = 'document' AND p.target_id = d.id
+          OR p.target_type = 'directory' AND p.inherit_scope = 'subtree'
+             AND p.target_id = d.directory_id
+          OR p.target_type = 'workspace' AND p.inherit_scope = 'subtree'
+             AND p.target_id = d.workspace_id
+        )
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM permissions p2
+      WHERE p2.effect = 'deny'
+        AND p2.subject_id = ANY($3)
+        AND (
+          p2.target_type = 'document' AND p2.target_id = d.id
+          OR p2.target_type = 'directory' AND p2.inherit_scope = 'subtree'
+             AND p2.target_id = d.directory_id
+          OR p2.target_type = 'workspace' AND p2.inherit_scope = 'subtree'
+             AND p2.target_id = d.workspace_id
+        )
+    )
+  ))`
 
 func (s *FTSStore) SearchBM25(ctx context.Context, req rag.FTSRequest) ([]rag.FTSHit, error) {
 	vis := s.VisibilitySQL

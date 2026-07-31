@@ -12,6 +12,7 @@ import (
 type SearchRequest struct {
 	Query       string
 	UserID      string // RBAC principal
+	IsAdmin     bool   // admin bypasses visible_to hard filter (sees all docs)
 	WorkspaceID string // optional scope ("" = all visible)
 	DirectoryID string // optional scope
 	Tags        []string
@@ -80,17 +81,25 @@ func (s *HybridSearcher) Search(ctx context.Context, req SearchRequest) (*Search
 	}
 
 	// 1. RBAC envelope (hard filter subject set). Computed once, enforced on both paths.
-	scope, err := s.RBAC.ViewerScope(ctx, req.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("rbac viewer scope: %w", err)
-	}
-	if len(scope.SubjectIDs) == 0 {
-		// No read subjects ⇒ nothing visible. Existence not leaked.
-		return &SearchResult{}, nil
-	}
+	// Admin bypasses visible_to: an empty VisibleTo skips the Qdrant must-condition
+	// and the FTS visibility SQL, so admin sees all published docs.
+	var visibleTo []string
 	ws := req.WorkspaceID
-	if ws == "" && len(scope.WorkspaceIDs) == 1 {
-		ws = scope.WorkspaceIDs[0]
+	if req.IsAdmin {
+		visibleTo = nil
+	} else {
+		scope, err := s.RBAC.ViewerScope(ctx, req.UserID)
+		if err != nil {
+			return nil, fmt.Errorf("rbac viewer scope: %w", err)
+		}
+		if len(scope.SubjectIDs) == 0 {
+			// No read subjects ⇒ nothing visible. Existence not leaked.
+			return &SearchResult{}, nil
+		}
+		visibleTo = scope.SubjectIDs
+		if ws == "" && len(scope.WorkspaceIDs) == 1 {
+			ws = scope.WorkspaceIDs[0]
+		}
 	}
 
 	model, err := s.Models.GetActive(ctx)
@@ -110,7 +119,7 @@ func (s *HybridSearcher) Search(ctx context.Context, req SearchRequest) (*Search
 				Vector:         qv[0],
 				TopK:           topK,
 				WorkspaceID:    ws,
-				VisibleTo:      scope.SubjectIDs, // HARD FILTER
+				VisibleTo:      visibleTo, // HARD FILTER (nil = admin bypass)
 				DirectoryID:    req.DirectoryID,
 				Tags:           req.Tags,
 			})
@@ -131,7 +140,7 @@ func (s *HybridSearcher) Search(ctx context.Context, req SearchRequest) (*Search
 		TopK:        topK,
 		WorkspaceID: ws,
 		DirectoryID: req.DirectoryID,
-		VisibleTo:   scope.SubjectIDs, // HARD FILTER
+		VisibleTo:   visibleTo, // HARD FILTER (nil = admin bypass)
 	})
 	if err != nil {
 		s.Logf("rag/search: bm25 path failed: %v", err)
@@ -163,7 +172,8 @@ func (s *HybridSearcher) Search(ctx context.Context, req SearchRequest) (*Search
 
 	// 6. Defensive RBAC re-check (defense in depth): drop any candidate whose
 	// Dense payload visible_to (if known) does not intersect the user subjects.
-	cands = recheckRBAC(cands, dense, scope.SubjectIDs)
+	// Skipped for admin (empty subjects = bypass).
+	cands = recheckRBAC(cands, dense, visibleTo)
 
 	// 7. Assemble, cap to TopN.
 	if len(cands) > topN {
@@ -238,6 +248,9 @@ func rerankKey(c candidate) float32 {
 // Dense results with a visible_to that does NOT intersect the user's subjects is
 // dropped. (Dense already filtered server-side; this guards against bugs/leaks.)
 func recheckRBAC(cands []candidate, dense []rag.VectorHit, subjects []string) []candidate {
+	if len(subjects) == 0 {
+		return cands // admin bypass or no dense results to cross-check
+	}
 	if len(dense) == 0 {
 		return cands // nothing to cross-check (BM25 path already SQL-filtered)
 	}

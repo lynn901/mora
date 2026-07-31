@@ -20,28 +20,36 @@ type RBACResolver struct {
 func NewRBACResolver(pool *pgxpool.Pool) *RBACResolver { return &RBACResolver{Pool: pool} }
 
 const readerSQL = `
-    SELECT DISTINCT p.subject_type || ':' || p.subject_id::text
-    FROM permissions p
-    WHERE p.effect = 'allow'
-      AND (
-        p.target_type = 'document'  AND p.target_id = $1
-        OR p.target_type = 'directory' AND p.inherit_scope = 'subtree'
-           AND p.target_id = (SELECT directory_id FROM documents WHERE id=$1)
-        OR p.target_type = 'workspace' AND p.inherit_scope = 'subtree'
-           AND p.target_id = (SELECT workspace_id FROM documents WHERE id=$1)
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM permissions p2
-        WHERE p2.effect = 'deny'
-          AND p2.subject_id = p.subject_id AND p2.subject_type = p.subject_type
-          AND (
-            p2.target_type = 'document'  AND p2.target_id = $1
-            OR p2.target_type = 'directory' AND p2.inherit_scope = 'subtree'
-               AND p2.target_id = (SELECT directory_id FROM documents WHERE id=$1)
-            OR p2.target_type = 'workspace' AND p2.inherit_scope = 'subtree'
-               AND p2.target_id = (SELECT workspace_id FROM documents WHERE id=$1)
-          )
-      )`
+    SELECT DISTINCT subject FROM (
+      SELECT p.subject_type || ':' || p.subject_id::text AS subject
+      FROM permissions p
+      WHERE p.effect = 'allow'
+        AND (
+          p.target_type = 'document'  AND p.target_id = $1
+          OR p.target_type = 'directory' AND p.inherit_scope = 'subtree'
+             AND p.target_id = (SELECT directory_id FROM documents WHERE id=$1)
+          OR p.target_type = 'workspace' AND p.inherit_scope = 'subtree'
+             AND p.target_id = (SELECT workspace_id FROM documents WHERE id=$1)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM permissions p2
+          WHERE p2.effect = 'deny'
+            AND p2.subject_id = p.subject_id AND p2.subject_type = p.subject_type
+            AND (
+              p2.target_type = 'document'  AND p2.target_id = $1
+              OR p2.target_type = 'directory' AND p2.inherit_scope = 'subtree'
+                 AND p2.target_id = (SELECT directory_id FROM documents WHERE id=$1)
+              OR p2.target_type = 'workspace' AND p2.inherit_scope = 'subtree'
+                 AND p2.target_id = (SELECT workspace_id FROM documents WHERE id=$1)
+            )
+        )
+      UNION
+      -- workspace owner is always a reader of their workspace's documents
+      SELECT 'user:' || w.owner_id::text AS subject
+      FROM workspaces w
+      JOIN documents d ON d.workspace_id = w.id
+      WHERE d.id = $1
+    ) AS readers`
 
 func (r *RBACResolver) ResolveReaders(ctx context.Context, docID string) ([]string, error) {
 	rows, err := r.Pool.Query(ctx, readerSQL, docID)

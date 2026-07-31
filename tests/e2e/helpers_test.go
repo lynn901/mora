@@ -752,6 +752,9 @@ func (ms *mcpSession) deleteSession() int {
 }
 
 // toolCallsAudit queries the MCP admin audit endpoint for tool-call records.
+// The audit endpoint lives on the MCP server (not wiki-api) and returns a bare
+// {"items":[...]} JSON (not the wiki-api {code,data,message} envelope), so the
+// response is parsed directly.
 func (s *Suite) toolCallsAudit(cl *Client, query string) []map[string]any {
 	path := "/mcp/tool-calls"
 	if query != "" {
@@ -760,7 +763,10 @@ func (s *Suite) toolCallsAudit(cl *Client, query string) []map[string]any {
 	var out struct {
 		Items []map[string]any `json:"items"`
 	}
-	cl.get(path, &out)
+	_, _, data, err := s.mcpClient(s.cfg.DevToken).raw(http.MethodGet, path, nil, nil)
+	if err == nil && len(data) > 0 {
+		_ = json.Unmarshal(data, &out)
+	}
 	return out.Items
 }
 
