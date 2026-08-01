@@ -220,8 +220,8 @@ Block JSON → 递归遍历 → 提取纯文本（保留标题层级标记） �
 ### 4.1 Collection 设计
 
 ```
-Collection: wiki_chunks_{model_slug}_{dim}
-  例: wiki_chunks_qwen3_0_6b_1024
+Collection: mora_chunks_{model_slug}_{dim}
+  例: mora_chunks_qwen3_0_6b_1024
 
 向量配置:
   dense:  { size: 1024, distance: Cosine }

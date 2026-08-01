@@ -36,8 +36,13 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	// Configure the Qdrant collection-name prefix before indexing resolves a
+	// collection. Must match mora-api (search path). Defaults to "mora_chunks_";
+	// RAG_COLLECTION_PREFIX overrides it (brand-naming-spec §4-F, YS-49).
+	domain.SetCollectionPrefix(env("RAG_COLLECTION_PREFIX", "mora_chunks_"))
+
 	// --- Postgres ---
-	pool, err := pgxpool.New(ctx, env("DATABASE_URL", "postgres://wiki:wiki@postgres:5432/wiki?sslmode=disable"))
+	pool, err := pgxpool.New(ctx, env("DATABASE_URL", "postgres://mora:mora@postgres:5432/mora?sslmode=disable"))
 	if err != nil {
 		log.Fatalf("pg connect: %v", err)
 	}

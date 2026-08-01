@@ -46,7 +46,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	for i, g := range groups {
 		gidStrs[i] = g.String()
 	}
-	isAdmin := user.Status == "active" && user.Email == "admin@wiki.local"
+	isAdmin := user.Status == "active" && user.Email == "admin@mora.local"
 	tok, err := h.tm.Issue(user.ID, user.Email, user.Name, gidStrs, isAdmin)
 	if err != nil {
 		response.Fail(c, errors.New("failed to issue token"))

@@ -16,17 +16,18 @@ import (
 // entrypoints (return Config).
 type Config struct {
 	// --- shared ---
-	HTTPAddr      string
-	DatabaseURL   string // mora-api / rag-worker PG DSN
-	PostgresDSN   string // mcp-server PG DSN (alias of DatabaseURL)
-	ValkeyURL     string
-	QdrantURL     string
-	TEIURL        string
-	OllamaURL     string
-	RerankerModel string
-	JWTSecret     string
-	JWTTTL        time.Duration
-	LogLevel      string
+	HTTPAddr               string
+	DatabaseURL            string // mora-api / rag-worker PG DSN
+	PostgresDSN            string // mcp-server PG DSN (alias of DatabaseURL)
+	ValkeyURL              string
+	QdrantURL              string
+	QdrantCollectionPrefix string // Qdrant collection-name prefix (default "mora_chunks_")
+	TEIURL                 string
+	OllamaURL              string
+	RerankerModel          string
+	JWTSecret              string
+	JWTTTL                 time.Duration
+	LogLevel               string
 
 	// --- embedding / search ---
 	EmbeddingProvider string
@@ -66,37 +67,38 @@ type Config struct {
 // the mora-api binary. Returns an error only on malformed duration/int values.
 func Load() (*Config, error) {
 	cfg := &Config{
-		HTTPAddr:              getenv("HTTP_ADDR", ":8080"),
-		DatabaseURL:           getenv("DATABASE_URL", ""),
-		PostgresDSN:           getenv("DATABASE_URL", ""),
-		ValkeyURL:             getenv("VALKEY_URL", "redis://localhost:6379"),
-		MinioEndpoint:         getenv("MINIO_ENDPOINT", "localhost:9000"),
-		MinioAccessKey:        getenv("MINIO_ACCESS_KEY", ""),
-		MinioSecretKey:        getenv("MINIO_SECRET_KEY", ""),
-		QdrantURL:             getenv("QDRANT_URL", "http://localhost:6333"),
-		TEIURL:                getenv("TEI_URL", "http://localhost:8080"),
-		OllamaURL:             getenv("OLLAMA_URL", "http://localhost:11434"),
-		RerankerModel:         getenv("RERANKER_MODEL", ""),
-		JWTSecret:             getenv("JWT_SECRET", ""),
-		EmbeddingProvider:     getenv("EMBEDDING_PROVIDER", "tei"),
-		EmbeddingModel:        getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
-		FTSConfig:             getenv("FTS_CONFIG", ""),
-		VersionRetentionDays:  getenvInt("VERSION_RETENTION_DAYS", 90),
-		VersionRetentionCount: getenvInt("VERSION_RETENTION_COUNT", 100),
-		CollabMaxConcurrent:   getenvInt("COLLAB_MAX_CONCURRENT", 50),
-		RateLimitDocPerMin:    getenvInt("RATE_LIMIT_DOC_PER_MIN", 300),
-		RateLimitSearchPerMin: getenvInt("RATE_LIMIT_SEARCH_PER_MIN", 200),
-		RateLimitMCPPerMin:    getenvInt("RATE_LIMIT_MCP_PER_MIN", 100),
-		Transport:             getenv("MCP_TRANSPORT", "http"),
-		MoraAPIURL:            getenv("WIKI_API_URL", "http://localhost:8080"),
-		InternalToken:         os.Getenv("INTERNAL_SERVICE_TOKEN"),
-		RateLimitRead:         getenvInt("MCP_RATE_LIMIT_READ", 100),
-		RateLimitWrite:        getenvInt("MCP_RATE_LIMIT_WRITE", 20),
-		ProtocolVersion:       getenv("MCP_PROTOCOL_VERSION", "2025-06-18"),
-		ServerName:            getenv("MCP_SERVER_NAME", "mora-mcp"),
-		ServerVersion:         getenv("MCP_SERVER_VERSION", "1.0.0"),
-		ConsumerName:          getenv("CONSUMER_NAME", "rag-worker-1"),
-		LogLevel:              strings.ToLower(getenv("LOG_LEVEL", "info")),
+		HTTPAddr:               getenv("HTTP_ADDR", ":8080"),
+		DatabaseURL:            getenv("DATABASE_URL", ""),
+		PostgresDSN:            getenv("DATABASE_URL", ""),
+		ValkeyURL:              getenv("VALKEY_URL", "redis://localhost:6379"),
+		MinioEndpoint:          getenv("MINIO_ENDPOINT", "localhost:9000"),
+		MinioAccessKey:         getenv("MINIO_ACCESS_KEY", ""),
+		MinioSecretKey:         getenv("MINIO_SECRET_KEY", ""),
+		QdrantURL:              getenv("QDRANT_URL", "http://localhost:6333"),
+		QdrantCollectionPrefix: getenv("RAG_COLLECTION_PREFIX", "mora_chunks_"),
+		TEIURL:                 getenv("TEI_URL", "http://localhost:8080"),
+		OllamaURL:              getenv("OLLAMA_URL", "http://localhost:11434"),
+		RerankerModel:          getenv("RERANKER_MODEL", ""),
+		JWTSecret:              getenv("JWT_SECRET", ""),
+		EmbeddingProvider:      getenv("EMBEDDING_PROVIDER", "tei"),
+		EmbeddingModel:         getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
+		FTSConfig:              getenv("FTS_CONFIG", ""),
+		VersionRetentionDays:   getenvInt("VERSION_RETENTION_DAYS", 90),
+		VersionRetentionCount:  getenvInt("VERSION_RETENTION_COUNT", 100),
+		CollabMaxConcurrent:    getenvInt("COLLAB_MAX_CONCURRENT", 50),
+		RateLimitDocPerMin:     getenvInt("RATE_LIMIT_DOC_PER_MIN", 300),
+		RateLimitSearchPerMin:  getenvInt("RATE_LIMIT_SEARCH_PER_MIN", 200),
+		RateLimitMCPPerMin:     getenvInt("RATE_LIMIT_MCP_PER_MIN", 100),
+		Transport:              getenv("MCP_TRANSPORT", "http"),
+		MoraAPIURL:             getenv("WIKI_API_URL", "http://localhost:8080"),
+		InternalToken:          os.Getenv("INTERNAL_SERVICE_TOKEN"),
+		RateLimitRead:          getenvInt("MCP_RATE_LIMIT_READ", 100),
+		RateLimitWrite:         getenvInt("MCP_RATE_LIMIT_WRITE", 20),
+		ProtocolVersion:        getenv("MCP_PROTOCOL_VERSION", "2025-06-18"),
+		ServerName:             getenv("MCP_SERVER_NAME", "mora-mcp"),
+		ServerVersion:          getenv("MCP_SERVER_VERSION", "1.0.0"),
+		ConsumerName:           getenv("CONSUMER_NAME", "rag-worker-1"),
+		LogLevel:               strings.ToLower(getenv("LOG_LEVEL", "info")),
 	}
 	cfg.EmbeddingDim = getenvInt("EMBEDDING_DIM", 384)
 	cfg.PostgresDSN = cfg.DatabaseURL
@@ -122,20 +124,21 @@ func Load() (*Config, error) {
 // Default returns a Config populated with MCP-safe production defaults.
 func Default() Config {
 	return Config{
-		HTTPAddr:        ":8081",
-		Transport:       "http",
-		MoraAPIURL:      "http://localhost:8080",
-		InternalToken:   "",
-		PostgresDSN:     "",
-		DatabaseURL:     "",
-		ValkeyURL:       "",
-		RateLimitRead:   100,
-		RateLimitWrite:  20,
-		SessionTTL:      30 * time.Minute,
-		ProtocolVersion: "2025-06-18",
-		ServerName:      "mora-mcp",
-		ServerVersion:   "1.0.0",
-		LogLevel:        "info",
+		HTTPAddr:               ":8081",
+		Transport:              "http",
+		MoraAPIURL:             "http://localhost:8080",
+		InternalToken:          "",
+		PostgresDSN:            "",
+		DatabaseURL:            "",
+		ValkeyURL:              "",
+		QdrantCollectionPrefix: "mora_chunks_",
+		RateLimitRead:          100,
+		RateLimitWrite:         20,
+		SessionTTL:             30 * time.Minute,
+		ProtocolVersion:        "2025-06-18",
+		ServerName:             "mora-mcp",
+		ServerVersion:          "1.0.0",
+		LogLevel:               "info",
 	}
 }
 
@@ -159,6 +162,7 @@ func FromEnv() Config {
 	c.PostgresDSN = c.DatabaseURL
 	c.ValkeyURL = os.Getenv("VALKEY_URL")
 	c.QdrantURL = getenv("QDRANT_URL", "http://localhost:6333")
+	c.QdrantCollectionPrefix = getenv("RAG_COLLECTION_PREFIX", "mora_chunks_")
 	c.TEIURL = getenv("TEI_URL", "http://localhost:8080")
 	c.OllamaURL = getenv("OLLAMA_URL", "http://localhost:11434")
 	if v := getenvInt("MCP_RATE_LIMIT_READ", 0); v > 0 {

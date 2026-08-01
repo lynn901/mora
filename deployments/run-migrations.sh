@@ -7,9 +7,9 @@ set -e
 
 : "${PGHOST:=postgres}"
 : "${PGPORT:=5432}"
-: "${PGUSER:=wiki}"
-: "${PGDATABASE:=wiki}"
-export PGPASSWORD="${POSTGRES_PASSWORD:-wiki}"
+: "${PGUSER:=mora}"
+: "${PGDATABASE:=mora}"
+export PGPASSWORD="${POSTGRES_PASSWORD:-mora}"
 
 PSQL="psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -v ON_ERROR_STOP=1"
 

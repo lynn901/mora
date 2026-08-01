@@ -35,8 +35,8 @@ func TestUserRepo_List_NullAvatarURLScan(t *testing.T) {
 
 	// One user with NULL avatar_url (reproduces the admin-seed defect condition)
 	// and one with a set avatar_url, to cover both scan branches.
-	const nullEmail = "ys27_null@wiki.local"
-	const setEmail = "ys27_set@wiki.local"
+	const nullEmail = "ys27_null@mora.local"
+	const setEmail = "ys27_set@mora.local"
 	const avatar = "https://cdn.local/avatar.png"
 	for _, e := range []string{nullEmail, setEmail} {
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE email=$1`, e)

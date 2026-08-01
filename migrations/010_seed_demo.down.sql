@@ -6,10 +6,10 @@ DELETE FROM api_tokens WHERE token_hash = '15611f355a858b9800b308d515aaaba205a08
 DELETE FROM permissions
 WHERE target_type = 'workspace' AND target_id = '11111111-1111-1111-1111-111111111111'
   AND subject_type = 'user'
-  AND subject_id = (SELECT id FROM users WHERE email = 'admin@wiki.local');
+  AND subject_id = (SELECT id FROM users WHERE email = 'admin@mora.local');
 
 DELETE FROM embedding_models WHERE provider = 'tei' AND model_name = 'sentence-transformers/all-MiniLM-L6-v2';
 
 DELETE FROM workspaces WHERE id = '11111111-1111-1111-1111-111111111111';
 
-UPDATE users SET password_hash = NULL WHERE email = 'admin@wiki.local';
+UPDATE users SET password_hash = NULL WHERE email = 'admin@mora.local';

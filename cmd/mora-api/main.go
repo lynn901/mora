@@ -42,6 +42,11 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
+	// Configure the Qdrant collection-name prefix before any search/index path
+	// resolves a collection. Defaults to "mora_chunks_"; RAG_COLLECTION_PREFIX
+	// overrides it (brand-naming-spec §4-F, PM suggestion in YS-49).
+	domain.SetCollectionPrefix(cfg.QdrantCollectionPrefix)
+
 	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("db pool: %v", err)

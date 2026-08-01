@@ -24,7 +24,7 @@ go test -tags=e2e -v ./tests/e2e/...
 - wiki-api / mcp-server / rag-worker 可达且健康（`/healthz`、`/mcp/health`）
 - PG / Valkey / Qdrant / TEI（或 Ollama）已起，迁移 001~010 已执行
 - `DATABASE_URL`：RBAC 跨层、MCP 越权/审计、存在性不泄露等用例需播种非管理员用户与自定义作用域 Token；未设置时这些用例自动 skip
-- 种子数据（迁移 010）：`admin@wiki.local/admin123`、演示工作区、激活的 embedding 模型、MCP dev token
+- 种子数据（迁移 010）：`admin@mora.local/admin123`、演示工作区、激活的 embedding 模型、MCP dev token
 
 **已知实现缺口（执行前排查：若以下用例失败，先确认是缺口而非脚本问题）**：
 1. `GET /api/v1/documents/:id/versions` 返回桩（stub）而非版本历史 → AC-6 用 mounted 的 `diff`+`rollback`+`version_no` 路径验证

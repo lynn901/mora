@@ -56,20 +56,20 @@ go test -tags=e2e -v -run TestCoreClosedLoop ./tests/e2e/...
 | `E2E_MCP_URL` | http://localhost:8081 | mcp-server 基址 |
 | `DATABASE_URL` | （空） | PG DSN；未设则需 DB 夹具的用例 skip |
 | `INTERNAL_SERVICE_TOKEN` | wiki-internal-token | 可信内部调用凭证（MCP→wiki 透传身份用） |
-| `E2E_ADMIN_EMAIL` | admin@wiki.local | 管理员邮箱（迁移 010 种子） |
+| `E2E_ADMIN_EMAIL` | admin@mora.local | 管理员邮箱（迁移 010 种子） |
 | `E2E_ADMIN_PASSWORD` | admin123 | 管理员密码 |
 | `E2E_DEV_TOKEN` | wki_dev_a1b2c3d4... | MCP dev token（readwrite，绑定 admin） |
 | `E2E_INDEX_TIMEOUT` | 120s | index_status 到达 indexed 的轮询窗口 |
 
 ## 种子数据（迁移 010）
 
-- 管理员 `admin@wiki.local` / `admin123`（JWT 登录，isAdmin）
-- 演示工作区 `11111111-...`（slug `eng-wiki`）
+- 管理员 `admin@mora.local` / `admin123`（JWT 登录，isAdmin）
+- 演示工作区 `11111111-...`（slug `eng-mora`）
 - 激活 embedding 模型：tei / Qwen/Qwen3-Embedding-0.6B / dim 1024
 - MCP dev token `wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4`（readwrite）
 
 E2E 套件额外播种（需 `DATABASE_URL`，套件结束清理）：
-- `e2e_alice@wiki.local`（alice123）、`e2e_bob@wiki.local`（bob123）—— 非管理员用户
+- `e2e_alice@mora.local`（alice123）、`e2e_bob@mora.local`（bob123）—— 非管理员用户
 - alice：readwrite / readonly Token；bob：readonly Token；外加过期 Token、可撤销 Token
 
 ## 测试组织

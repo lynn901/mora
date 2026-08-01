@@ -44,7 +44,7 @@ func loadConfig() config {
 		MCPURL:        envOr("E2E_MCP_URL", "http://localhost:8081"),
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		InternalToken: envOr("INTERNAL_SERVICE_TOKEN", "wiki-internal-token"),
-		AdminEmail:    envOr("E2E_ADMIN_EMAIL", "admin@wiki.local"),
+		AdminEmail:    envOr("E2E_ADMIN_EMAIL", "admin@mora.local"),
 		AdminPassword: envOr("E2E_ADMIN_PASSWORD", "admin123"),
 		DevToken:      envOr("E2E_DEV_TOKEN", "wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"),
 	}
@@ -296,13 +296,13 @@ func (s *Suite) login(email, pw string) (string, error) {
 
 func (s *Suite) seedFixtures() {
 	ctx := context.Background()
-	s.aliceUserID = s.seedUser(ctx, "e2e_alice@wiki.local", "Alice E2E", "alice123")
-	s.bobUserID = s.seedUser(ctx, "e2e_bob@wiki.local", "Bob E2E", "bob123")
+	s.aliceUserID = s.seedUser(ctx, "e2e_alice@mora.local", "Alice E2E", "alice123")
+	s.bobUserID = s.seedUser(ctx, "e2e_bob@mora.local", "Bob E2E", "bob123")
 
 	var err error
-	s.aliceJWT, err = s.login("e2e_alice@wiki.local", "alice123")
+	s.aliceJWT, err = s.login("e2e_alice@mora.local", "alice123")
 	require.NoError(s.T(), err, "alice login")
-	s.bobJWT, err = s.login("e2e_bob@wiki.local", "bob123")
+	s.bobJWT, err = s.login("e2e_bob@mora.local", "bob123")
 	require.NoError(s.T(), err, "bob login")
 
 	s.aliceRWToken = s.seedToken(ctx, "e2e-alice-rw", s.aliceUserID, "readwrite", nil)
@@ -316,7 +316,7 @@ func (s *Suite) seedFixtures() {
 func (s *Suite) cleanupFixtures() {
 	ctx := context.Background()
 	// Best-effort: remove e2e tokens + users created by this run.
-	for _, email := range []string{"e2e_alice@wiki.local", "e2e_bob@wiki.local"} {
+	for _, email := range []string{"e2e_alice@mora.local", "e2e_bob@mora.local"} {
 		_, _ = s.pool.Exec(ctx, `DELETE FROM api_tokens WHERE name LIKE 'e2e-%'`)
 		// Clean docs/dirs owned by these users to avoid FK blocks, then users.
 		var uid string
@@ -327,7 +327,7 @@ func (s *Suite) cleanupFixtures() {
 		}
 	}
 	_, _ = s.pool.Exec(ctx, `DELETE FROM api_tokens WHERE name LIKE 'e2e-%'`)
-	_, _ = s.pool.Exec(ctx, `DELETE FROM users WHERE email IN ('e2e_alice@wiki.local','e2e_bob@wiki.local')`)
+	_, _ = s.pool.Exec(ctx, `DELETE FROM users WHERE email IN ('e2e_alice@mora.local','e2e_bob@mora.local')`)
 	// Clean any e2e-tagged docs/workspaces created by admin during runs.
 	_, _ = s.pool.Exec(ctx, `DELETE FROM documents WHERE title LIKE 'E2E-%'`)
 	_, _ = s.pool.Exec(ctx, `DELETE FROM permissions WHERE target_id IN (SELECT id FROM workspaces WHERE slug LIKE 'e2e-%')`)

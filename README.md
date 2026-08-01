@@ -77,7 +77,7 @@ make logs
 #   前端界面     http://localhost:3000
 #   wiki-api    http://localhost:8990 (/healthz /ready)
 #   mcp-server  http://localhost:8081  (/mcp/health)
-#   默认管理员  admin@wiki.local / admin123
+#   默认管理员  admin@mora.local / admin123
 
 # 6. 冒烟验证
 make verify

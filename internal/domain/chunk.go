@@ -6,7 +6,10 @@
 // Mora backend (YS-6) supplies the concrete repositories.
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // NOTE: IndexStatus / IndexPending / IndexProcessing / IndexIndexed / IndexFailed
 // are defined in user.go (owned by the Mora backend, YS-6) and reused by RAG.
@@ -35,10 +38,30 @@ type EmbeddingModel struct {
 	UpdatedAt        time.Time
 }
 
+// collectionPrefix is the Qdrant collection-name prefix. It defaults to
+// "mora_chunks_" (brand-naming-spec §4-F) and is configurable at process start
+// via SetCollectionPrefix so future renames cost nothing (PM suggestion,
+// adopted in YS-49). The domain package stays env-free; binaries inject the
+// configured value from env (e.g. RAG_COLLECTION_PREFIX) at startup.
+var collectionPrefix = "mora_chunks_"
+
+// SetCollectionPrefix overrides the Qdrant collection-name prefix. It must be
+// called once at process start, before any indexing/search runs, so that all
+// callers of CollectionName agree on the same collection. Leading/trailing
+// spaces are trimmed; an empty value is ignored to keep the default safe.
+func SetCollectionPrefix(prefix string) {
+	if p := strings.TrimSpace(prefix); p != "" {
+		collectionPrefix = p
+	}
+}
+
+// CollectionPrefix returns the currently configured collection-name prefix.
+func CollectionPrefix() string { return collectionPrefix }
+
 // CollectionName returns the deterministic Qdrant collection name for a model.
 // One collection per model; dimension changes require a new collection.
 func (m EmbeddingModel) CollectionName() string {
-	return "wiki_chunks_" + slug(m.Provider) + "_" + slug(m.ModelName) + "_" + itoa(m.Dimension)
+	return collectionPrefix + slug(m.Provider) + "_" + slug(m.ModelName) + "_" + itoa(m.Dimension)
 }
 
 // Chunk mirrors the chunks table (vector body lives in Qdrant; this is metadata

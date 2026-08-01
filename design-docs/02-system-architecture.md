@@ -510,7 +510,7 @@ type EmbeddingProvider interface {
 
 ```bash
 # 数据库
-DATABASE_URL=postgres://wiki:***@postgres:5432/wiki?sslmode=disable
+DATABASE_URL=postgres://mora:***@postgres:5432/mora?sslmode=disable
 
 # Valkey（消息队列+缓存）
 VALKEY_URL=valkey://valkey:6379

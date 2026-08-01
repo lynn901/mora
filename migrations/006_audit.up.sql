@@ -28,4 +28,4 @@ CREATE INDEX idx_audit_target ON audit_logs(target_type, target_id);
 CREATE INDEX idx_audit_created ON audit_logs(created_at DESC);
 
 -- 审计表仅允许追加：限制应用 DB 角色不可 UPDATE/DELETE（部署时执行）
--- REVOKE UPDATE, DELETE ON audit_logs FROM wiki_app;
+-- REVOKE UPDATE, DELETE ON audit_logs FROM mora_app;

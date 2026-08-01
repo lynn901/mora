@@ -9,7 +9,7 @@ WIKI_PORT="${WIKI_API_PORT:-8990}"
 MCP_PORT="${MCP_SERVER_PORT:-8081}"
 WIKI="http://localhost:${WIKI_PORT}"
 MCP="http://localhost:${MCP_PORT}"
-ADMIN_EMAIL="admin@wiki.local"
+ADMIN_EMAIL="admin@mora.local"
 ADMIN_PW="admin123"
 DEV_TOKEN="wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 PASS=0
@@ -37,7 +37,7 @@ if echo "${HC}" | grep -q '"status":"ready"'; then ok "wiki-api /ready (PG 连�
 HC=$(curlv "${MCP}/mcp/health")
 if echo "${HC}" | grep -q '"status":"ok"'; then ok "mcp-server /mcp/health"; else fail "mcp-server /mcp/health"; echo "  响应: ${HC}"; echo "  提示: docker compose logs mcp-server 查看启动错误"; fi
 
-section "2. 登录获取 JWT（admin@wiki.local / admin123）"
+section "2. 登录获取 JWT（admin@mora.local / admin123）"
 LOGIN=$(curlv -XPOST "${WIKI}/api/v1/auth/login" -H 'Content-Type: application/json' -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PW}\"}")
 JWT=$(echo "${LOGIN}" | python3 -c "import json,sys; s=sys.stdin.read().split('__HTTP_CODE__')[0]; print(json.loads(s).get('data',{}).get('token',''))" 2>/dev/null || echo "")
 if [ -n "$JWT" ] && [ "$JWT" != "" ]; then ok "JWT 获取成功"; else fail "登录失败"; echo "  响应: ${LOGIN}"; fi

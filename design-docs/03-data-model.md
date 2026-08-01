@@ -424,8 +424,8 @@ CREATE INDEX idx_comments_unresolved ON comments(document_id) WHERE resolved = f
 ### 3.1 Collection 设计
 
 ```
-Collection: wiki_chunks_{model_id}_{dim}
-  例: wiki_chunks_qwen3_1024
+Collection: mora_chunks_{model_id}_{dim}
+  例: mora_chunks_qwen3_1024
 
 向量配置:
   dense向量: size=1024, distance=Cosine

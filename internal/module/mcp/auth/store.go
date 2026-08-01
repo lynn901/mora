@@ -132,7 +132,7 @@ func (s *PostgresTokenStore) Lookup(ctx context.Context, tokenHash string) (*Tok
 	}
 	t.IdentityType = rbac.IdentityType(identityType)
 	t.Scope = rbac.Scope(scope)
-	t.IsAdmin = email == "admin@wiki.local"
+	t.IsAdmin = email == "admin@mora.local"
 	// Groups resolution: fetch group memberships for the identity (defence in
 	// depth; the Mora RBAC engine is authoritative). Left empty here as the
 	// groups table is owned by the mora module; MCP relies on identity-id based

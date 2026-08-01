@@ -63,5 +63,5 @@ CREATE TABLE service_accounts (
 
 -- 系统内置超级管理员（占位，实际由部署脚本注入）
 INSERT INTO users (email, name, status) VALUES
-    ('admin@wiki.local', 'System Admin', 'active')
+    ('admin@mora.local', 'System Admin', 'active')
 ON CONFLICT (email) DO NOTHING;
