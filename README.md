@@ -17,12 +17,12 @@
 ## 目录结构
 
 ```
-cmd/wiki-api/            服务入口（路由装配、中间件、生命周期）
+cmd/mora-api/            服务入口（路由装配、中间件、生命周期）
 internal/
   domain/                领域实体（User/Workspace/Document/Block/Permission/...）
   pkg/                   errors / response / pagination 通用工具
   platform/              config / auth(JWT) / audit / rbac(引擎) / ratelimit
-  module/wiki/
+  module/mora/
     content/             Markdown↔Block 双向可逆转换（AC-1）
     service/             纯业务逻辑（文档编排、目录树装配、仓库接口）
     version/             版本 Diff（AC-6）
@@ -75,7 +75,7 @@ make logs
 
 # 5. 访问
 #   前端界面     http://localhost:3000
-#   wiki-api    http://localhost:8990 (/healthz /ready)
+#   mora-api    http://localhost:8990 (/healthz /ready)
 #   mcp-server  http://localhost:8081  (/mcp/health)
 #   默认管理员  admin@mora.local / admin123
 
@@ -92,7 +92,7 @@ make verify
 | valkey | 6379 | - | 事件流（RAG 管道驱动） |
 | qdrant | 6333 | - | 向量数据库 |
 | tei | 8080 | - | 本地 Embedding 推理（默认） |
-| wiki-api | 8080 | 8990 | 主 REST API |
+| mora-api | 8080 | 8990 | 主 REST API |
 | rag-worker | 8082 | - | RAG 索引消费者 |
 | mcp-server | 8081 | 8081 | MCP 协议服务器 |
 | migrate | - | - | 一次性 DB 迁移 init 容器 |
@@ -103,12 +103,12 @@ make verify
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `WIKI_API_PORT` | 8990 | wiki-api 宿主端口 |
+| `MORA_API_PORT` | 8990 | mora-api 宿主端口 |
 | `MCP_SERVER_PORT` | 8081 | MCP 服务端口 |
-| `WIKI_FRONTEND_PORT` | 3000 | 前端宿主端口 |
-| `POSTGRES_PASSWORD` | wiki | PostgreSQL 密码（生产必改） |
+| `MORA_FRONTEND_PORT` | 3000 | 前端宿主端口 |
+| `POSTGRES_PASSWORD` | mora | PostgreSQL 密码（生产必改） |
 | `JWT_SECRET` | change-me-in-production | JWT 签名密钥（生产必改） |
-| `INTERNAL_SERVICE_TOKEN` | wiki-internal-token | 服务间鉴权 Token（生产必改） |
+| `INTERNAL_SERVICE_TOKEN` | mora-internal-token | 服务间鉴权 Token（生产必改） |
 | `EMBEDDING_MODEL` | sentence-transformers/all-MiniLM-L6-v2 | Embedding 模型 |
 | `FTS_CONFIG` | simple | 全文搜索配置（中文需 zhparser） |
 
@@ -179,15 +179,15 @@ make restore
 
 # 全量导出（用于迁移到另一实例）
 make export
-# 输出 wiki-export-<timestamp>.tar.gz
+# 输出 mora-export-<timestamp>.tar.gz
 
 # 在目标实例导入
-./deployments/export.sh import wiki-export-20260731.tar.gz
+./deployments/export.sh import mora-export-20260731.tar.gz
 ```
 
 ### K8s 生产部署（Helm Chart）
 
-Helm Chart 位于 `deployments/chart/wiki/`，含 10 个模板文件：
+Helm Chart 位于 `deployments/chart/mora/`，含 10 个模板文件：
 
 | 模板 | 组件 | 功能 |
 |------|------|------|
@@ -196,7 +196,7 @@ Helm Chart 位于 `deployments/chart/wiki/`，含 10 个模板文件：
 | `qdrant.yaml` | Qdrant | Deployment + Service + PVC |
 | `tei.yaml` | TEI | Deployment + Service + PVC, 模型参数注入 |
 | `migrate-job.yaml` | DB 迁移 | Helm hook Job (post-install/post-upgrade) |
-| `wiki-api.yaml` | Mora API | Deployment + Service + HPA, rolling update |
+| `mora-api.yaml` | Mora API | Deployment + Service + HPA, rolling update |
 | `rag-worker.yaml` | RAG Worker | Deployment, rolling update |
 | `mcp-server.yaml` | MCP Server | Deployment + Service, rolling update |
 | `frontend.yaml` | Nginx 前端 | Deployment + Service + Ingress (TLS 可选) |
@@ -204,20 +204,20 @@ Helm Chart 位于 `deployments/chart/wiki/`，含 10 个模板文件：
 
 ```bash
 # 1. 构建镜像并推送到仓库
-docker build --build-arg TARGET=wiki-api -t registry/wiki-api:latest .
+docker build --build-arg TARGET=mora-api -t registry/mora-api:latest .
 docker build --build-arg TARGET=rag-worker -t registry/rag-worker:latest .
 docker build --build-arg TARGET=mcp-server -t registry/mcp-server:latest .
-docker build -f deployments/Dockerfile.web -t registry/wiki-frontend:latest .
+docker build -f deployments/Dockerfile.web -t registry/mora-frontend:latest .
 
 # 2. 生成 migration ConfigMap
 bash deployments/chart/hack/generate-migrations-cm.sh
 
 # 3. 部署
-helm install wiki ./deployments/chart/wiki \
+helm install mora ./deployments/chart/mora \
   --set postgresql.auth.password="prod-pg-pass" \
   --set config.jwtSecret="prod-jwt-secret-here" \
   --set config.internalServiceToken="prod-internal-token" \
-  --set frontend.ingress.host="wiki.example.com" \
+  --set frontend.ingress.host="mora.example.com" \
   --set frontend.ingress.tls.enabled=true \
   --set image.registry="registry/"
 ```
@@ -225,7 +225,7 @@ helm install wiki ./deployments/chart/wiki \
 **Helm 特性：**
 - **滚动升级**：所有应用 Deployment 配置 `maxUnavailable: 0`，零宕机升级
 - **健康检查**：livenessProbe + readinessProbe（HTTP / TCP）
-- **HPA**：wiki-api 默认 2-10 副本，CPU > 70% 自动扩容
+- **HPA**：mora-api 默认 2-10 副本，CPU > 70% 自动扩容
 - **PVC**：每个有状态组件独立 PVC，`persistence.defaultStorageClass` 全局可配
 - **Ingress**：前端 nginx 可选 Ingress + TLS（cert-manager 自动证书）
 
@@ -243,7 +243,7 @@ helm install wiki ./deployments/chart/wiki \
 
 ```bash
 # 查看某服务日志
-docker compose -f deployments/docker-compose.yml logs wiki-api
+docker compose -f deployments/docker-compose.yml logs mora-api
 docker compose -f deployments/docker-compose.yml logs rag-worker
 docker compose -f deployments/docker-compose.yml logs tei
 
@@ -264,7 +264,7 @@ docker compose -f deployments/docker-compose.yml restart rag-worker
 go test ./...
 
 # 集成测试（需可连通的 Postgres，含 9 套迁移）
-DATABASE_URL="host=/tmp port=5433 user=wiki dbname=wiki sslmode=disable" \
+DATABASE_URL="host=/tmp port=5433 user=mora dbname=mora sslmode=disable" \
   go test -tags=integration ./test/integration/...
 ```
 

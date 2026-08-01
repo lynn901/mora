@@ -8,7 +8,7 @@
 # 默认 TEI 作为 Embedding 推理；可选 Ollama：`docker compose --profile ollama up -d`。
 # 可选可观测：Prometheus + Grafana：`docker compose --profile monitoring up -d`。
 #
-# 联调种子（迁移 010）注入：管理员 admin@wiki.local/admin123、演示工作区、
+# 联调种子（迁移 010）注入：管理员 admin@mora.local/admin123、演示工作区、
 # 激活的 embedding 模型、MCP dev token(wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4)。
 #
 # 宿主端口冲突时用环境变量覆盖（无需改文件）：
@@ -195,7 +195,7 @@ services:
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-mora-internal-token}"
       MCP_RATE_LIMIT_READ: "100"
       MCP_RATE_LIMIT_WRITE: "20"
-      # 不设 MCP_USE_MOCK → prod 模式（PG token/session/audit + Valkey 限流 + HTTP WikiClient）
+      # 不设 MCP_USE_MOCK → prod 模式（PG token/session/audit + Valkey 限流 + HTTP MoraClient）
     healthcheck:
       test: ["CMD", "/app/healthcheck", "http://localhost:8081/mcp/health"]
       interval: 10s

@@ -329,14 +329,14 @@ func TestResourcesList(t *testing.T) {
 	b, _ := json.Marshal(resp.Result)
 	require.NoError(t, json.Unmarshal(b, &res))
 	uris := resourceURIs(res.Resources)
-	assert.Contains(t, uris, "wiki://workspaces")
-	assert.Contains(t, uris, "wiki://workspaces/"+wsEng+"/tree")
+	assert.Contains(t, uris, "mora://workspaces")
+	assert.Contains(t, uris, "mora://workspaces/"+wsEng+"/tree")
 }
 
 // AC-15: resources/read returns document metadata; no-permission returns empty.
 func TestResourcesReadMeta(t *testing.T) {
 	env := newTestEnv(t, 100, 20)
-	resp := env.rpc(t, env.tokenRW, "resources/read", map[string]any{"uri": "wiki://documents/" + docAPI + "/meta"})
+	resp := env.rpc(t, env.tokenRW, "resources/read", map[string]any{"uri": "mora://documents/" + docAPI + "/meta"})
 	require.Nil(t, resp.Error)
 	var res server.ResourceReadResult
 	b, _ := json.Marshal(resp.Result)
@@ -345,7 +345,7 @@ func TestResourcesReadMeta(t *testing.T) {
 	assert.Contains(t, res.Contents[0].Text, docAPI)
 
 	env.mock.RevokeRead(identity, wsEng)
-	resp = env.rpc(t, env.tokenRW, "resources/read", map[string]any{"uri": "wiki://documents/" + docAPI + "/meta"})
+	resp = env.rpc(t, env.tokenRW, "resources/read", map[string]any{"uri": "mora://documents/" + docAPI + "/meta"})
 	require.Nil(t, resp.Error)
 	b, _ = json.Marshal(resp.Result)
 	require.NoError(t, json.Unmarshal(b, &res))

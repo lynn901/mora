@@ -43,7 +43,7 @@ func loadConfig() config {
 		BaseURL:       envOr("E2E_BASE_URL", "http://localhost:8990"),
 		MCPURL:        envOr("E2E_MCP_URL", "http://localhost:8081"),
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		InternalToken: envOr("INTERNAL_SERVICE_TOKEN", "wiki-internal-token"),
+		InternalToken: envOr("INTERNAL_SERVICE_TOKEN", "mora-internal-token"),
 		AdminEmail:    envOr("E2E_ADMIN_EMAIL", "admin@mora.local"),
 		AdminPassword: envOr("E2E_ADMIN_PASSWORD", "admin123"),
 		DevToken:      envOr("E2E_DEV_TOKEN", "wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"),

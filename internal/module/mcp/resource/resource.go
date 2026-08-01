@@ -1,5 +1,5 @@
 // Package resource implements the MCP Resources exposed by the server (design
-// doc 06 §4). Resources are read-only knowledge structure URIs (wiki:// scheme)
+// doc 06 §4). Resources are read-only knowledge structure URIs (mora:// scheme)
 // that let an Agent discover the Mora layout. All handlers delegate to the
 // upstream MoraClient; no read permission surfaces as a not-found error which
 // the server converts to empty contents (existence-leak prevention, §6.4).
@@ -18,7 +18,7 @@ import (
 
 const mimeTypeJSON = "application/json"
 
-// Registry implements server.ResourceRegistry, dispatching wiki:// URIs to the
+// Registry implements server.ResourceRegistry, dispatching mora:// URIs to the
 // matching handler backed by the MoraClient.
 type Registry struct {
 	client moraclient.MoraClient
@@ -30,7 +30,7 @@ func NewRegistry(client moraclient.MoraClient) *Registry {
 }
 
 // List returns the resource definitions visible to the caller (design doc 06
-// §4.1). It always advertises wiki://workspaces, then for each visible
+// §4.1). It always advertises mora://workspaces, then for each visible
 // workspace advertises its tree and tags resources. Document meta URIs are
 // discovered through the tree (which lists documents), keeping List bounded.
 func (r *Registry) List(ctx context.Context) ([]server.ResourceDef, error) {
@@ -40,19 +40,19 @@ func (r *Registry) List(ctx context.Context) ([]server.ResourceDef, error) {
 		return nil, err
 	}
 	defs := make([]server.ResourceDef, 0, 1+2*len(wss))
-	defs = append(defs, server.ResourceDef{URI: "wiki://workspaces", Name: "可见工作区", MimeType: mimeTypeJSON})
+	defs = append(defs, server.ResourceDef{URI: "mora://workspaces", Name: "可见工作区", MimeType: mimeTypeJSON})
 	for _, ws := range wss {
 		defs = append(defs, server.ResourceDef{
-			URI: "wiki://workspaces/" + ws.ID + "/tree", Name: ws.Name + "-目录树", MimeType: mimeTypeJSON,
+			URI: "mora://workspaces/" + ws.ID + "/tree", Name: ws.Name + "-目录树", MimeType: mimeTypeJSON,
 		})
 		defs = append(defs, server.ResourceDef{
-			URI: "wiki://workspaces/" + ws.ID + "/tags", Name: ws.Name + "-标签", MimeType: mimeTypeJSON,
+			URI: "mora://workspaces/" + ws.ID + "/tags", Name: ws.Name + "-标签", MimeType: mimeTypeJSON,
 		})
 	}
 	return defs, nil
 }
 
-// Read resolves a wiki:// URI to its JSON content (design doc 06 §4.2).
+// Read resolves a mora:// URI to its JSON content (design doc 06 §4.2).
 func (r *Registry) Read(ctx context.Context, uri string) (*server.ResourceReadResult, error) {
 	ac := auth.FromContext(ctx)
 	parts, err := parseURI(uri)
@@ -91,20 +91,20 @@ func (r *Registry) Read(ctx context.Context, uri string) (*server.ResourceReadRe
 	}, nil
 }
 
-// uriParts is a parsed wiki:// URI.
+// uriParts is a parsed mora:// URI.
 type uriParts struct {
 	kind string // workspaces / tree / tags / meta / versions
 	id   string // workspace or document id
 }
 
-// parseURI parses a wiki:// URI into its kind and id.
-//   - wiki://workspaces                          → {kind: workspaces}
-//   - wiki://workspaces/{id}/tree                → {kind: tree, id}
-//   - wiki://workspaces/{id}/tags                → {kind: tags, id}
-//   - wiki://documents/{id}/meta                 → {kind: meta, id}
-//   - wiki://documents/{id}/versions             → {kind: versions, id}
+// parseURI parses a mora:// URI into its kind and id.
+//   - mora://workspaces                          → {kind: workspaces}
+//   - mora://workspaces/{id}/tree                → {kind: tree, id}
+//   - mora://workspaces/{id}/tags                → {kind: tags, id}
+//   - mora://documents/{id}/meta                 → {kind: meta, id}
+//   - mora://documents/{id}/versions             → {kind: versions, id}
 func parseURI(uri string) (uriParts, error) {
-	const prefix = "wiki://"
+	const prefix = "mora://"
 	if !strings.HasPrefix(uri, prefix) {
 		return uriParts{}, domainerr.ErrNotFound
 	}

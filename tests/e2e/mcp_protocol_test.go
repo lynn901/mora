@@ -54,18 +54,18 @@ func (s *Suite) TestMCP_Resources() {
 	require.True(s.T(), len(resources) > 0, "resources/list must be non-empty for admin")
 
 	// Read the workspaces resource — admin sees the workspace we just created.
-	wsContents := adminSess.resourcesRead("wiki://workspaces")
+	wsContents := adminSess.resourcesRead("mora://workspaces")
 	require.True(s.T(), len(wsContents) > 0, "resources/read workspaces must return content")
 	require.True(s.T(), contentMentions(wsContents, ws.ID), "admin workspaces resource must list the workspace")
 
 	// Read document metadata.
-	metaContents := adminSess.resourcesRead("wiki://documents/" + doc.ID + "/meta")
+	metaContents := adminSess.resourcesRead("mora://documents/" + doc.ID + "/meta")
 	require.True(s.T(), len(metaContents) > 0, "resources/read doc meta must return content")
 	require.True(s.T(), contentMentions(metaContents, doc.ID), "doc meta resource must mention the doc id")
 
 	// bob (no permission) sees a scoped/empty workspace set — no leak.
 	bobSess := s.mcpInitialize(s.mcpClient(s.bobROToken))
-	bobWS := bobSess.resourcesRead("wiki://workspaces")
+	bobWS := bobSess.resourcesRead("mora://workspaces")
 	require.False(s.T(), contentMentions(bobWS, ws.ID), "bob must not see admin's workspace in resources")
 }
 

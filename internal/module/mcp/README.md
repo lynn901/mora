@@ -1,14 +1,14 @@
-# Wiki MCP Server
+# Mora MCP Server
 
-Model Context Protocol (MCP) integration for the Wiki knowledge base platform
-(YS-9 / PRD §4 模块三, F3.1–F3.3). Exposes Wiki structure (Resources) and
+Model Context Protocol (MCP) integration for the Mora knowledge base platform
+(YS-9 / PRD §4 模块三, F3.1–F3.3). Exposes Mora structure (Resources) and
 capabilities (Tools) to external AI Agent ecosystems over the standard MCP
 protocol, with token auth, RBAC reuse, audit, and rate limiting.
 
 > Designed in [YS-5 `06-mcp-server-design.md`](../../design-docs). This module
 > follows the "mock 先行" dependency strategy from YS-4: it builds against the
-> YS-5 API contracts with an in-memory Wiki/RAG client, ready to swap in the
-> real YS-6 (Wiki backend) / YS-8 (RAG) services when they land.
+> YS-5 API contracts with an in-memory Mora/RAG client, ready to swap in the
+> real YS-6 (Mora backend) / YS-8 (RAG) services when they land.
 
 ## Architecture
 
@@ -20,16 +20,16 @@ Agent ──HTTP/SSE (JSON-RPC 2.0)──▶ MCP Server (this module)
                                      ├─ server  : initialize/capabilities, tools/*, resources/*, session
                                      ├─ tool    : search_knowledge_base, get_document, list_documents,
                                      │            get_tags (MVP); create_draft, update_document (P1, draft/review)
-                                     ├─ resource: wiki://workspaces, .../tree, documents/{id}/meta,
+                                     ├─ resource: mora://workspaces, .../tree, documents/{id}/meta,
                                      │            .../tags, documents/{id}/versions
                                      ├─ audit   : append-only mcp_tool_calls + audit_logs
                                      │
-                                     └─ wikiclient ──REST──▶ Wiki API (YS-6) + RAG search (YS-8)
+                                     └─ moraclient ──REST──▶ Mora API (YS-6) + RAG search (YS-8)
                                                        (RBAC enforced server-side upstream)
 ```
 
 **Key design rules (design doc 06):**
-- RBAC is NOT re-implemented here — identity is propagated to the Wiki/RAG
+- RBAC is NOT re-implemented here — identity is propagated to the Mora/RAG
   services which enforce it (06 §6.3). The MCP layer only enforces token-scope
   gating and existence-leak prevention.
 - Read tools/resources return **empty results** (never 403/404) when the caller
@@ -49,11 +49,11 @@ internal/module/mcp/
 │   ├── session.go         # SessionStore (memory + postgres)
 │   ├── transport_http.go  # Gin HTTP/SSE handlers
 │   └── transport_stdio.go # stdio (newline-delimited JSON-RPC, P2)
-├── tool/            # Tools (name → handler, calls WikiClient)
-├── resource/        # Resources (wiki:// URI → handler)
+├── tool/            # Tools (name → handler, calls MoraClient)
+├── resource/        # Resources (mora:// URI → handler)
 ├── auth/            # Token store, AuthContext, middleware, rate limiter
 ├── audit/           # Append-only audit store (memory + postgres)
-└── wikiclient/      # Upstream Wiki+RAG client: interface + Mock + HTTP
+└── moraclient/      # Upstream Mora+RAG client: interface + Mock + HTTP
 cmd/mcp-server/main.go   # entry point (--transport http|stdio, --mock)
 migrations/008_mcp.*.sql # api_tokens, mcp_sessions, mcp_tool_calls
 ```
@@ -62,11 +62,11 @@ migrations/008_mcp.*.sql # api_tokens, mcp_sessions, mcp_tool_calls
 
 | URI | Description |
 |---|---|
-| `wiki://workspaces` | Workspaces visible to the caller |
-| `wiki://workspaces/{id}/tree` | Directory tree (documents as metadata) |
-| `wiki://workspaces/{id}/tags` | Workspace tag taxonomy |
-| `wiki://documents/{id}/meta` | Document metadata |
-| `wiki://documents/{id}/versions` | Document version history |
+| `mora://workspaces` | Workspaces visible to the caller |
+| `mora://workspaces/{id}/tree` | Directory tree (documents as metadata) |
+| `mora://workspaces/{id}/tags` | Workspace tag taxonomy |
+| `mora://documents/{id}/meta` | Document metadata |
+| `mora://documents/{id}/versions` | Document version history |
 
 ## Tools
 
@@ -82,13 +82,13 @@ migrations/008_mcp.*.sql # api_tokens, mcp_sessions, mcp_tool_calls
 ## Run
 
 ```bash
-# Mock mode (in-memory Wiki+RAG, seeded; no Postgres/Valkey needed)
+# Mock mode (in-memory Mora+RAG, seeded; no Postgres/Valkey needed)
 MCP_USE_MOCK=1 ./mcp-server
 # → listens on :8081, prints a dev token to stderr
 
-# Production (real Wiki API + Postgres + Valkey)
+# Production (real Mora API + Postgres + Valkey)
 DATABASE_URL=postgres://... VALKEY_URL=valkey:6379 \
-  WIKI_API_URL=http://wiki-api:8080 INTERNAL_SERVICE_TOKEN=... \
+  MORA_API_URL=http://mora-api:8080 INTERNAL_SERVICE_TOKEN=... \
   ./mcp-server
 
 # stdio transport (local CLI/IDE Agent)
