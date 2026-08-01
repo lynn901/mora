@@ -29,21 +29,21 @@ const mockTree: TreeNode[] = [
     id: "n1", workspaceId: "ws1", parentId: null, name: "Getting Started", type: "folder", order: 0,
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z",
     children: [
-      { id: "n2", workspaceId: "ws1", parentId: "n1", name: "Introduction", type: "document", order: 0, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
-      { id: "n3", workspaceId: "ws1", parentId: "n1", name: "Quick Start", type: "document", order: 1, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
+      { id: "n2", workspaceId: "ws1", parentId: "n1", name: "Introduction", type: "document", order: 0, indexStatus: "indexed", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
+      { id: "n3", workspaceId: "ws1", parentId: "n1", name: "Quick Start", type: "document", order: 1, indexStatus: "indexed", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
     ],
   },
   {
     id: "n4", workspaceId: "ws1", parentId: null, name: "Architecture", type: "folder", order: 1,
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z",
     children: [
-      { id: "n5", workspaceId: "ws1", parentId: "n4", name: "System Design", type: "document", order: 0, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
+      { id: "n5", workspaceId: "ws1", parentId: "n4", name: "System Design", type: "document", order: 0, indexStatus: "processing", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
       {
         id: "n6", workspaceId: "ws1", parentId: "n4", name: "API Reference", type: "folder", order: 1,
         createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z",
         children: [
-          { id: "n7", workspaceId: "ws1", parentId: "n6", name: "REST API", type: "document", order: 0, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
-          { id: "n8", workspaceId: "ws1", parentId: "n6", name: "GraphQL API", type: "document", order: 1, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
+          { id: "n7", workspaceId: "ws1", parentId: "n6", name: "REST API", type: "document", order: 0, indexStatus: "indexed", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
+          { id: "n8", workspaceId: "ws1", parentId: "n6", name: "GraphQL API", type: "document", order: 1, indexStatus: "failed", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" },
         ],
       },
     ],
@@ -56,35 +56,35 @@ const mockDocuments: Record<string, Document> = {
     content: "# Introduction\n\nWelcome to the Mora platform.\n\n## Overview\n\nThis is a **collaborative** knowledge base with:\n- Real-time editing\n- Version history\n- Full-text search\n\n```typescript\nconst greeting = 'Hello, Mora!'\nconsole.log(greeting)\n```\n\n```mermaid\ngraph TD\n    A[User] --> B[Editor]\n    B --> C[Save]\n    C --> D[Version History]\n```",
     contentFormat: "markdown", createdBy: "u1", updatedBy: "u1",
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z",
-    tags: ["guide", "intro"], status: "published", versionNo: 3,
+    tags: ["guide", "intro"], status: "published", indexStatus: "indexed", versionNo: 3,
   },
   n3: {
     id: "d2", workspaceId: "ws1", nodeId: "n3", title: "Quick Start",
     content: "# Quick Start\n\nGet started in 3 steps:\n\n1. Create a workspace\n2. Add pages\n3. Invite team members",
     contentFormat: "markdown", createdBy: "u1", updatedBy: "u2",
     createdAt: "2026-01-02T00:00:00Z", updatedAt: "2026-07-02T00:00:00Z",
-    tags: ["guide"], status: "published", versionNo: 1,
+    tags: ["guide"], status: "published", indexStatus: "indexed", versionNo: 1,
   },
   n5: {
     id: "d3", workspaceId: "ws1", nodeId: "n5", title: "System Design",
     content: "# System Design\n\n## Architecture\n\nModular monolith with clear boundaries.\n\n## Components\n\n- **Frontend**: React + TypeScript + shadcn/ui\n- **Backend**: Go\n- **Database**: PostgreSQL\n- **Vector DB**: Qdrant",
     contentFormat: "markdown", createdBy: "u1", updatedBy: "u1",
     createdAt: "2026-02-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z",
-    tags: ["architecture", "design"], status: "published", versionNo: 1,
+    tags: ["architecture", "design"], status: "published", indexStatus: "processing", versionNo: 1,
   },
   n7: {
     id: "d4", workspaceId: "ws1", nodeId: "n7", title: "REST API",
     content: "# REST API\n\n## Endpoints\n\n### GET /api/documents\n\nReturns a list of documents.",
     contentFormat: "markdown", createdBy: "u2", updatedBy: "u2",
     createdAt: "2026-03-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z",
-    tags: ["api", "rest"], status: "published", versionNo: 1,
+    tags: ["api", "rest"], status: "published", indexStatus: "indexed", versionNo: 1,
   },
   n8: {
     id: "d5", workspaceId: "ws1", nodeId: "n8", title: "GraphQL API",
     content: "# GraphQL API\n\n## Schema\n\n```graphql\ntype Document {\n  id: ID!\n  title: String!\n  content: String!\n}\n```",
     contentFormat: "markdown", createdBy: "u2", updatedBy: "u2",
     createdAt: "2026-03-02T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z",
-    tags: ["api", "graphql"], status: "draft", versionNo: 1,
+    tags: ["api", "graphql"], status: "draft", indexStatus: "failed", versionNo: 1,
   },
 }
 
@@ -147,7 +147,50 @@ export async function apiGetDocument(nodeId: string): Promise<Document> {
 
 export async function apiSaveDocument(doc: Document): Promise<Document> {
   await delay(500)
-  return { ...doc, updatedAt: new Date().toISOString() }
+  mockDocuments[doc.nodeId] = { ...doc, updatedAt: new Date().toISOString() }
+  return mockDocuments[doc.nodeId]!
+}
+
+export async function apiCreateDocument(
+  _workspaceId: string,
+  title: string,
+  _directoryId: string | null,
+  content: string,
+): Promise<Document> {
+  await delay(400)
+  void _workspaceId
+  void _directoryId
+  const id = `d-${Object.keys(mockDocuments).length + 1}`
+  const nodeId = `n-${Object.keys(mockDocuments).length + 10}`
+  const doc: Document = {
+    id, workspaceId: "ws1", nodeId, title, content,
+    contentFormat: "markdown", createdBy: "u1", updatedBy: "u1",
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    tags: [], status: "draft", indexStatus: "pending", versionNo: 1,
+  }
+  mockDocuments[nodeId] = doc
+  // Surface in the tree so DirectoryTree picks it up.
+  mockTree[0].children!.push({
+    id: nodeId, workspaceId: "ws1", parentId: "n1", name: title, type: "document",
+    order: mockTree[0].children!.length, indexStatus: "pending",
+    createdAt: doc.createdAt, updatedAt: doc.updatedAt,
+  })
+  return doc
+}
+
+export async function apiDeleteDocument(documentId: string): Promise<void> {
+  await delay(300)
+  delete mockDocuments[documentId]
+  const removeNode = (nodes: TreeNode[]) => {
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      if (nodes[i].id === documentId) {
+        nodes.splice(i, 1)
+      } else if (nodes[i].children) {
+        removeNode(nodes[i].children!)
+      }
+    }
+  }
+  removeNode(mockTree)
 }
 
 export async function apiGetVersions(documentId: string): Promise<DocumentVersion[]> {
@@ -174,6 +217,7 @@ export async function apiSetPermission(perm: Omit<Permission, "id">): Promise<Pe
 }
 
 export async function apiDeletePermission(id: string): Promise<void> {
+  void id
   await delay(200)
 }
 
@@ -211,10 +255,12 @@ export async function apiAddComment(comment: Omit<Comment, "id" | "createdAt" | 
 }
 
 export async function apiResolveComment(commentId: string): Promise<void> {
+  void commentId
   await delay(200)
 }
 
 export async function apiGetPresences(documentId: string): Promise<CollaboratorPresence[]> {
+  void documentId
   await delay(100)
   return mockPresences
 }
@@ -222,4 +268,21 @@ export async function apiGetPresences(documentId: string): Promise<CollaboratorP
 export async function apiGetUsers(): Promise<User[]> {
   await delay(200)
   return mockUsers
+}
+
+export async function apiGetIndexStatus(nodeId: string): Promise<{
+  indexStatus: Document["indexStatus"]
+  lastIndexedAt: string | null
+  chunkCount: number
+  error: string | null
+}> {
+  await delay(150)
+  const doc = mockDocuments[nodeId]
+  const status = doc?.indexStatus ?? "pending"
+  return {
+    indexStatus: status,
+    lastIndexedAt: status === "indexed" ? doc?.updatedAt ?? null : null,
+    chunkCount: status === "indexed" ? 3 : 0,
+    error: status === "failed" ? "embedding model unreachable" : null,
+  }
 }

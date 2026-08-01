@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react"
-import { MessageSquare, X, Send, Check, Wifi, WifiOff, ShieldAlert, Edit3 } from "lucide-react"
+import { MessageSquare, X, Send, Check, Wifi, WifiOff, ShieldAlert, Edit3, MessageSquarePlus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { EmptyState } from "@/components/ui/empty-state"
 import type { CollaboratorPresence, Comment } from "@/types"
 import { useCollabStore } from "@/stores/collab"
 import { useMoraStore } from "@/stores/mora"
@@ -190,7 +191,13 @@ export function CollabSidebar() {
       <ScrollArea className="flex-1">
         <div className="p-3 space-y-3">
           {comments.length === 0 ? (
-            <div className="text-center text-sm text-muted-foreground py-8">No comments yet</div>
+            <EmptyState
+              compact
+              className="py-8"
+              icon={<MessageSquarePlus className="size-8" />}
+              title="No comments yet"
+              description="Start a discussion — use @ to mention a teammate."
+            />
           ) : (
             comments.map((c) => <CommentItem key={c.id} comment={c} onResolve={resolveComment} />)
           )}

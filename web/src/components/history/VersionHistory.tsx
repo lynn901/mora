@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react"
-import { Clock, RotateCcw, GitCompare, AlertTriangle } from "lucide-react"
+import { Clock, RotateCcw, GitCompare, AlertTriangle, History } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { EmptyState } from "@/components/ui/empty-state"
+import { toast } from "@/components/ui/sonner"
 import type { DocumentVersion, User } from "@/types"
 import { apiGetVersions, apiRollbackVersion, apiGetUsers } from "@/api"
 import { useMoraStore } from "@/stores/mora"
@@ -54,11 +55,16 @@ export function VersionHistory() {
 
   const handleRollback = async (versionId: string) => {
     if (!currentDocument) return
-    await apiRollbackVersion(currentDocument.id, versionId)
-    setShowRollback(null)
-    await selectNode(currentDocument.nodeId)
-    const newVersions = await apiGetVersions(currentDocument.id)
-    setVersions(newVersions)
+    try {
+      await apiRollbackVersion(currentDocument.id, versionId)
+      setShowRollback(null)
+      await selectNode(currentDocument.nodeId)
+      const newVersions = await apiGetVersions(currentDocument.id)
+      setVersions(newVersions)
+      toast.success("Rolled back", { description: "The document was restored and a new version was created." })
+    } catch (e) {
+      toast.error("Rollback failed", { description: (e as Error).message })
+    }
   }
 
   const diffData = selectedVersions.length === 2
@@ -85,7 +91,13 @@ export function VersionHistory() {
           <div className="relative">
             <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
             {versions.length === 0 ? (
-              <div className="text-center text-sm text-muted-foreground py-8">No version history</div>
+              <EmptyState
+                compact
+                className="py-10"
+                icon={<History className="size-8" />}
+                title={currentDocument ? "No version history" : "Select a page"}
+                description={currentDocument ? "Versions are recorded automatically as the page is edited." : "Choose a page to see its version history."}
+              />
             ) : (
               <div className="space-y-4">
                 {[...versions].reverse().map((v, i) => {

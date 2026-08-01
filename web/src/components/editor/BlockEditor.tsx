@@ -14,10 +14,11 @@ import { Markdown } from "tiptap-markdown"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle"
+import { toast } from "@/components/ui/sonner"
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough, Code, CodeSquare,
   Heading1, Heading2, Heading3, List, ListOrdered, ListChecks,
-  Quote, AlignLeft, AlignCenter, AlignRight, Undo, Redo, Save
+  Quote, AlignLeft, AlignCenter, AlignRight, Undo, Redo, Save, Check, AlertCircle
 } from "lucide-react"
 import { useMoraStore } from "@/stores/mora"
 import { useCollabStore } from "@/stores/collab"
@@ -143,8 +144,12 @@ export function BlockEditor() {
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current)
     }
-    autoSaveTimerRef.current = setTimeout(() => {
-      saveDocument()
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await saveDocument()
+      } catch {
+        toast.error("Auto-save failed", { description: "Your recent changes weren't stored." })
+      }
     }, 5000)
   }, [saveDocument])
 
@@ -159,12 +164,19 @@ export function BlockEditor() {
     }
   }, [isDirty, isReadOnly, scheduleAutoSave])
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current)
     }
-    saveDocument()
-  }, [saveDocument])
+    const title = currentDocument?.title
+    const saving = toast.loading("Saving...", { description: title })
+    try {
+      await saveDocument()
+      toast.success("Saved", { id: saving, description: title })
+    } catch {
+      toast.error("Couldn't save", { id: saving, description: "Your changes weren't stored. Try again." })
+    }
+  }, [saveDocument, currentDocument?.title])
 
   if (!editor) return null
 
@@ -258,9 +270,20 @@ export function BlockEditor() {
             </Button>
           )}
           {isReadOnly && (
-            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Read-only</span>
+            <span className="text-xs text-warning font-medium">Read-only</span>
           )}
-          {isDirty && !isReadOnly && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
+          {isDirty && !isReadOnly && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Your changes haven't been saved yet">
+              <AlertCircle className="size-3" />
+              Unsaved
+            </span>
+          )}
+          {!isDirty && !isReadOnly && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground" title="All changes saved">
+              <Check className="size-3" />
+              Saved
+            </span>
+          )}
         </div>
       </div>
 

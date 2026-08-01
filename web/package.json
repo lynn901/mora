@@ -66,6 +66,7 @@
     "react-virtuoso": "^4.18.11",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
+    "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4",
     "tiptap-markdown": "^0.9.0",

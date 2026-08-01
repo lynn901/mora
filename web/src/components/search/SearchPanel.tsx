@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react"
-import { Search as SearchIcon, X, Filter, Calendar, Tag, User } from "lucide-react"
+import { Search as SearchIcon, X, Filter, Tag, User, SearchX } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { EmptyState } from "@/components/ui/empty-state"
+import { SkeletonList } from "@/components/ui/loading-state"
 import type { SearchResult, SearchFilters } from "@/types"
 import { apiSearch, apiGetWorkspaces, apiGetUsers } from "@/api"
 import type { Workspace, User as UserType } from "@/types"
@@ -118,9 +120,24 @@ export function SearchPanel({ onNavigate }: { onNavigate?: (nodeId: string) => v
 
       <ScrollArea className="flex-1">
         <div className="p-2">
-          {isLoading && <div className="text-center text-sm text-muted-foreground py-8">Searching...</div>}
+          {isLoading && <SkeletonList rows={4} className="p-2" />}
           {!isLoading && results.length === 0 && query && (
-            <div className="text-center text-sm text-muted-foreground py-8">No results found</div>
+            <EmptyState
+              compact
+              className="py-10"
+              icon={<SearchX className="size-8" />}
+              title="No results found"
+              description={`Nothing matched "${query}". Try different keywords or adjust your filters.`}
+            />
+          )}
+          {!isLoading && results.length === 0 && !query && (
+            <EmptyState
+              compact
+              className="py-10"
+              icon={<SearchIcon className="size-8" />}
+              title="Search the knowledge base"
+              description="Find pages by keyword. Results are filtered by what you can access."
+            />
           )}
           {!isLoading && results.map((r) => (
             <button

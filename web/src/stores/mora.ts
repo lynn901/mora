@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import type { Workspace, TreeNode, Document, User } from "@/types"
-import { apiGetWorkspaces, apiGetTree, apiGetDocument, apiSaveDocument, apiCreateDocument } from "@/api"
+import { apiGetWorkspaces, apiGetTree, apiGetDocument, apiSaveDocument, apiCreateDocument, apiDeleteDocument } from "@/api"
 import { ApiError } from "@/api/client"
 
 interface MoraState {
@@ -22,6 +22,7 @@ interface MoraState {
   updateDocument: (doc: Partial<Document>) => void
   saveDocument: () => Promise<void>
   createDocument: (title: string, directoryId?: string | null) => Promise<void>
+  deleteDocument: (documentId: string) => Promise<void>
   setError: (error: string | null) => void
   setUsers: (users: User[]) => void
 }
@@ -110,6 +111,26 @@ export const useMoraStore = create<MoraState>((set, get) => ({
       set({ tree, currentDocument: doc, selectedNodeId: doc.id, isLoading: false, isDirty: false })
     } catch (e) {
       set({ error: (e as Error).message, isLoading: false })
+    }
+  },
+
+  deleteDocument: async (documentId) => {
+    const { currentWorkspace, currentDocument } = get()
+    if (!currentWorkspace) return
+    set({ error: null })
+    try {
+      await apiDeleteDocument(documentId)
+      const tree = await apiGetTree(currentWorkspace.id)
+      const next: Partial<MoraState> = { tree }
+      if (currentDocument?.id === documentId) {
+        next.currentDocument = null
+        next.selectedNodeId = null
+        next.isDirty = false
+      }
+      set(next as MoraState)
+    } catch (e) {
+      set({ error: (e as Error).message })
+      throw e
     }
   },
 

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react"
-import { BookOpen, Search, Shield, Clock, PanelLeftClose, PanelLeft, Menu, LogOut } from "lucide-react"
+import { BookOpen, Search, Shield, Clock, PanelLeftClose, Menu, LogOut, FilePlus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { DirectoryTree } from "@/components/tree/DirectoryTree"
 import { BlockEditor } from "@/components/editor/BlockEditor"
 import { SearchPanel } from "@/components/search/SearchPanel"
@@ -11,6 +11,9 @@ import { RBACPanel } from "@/components/rbac/RBACPanel"
 import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
+import { EmptyState } from "@/components/ui/empty-state"
+import { LoadingState } from "@/components/ui/loading-state"
+import { StatusBadge } from "@/components/ui/status-badge"
 import { useMoraStore } from "@/stores/mora"
 import { useCollabStore } from "@/stores/collab"
 import { useAuthStore } from "@/stores/auth"
@@ -20,7 +23,7 @@ type SidePanel = "tree" | "search" | "rbac" | "history"
 export function MoraLayout() {
   const {
     currentWorkspace, workspaces, currentDocument, isLoading, error,
-    loadWorkspaces, setWorkspace, selectNode,
+    loadWorkspaces, setWorkspace, selectNode, createDocument,
   } = useMoraStore()
   const [activePanel, setActivePanel] = useState<SidePanel>("tree")
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -151,17 +154,13 @@ export function MoraLayout() {
           )}
 
           {isLoading && !currentDocument ? (
-            <div className="flex items-center justify-center flex-1">
-              <div className="text-center">
-                <div className="size-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm text-muted-foreground mt-3">Loading...</p>
-              </div>
-            </div>
+            <LoadingState className="flex-1" label="Loading document..." />
           ) : currentDocument ? (
             <>
               <div className="flex items-center gap-3 px-6 py-3 border-b">
-                <h1 className="text-lg font-semibold truncate flex-1">{currentDocument.title}</h1>
-                <div className="flex items-center gap-2">
+                <h1 className="text-lg font-semibold truncate">{currentDocument.title}</h1>
+                <StatusBadge status={currentDocument.indexStatus} className="shrink-0" />
+                <div className="flex items-center gap-2 ml-auto">
                   <CollabSidebar />
                 </div>
               </div>
@@ -172,12 +171,14 @@ export function MoraLayout() {
               </ErrorBoundary>
             </>
           ) : (
-            <div className="flex items-center justify-center flex-1">
-              <div className="text-center max-w-sm">
-                <BookOpen className="size-12 text-muted-foreground/50 mx-auto" />
-                <h2 className="text-lg font-medium mt-4">Welcome to Mora</h2>
-                <p className="text-sm text-muted-foreground mt-1">Select a page from the sidebar to start editing, or create a new one.</p>
-              </div>
+            <div className="flex items-center justify-center flex-1 p-6">
+              <EmptyState
+                className="max-w-sm"
+                icon={<BookOpen className="size-12" />}
+                title="Welcome to Mora"
+                description="Select a page from the sidebar to start editing, or create a new one to begin your knowledge base."
+                action={{ label: "New page", icon: <FilePlus className="size-3.5" />, onClick: () => createDocument("Untitled Document") }}
+              />
             </div>
           )}
         </div>

@@ -11,6 +11,7 @@ import type {
   CollaboratorPresence,
   Comment,
   SearchFilters,
+  IndexStatusValue,
 } from "@/types"
 
 interface Paginated<T> {
@@ -149,9 +150,19 @@ function mapDocumentToTreeNode(doc: BackendDocument): TreeNode {
     name: doc.title,
     type: "document",
     order: 0,
+    indexStatus: toIndexStatus(doc.index_status),
     createdAt: doc.created_at,
     updatedAt: doc.updated_at || doc.created_at,
   }
+}
+
+const INDEX_STATUS_VALUES: IndexStatusValue[] = ["pending", "processing", "indexed", "failed"]
+
+function toIndexStatus(value: string | undefined | null): IndexStatusValue {
+  if (value && INDEX_STATUS_VALUES.includes(value as IndexStatusValue)) {
+    return value as IndexStatusValue
+  }
+  return "pending"
 }
 
 function mapDocument(doc: BackendDocument): Document {
@@ -175,6 +186,7 @@ function mapDocument(doc: BackendDocument): Document {
     updatedAt: doc.updated_at || doc.created_at,
     tags: doc.tags || [],
     status: (doc.status as Document["status"]) || "draft",
+    indexStatus: toIndexStatus(doc.index_status),
     versionNo: doc.version_no,
   }
 }
@@ -354,6 +366,29 @@ export async function apiCreateDocument(
 
 export async function apiDeleteDocument(documentId: string): Promise<void> {
   await http.delete(`/documents/${documentId}`)
+}
+
+export interface DocumentIndexStatus {
+  indexStatus: IndexStatusValue
+  lastIndexedAt: string | null
+  chunkCount: number
+  error: string | null
+}
+
+/** Fetch a document's indexing status (GET /documents/:id/index-status). */
+export async function apiGetIndexStatus(documentId: string): Promise<DocumentIndexStatus> {
+  const data = await http.get<{
+    index_status: string
+    last_indexed_at: string | null
+    chunk_count: number
+    error: string | null
+  }>(`/documents/${documentId}/index-status`)
+  return {
+    indexStatus: toIndexStatus(data.index_status),
+    lastIndexedAt: data.last_indexed_at,
+    chunkCount: data.chunk_count ?? 0,
+    error: data.error,
+  }
 }
 
 export async function apiGetVersions(documentId: string): Promise<DocumentVersion[]> {

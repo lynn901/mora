@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react"
-import { Shield, Plus, Trash2, ChevronRight } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Shield, Plus, Trash2, ChevronRight, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { EmptyState } from "@/components/ui/empty-state"
+import { toast } from "@/components/ui/sonner"
 import type { Permission, User } from "@/types"
 import { apiGetPermissions, apiSetPermission, apiDeletePermission, apiGetUsers } from "@/api"
 import { useMoraStore } from "@/stores/mora"
@@ -28,21 +29,34 @@ export function RBACPanel() {
 
   const handleAdd = async () => {
     if (!newUserId || !currentWorkspace) return
-    const perm = await apiSetPermission({
-      workspaceId: currentWorkspace.id,
-      userId: newUserId,
-      role: newRole,
-      scope,
-      inherited: false,
-    })
-    setPermissions([...permissions, perm])
-    setShowAdd(false)
-    setNewUserId("")
+    const user = users.find((u) => u.id === newUserId)
+    try {
+      const perm = await apiSetPermission({
+        workspaceId: currentWorkspace.id,
+        userId: newUserId,
+        role: newRole,
+        scope,
+        inherited: false,
+      })
+      setPermissions([...permissions, perm])
+      setShowAdd(false)
+      setNewUserId("")
+      toast.success("Permission added", { description: `${user?.name || "User"} now has ${newRole} access.` })
+    } catch (e) {
+      toast.error("Couldn't add permission", { description: (e as Error).message })
+    }
   }
 
   const handleDelete = async (id: string) => {
-    await apiDeletePermission(id)
-    setPermissions(permissions.filter((p) => p.id !== id))
+    const target = permissions.find((p) => p.id === id)
+    const user = users.find((u) => u.id === target?.userId)
+    try {
+      await apiDeletePermission(id)
+      setPermissions(permissions.filter((p) => p.id !== id))
+      toast.success("Permission removed", { description: `${user?.name || "User"} no longer has access.` })
+    } catch (e) {
+      toast.error("Couldn't remove permission", { description: (e as Error).message })
+    }
   }
 
   const roleVariant = (role: string) => {
@@ -112,7 +126,13 @@ export function RBACPanel() {
       <ScrollArea className="flex-1">
         <div className="p-2">
           {permissions.length === 0 ? (
-            <div className="text-center text-sm text-muted-foreground py-8">No permissions configured</div>
+            <EmptyState
+              compact
+              className="py-10"
+              icon={<ShieldCheck className="size-8" />}
+              title="No permissions configured"
+              description="Add a user to control who can view, edit, or administer this workspace."
+            />
           ) : (
             permissions.map((p) => {
               const user = users.find((u) => u.id === p.userId)

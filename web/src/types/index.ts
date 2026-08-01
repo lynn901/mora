@@ -6,6 +6,9 @@ export interface User {
   role: "admin" | "editor" | "viewer"
 }
 
+/** Document indexing state, mirrored from the backend `index_status` enum. */
+export type IndexStatusValue = "pending" | "processing" | "indexed" | "failed"
+
 export interface Workspace {
   id: string
   name: string
@@ -23,6 +26,8 @@ export interface TreeNode {
   type: "folder" | "document"
   order: number
   children?: TreeNode[]
+  /** Index status for document nodes; undefined for folders. */
+  indexStatus?: IndexStatusValue
   createdAt: string
   updatedAt: string
 }
@@ -40,6 +45,7 @@ export interface Document {
   updatedAt: string
   tags: string[]
   status: "draft" | "published" | "archived"
+  indexStatus: IndexStatusValue
   versionNo: number
 }
 

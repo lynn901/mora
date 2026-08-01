@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { MoraLayout } from "@/components/mora/MoraLayout"
 import { LoginPage } from "@/components/auth/LoginPage"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Toaster } from "@/components/ui/sonner"
 import { useAuthStore } from "@/stores/auth"
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -23,6 +24,7 @@ function App() {
           } />
         </Routes>
       </BrowserRouter>
+      <Toaster />
     </TooltipProvider>
   )
 }
