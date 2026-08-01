@@ -424,7 +424,7 @@ docker compose -f deployments/docker-compose.yml -p mora down -v
 
 ## 设计文档
 
-`design-docs/` 下 8 份设计文档是本仓实现的设计依据：
+`design-docs/` 下设计文档是本仓实现与演进的设计依据：
 
 1. `01-tech-selection-decision.md` — 技术选型与基座决策书
 2. `02-system-architecture.md` — 系统架构设计
@@ -434,6 +434,8 @@ docker compose -f deployments/docker-compose.yml -p mora down -v
 6. `06-mcp-server-design.md` — MCP Server 设计
 7. `07-security-observability.md` — 安全与可观测设计
 8. `08-brand-naming-spec.md` — 品牌命名规范（wiki → mora）
+9. `09-design-system.md` — 设计语言规范（撰写中，见 YS-54）
+10. `10-product-roadmap.md` — 产品路线图（MVP 后迭代规划，见 YS-58）
 
 ## 安全
 
