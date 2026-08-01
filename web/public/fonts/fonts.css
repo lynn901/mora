@@ -1,0 +1,70 @@
+/*
+ * Local font definitions — the private-by-default source.
+ *
+ * Used when VITE_FONT_SOURCE is unset or "local" (the default). The matching
+ * <link data-font-local> in index.html loads this file from /fonts/fonts.css.
+ * Run ./fetch-fonts.sh once to populate the .woff2 files referenced below.
+ *
+ * Coverage:
+ *   - Inter (Latin sans)        — local woff2, full weight range.
+ *   - JetBrains Mono (mono)     — local woff2, full weight range.
+ *   - Noto Sans SC (CJK sans)   — NOT bundled locally (the full CJK font is
+ *     ~10 MB across 100+ unicode-range slices). It is declared here so the
+ *     family resolves when present, but in local mode CJK glyphs fall back to
+ *     the system families in --font-sans (PingFang SC / Microsoft YaHei …),
+ *     keeping the air-gapped bundle small. Use VITE_FONT_SOURCE=cdn for the
+ *     full Noto Sans SC web font.
+ */
+
+/* Inter — 400 / 500 / 600 / 700 (latin) */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("inter-latin-400.woff2") format("woff2"), local("Inter");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("inter-latin-500.woff2") format("woff2"), local("Inter");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("inter-latin-600.woff2") format("woff2"), local("Inter");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("inter-latin-700.woff2") format("woff2"), local("Inter");
+}
+
+/* JetBrains Mono — 400 / 500 / 600 (latin) */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("jetbrains-mono-400.woff2") format("woff2"), local("JetBrains Mono");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("jetbrains-mono-500.woff2") format("woff2"), local("JetBrains Mono");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("jetbrains-mono-600.woff2") format("woff2"), local("JetBrains Mono");
+}

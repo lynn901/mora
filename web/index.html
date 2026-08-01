@@ -5,6 +5,20 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mora - Collaborative Knowledge Base</title>
+    <!--
+      Font loading. By default Mora is air-gapped and serves fonts locally from
+      /fonts/fonts.css (see public/fonts/README.md). Set VITE_FONT_SOURCE=cdn
+      at build time to instead pull Inter, Noto Sans SC and JetBrains Mono from
+      Google Fonts. The vite config strips this block unless VITE_FONT_SOURCE=cdn.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" data-font-cdn />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin data-font-cdn />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+      data-font-cdn
+    />
+    <link rel="stylesheet" href="/fonts/fonts.css" data-font-local />
   </head>
   <body>
     <div id="root"></div>
