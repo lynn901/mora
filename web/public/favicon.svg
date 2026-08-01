@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="moraGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7B61FF"/>
+      <stop offset="50%" stop-color="#4F6BFF"/>
+      <stop offset="100%" stop-color="#3CC7FF"/>
+    </linearGradient>
+  </defs>
+  <!-- M mark: two open book pages -->
+  <!-- Left page -->
+  <path d="M4 44
+           L4 12
+           C4 5 9 2 14 2
+           C19 2 24 5 24 12
+           L24 44
+           L16 44
+           L16 16
+           C16 12 15 10 14 10
+           C13 10 12 12 12 16
+           L12 44
+           Z"
+        fill="url(#moraGrad)"/>
+  <!-- Right page (mirror of left) -->
+  <path d="M44 44
+           L44 12
+           C44 5 39 2 34 2
+           C29 2 24 5 24 12
+           L24 44
+           L32 44
+           L32 16
+           C32 12 33 10 34 10
+           C35 10 36 12 36 16
+           L36 44
+           Z"
+        fill="url(#moraGrad)"/>
+</svg>
