@@ -1,6 +1,6 @@
 # 安全与可观测设计
 
-> 文档版本：v1.0 ｜ 产出人：Wiki 知识库架构师 ｜ 对应任务：YS-5
+> 文档版本：v1.0 ｜ 产出人：Mora 知识库架构师 ｜ 对应任务：YS-5
 > 依据：PRD §4 模块四（F4.1/F4.2）、§7 边界与异常、§9 非功能需求（安全/可观测/数据一致性）
 > 技术选型：TLS + 审计追加写 + Prometheus/Grafana/Loki/OpenTelemetry，见 01-tech-selection-decision.md
 
@@ -18,7 +18,7 @@
 |---|---|
 | 安全 | 传输 TLS；存储可选加密；RBAC 全链路；审计追加写不可篡改；默认不出网；Token 可吊销 |
 | 可观测 | Prometheus 指标（索引队列/检索延迟/模型调用/错误率）；结构化日志；关键操作审计 |
-| 数据一致性 | Wiki 与向量库最终一致；删除级联对账补偿；权限变更触发可见性重算 |
+| 数据一致性 | Mora 与向量库最终一致；删除级联对账补偿；权限变更触发可见性重算 |
 | 可用性 | 生产 K8s 多副本无单点；≥ 99.5%（私有化目标） |
 
 ---
@@ -29,7 +29,7 @@
 
 | 部署形态 | TLS 终止点 | 说明 |
 |---|---|---|
-| Docker Compose（试用） | 反向代理（Caddy/Traefik）或 Wiki API 内置 | 单证书；可选自签 |
+| Docker Compose（试用） | 反向代理（Caddy/Traefik）或 Mora API 内置 | 单证书；可选自签 |
 | K8s 生产 | Ingress Controller（cert-manager 自动证书） | Ingress 终止 TLS，内部 HTTP；敏感场景内部也可 mTLS |
 
 ### 2.2 加密范围
@@ -71,13 +71,13 @@
 ## 4. RBAC 全链路安全
 
 ### 4.1 权限决策统一
-- RBAC 引擎位于 `platform/rbac`（见 02-system-architecture.md §2.1），Wiki API / MCP Server / RAG 检索均调用同一决策。
+- RBAC 引擎位于 `platform/rbac`（见 02-system-architecture.md §2.1），Mora API / MCP Server / RAG 检索均调用同一决策。
 - 决策优先级：显式拒绝 > 显式允许 > 继承 > 默认拒绝（PRD F1.4）。
 
 ### 4.2 全链路过滤点
 | 链路 | 过滤点 | 机制 |
 |---|---|---|
-| Wiki 列表/详情 | SQL 层 | 权限视图 JOIN，不可见文档不返回 |
+| Mora 列表/详情 | SQL 层 | 权限视图 JOIN，不可见文档不返回 |
 | 全文检索（BM25） | SQL 层 | `rbac_visible()` 函数过滤 |
 | 语义检索（Dense） | Qdrant payload 层 | `visible_to` 交集硬过滤（must 条件） |
 | MCP 只读工具 | RBAC 引擎 + 检索层 | 无权返回空集（防存在性泄露） |
@@ -250,7 +250,7 @@
 
 | 场景 | 一致性机制 |
 |---|---|
-| Wiki ↔ 向量库最终一致 | 事件驱动 + 索引状态徽标；失败重试 + 对账补偿 |
+| Mora ↔ 向量库最终一致 | 事件驱动 + 索引状态徽标；失败重试 + 对账补偿 |
 | 删除级联 | 删除事件 → RAG Worker 删 chunk；失败有孤儿向量清理对账任务 |
 | 权限变更 → 可见性 | `permission.change` 事件 → `visible_to` 重算；过渡期保守生效 |
 | 模型维度变更 | 新建 Collection + 存量重建 + 灰度切换；禁混维度查询 |

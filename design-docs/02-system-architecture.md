@@ -1,6 +1,6 @@
 # 系统架构设计
 
-> 文档版本：v1.0 ｜ 产出人：Wiki 知识库架构师 ｜ 对应任务：YS-5
+> 文档版本：v1.0 ｜ 产出人：Mora 知识库架构师 ｜ 对应任务：YS-5
 > 技术选型依据：《技术选型与基座决策书》（01-tech-selection-decision.md）
 
 ---
@@ -9,8 +9,8 @@
 
 ### 1.1 设计目标
 - **私有化优先**：全套组件本地部署，默认不出网。
-- **事件驱动**：文档变更经消息队列异步驱动 RAG 流水线，Wiki 读写不被向量化阻塞。
-- **RBAC 全链路**：权限引擎统一，Wiki 检索、向量库 payload 过滤、MCP 调用均复用同一权限决策。
+- **事件驱动**：文档变更经消息队列异步驱动 RAG 流水线，Mora 读写不被向量化阻塞。
+- **RBAC 全链路**：权限引擎统一，Mora 检索、向量库 payload 过滤、MCP 调用均复用同一权限决策。
 - **可插拔**：Embedding Provider、Reranker、存储后端、组织架构源抽象为接口。
 - **弹性部署**：Docker Compose 单机（试用/≤50 人）+ K8s 生产（多副本/HPA）。
 
@@ -24,7 +24,7 @@
        │ HTTPS                    │ HTTP/SSE (MCP)            │ HTTPS
        │ REST + WebSocket(Yjs)    │                           │ REST
 ┌──────▼──────────┐  ┌───────────▼──────────┐  ┌────────────▼───────────┐
-│  Wiki API 服务   │  │  MCP Server (Go)     │  │  (共享 Wiki API)        │
+│  Mora API 服务   │  │  MCP Server (Go)     │  │  (共享 Mora API)        │
 │  (Go/Gin)        │  │  - Resources/Tools   │  │                         │
 │                  │  │  - 鉴权/审计/限流     │  │                         │
 │  - 文档/目录CRUD │  │  - RBAC 透传         │  │                         │
@@ -36,7 +36,7 @@
 └──┬──┬──┬────────┘             │
    │  │  │                       │
    │  │  │  ┌────────────────────▼──────────────┐
-   │  │  │  │  RAG 检索服务 (可独立或嵌入 Wiki)   │
+   │  │  │  │  RAG 检索服务 (可独立或嵌入 Mora)   │
    │  │  │  │  - Dense + BM25 混合召回            │
    │  │  │  │  - RRF 融合 + Reranking            │
    │  │  │  │  - RBAC payload 过滤               │
@@ -90,7 +90,7 @@
 
 | 组件 | 职责 | 技术栈 | 副本策略 |
 |---|---|---|---|
-| **Wiki API** | 文档/目录/RBAC/版本/检索/协同 Hub/事件发布 | Go + Gin | 多副本（K8s） |
+| **Mora API** | 文档/目录/RBAC/版本/检索/协同 Hub/事件发布 | Go + Gin | 多副本（K8s） |
 | **yjs-server** | 协同编辑 CRDT 同步 + awareness | Node.js（Yjs 生态） | 多副本（按文档分片，粘性路由） |
 | **MCP Server** | MCP 协议端点、Resources/Tools、鉴权审计限流 | Go | 多副本 |
 | **RAG Worker** | 事件消费、文本处理、切块、Embedding、向量写入/删除 | Go | 多副本（消费组负载均衡） |
@@ -114,7 +114,7 @@ MVP 阶段采用**模块化单体**（Modular Monolith），而非微服务—�
 ```
 wiki-backend/
 ├── cmd/
-│   ├── wiki-api/          # Wiki API 服务入口
+│   ├── wiki-api/          # Mora API 服务入口
 │   ├── mcp-server/        # MCP Server 入口
 │   └── rag-worker/        # RAG Worker 入口
 ├── internal/
@@ -127,7 +127,7 @@ wiki-backend/
 │   │   ├── chunk.go
 │   │   └── ...
 │   ├── module/            # 业务模块（按 PRD 四大模块划分）
-│   │   ├── wiki/          # 模块一：协同 Wiki
+│   │   ├── wiki/          # 模块一：协同 Mora
 │   │   │   ├── handler/   # HTTP handler
 │   │   │   ├── service/   # 业务逻辑
 │   │   │   ├── repository/# 数据访问
@@ -204,7 +204,7 @@ wiki-backend/
 ```yaml
 # deployments/docker-compose.yml （结构示意，完整版在实现阶段产出）
 services:
-  wiki-api:        # Wiki API + 协同 Hub（单容器）
+  wiki-api:        # Mora API + 协同 Hub（单容器）
     image: wiki-api:latest
     ports: ["8080:8080"]
     depends_on: [postgres, valkey, minio, qdrant]
@@ -325,10 +325,10 @@ volumes:
 **K8s 部署要点**：
 - **Helm Chart**：`deployments/helm/wiki-platform/`，values.yaml 定制各环境配置。
 - **健康检查**：每个 Deployment 配置 livenessProbe（`/healthz`）+ readinessProbe（`/ready`）。
-- **优雅停机**：`terminationGracePeriodSeconds: 30`，Wiki API 优雅关闭连接，RAG Worker 处理完当前消息后退出。
+- **优雅停机**：`terminationGracePeriodSeconds: 30`，Mora API 优雅关闭连接，RAG Worker 处理完当前消息后退出。
 - **滚动升级**：`strategy: RollingUpdate`，`maxSurge: 1`，`maxUnavailable: 0`。
 - **配置注入**：ConfigMap（非敏感）+ Secret（密钥）→ 环境变量。
-- **HPA**：Wiki API/MCP 按 CPU；RAG Worker 按自定义指标（队列深度，需 Prometheus Adapter）。
+- **HPA**：Mora API/MCP 按 CPU；RAG Worker 按自定义指标（队列深度，需 Prometheus Adapter）。
 - **资源配额**：各容器设 requests/limits，防资源争抢。
 - **网络策略**：NetworkPolicy 限制仅 Ingress 可达应用层，应用层仅可达数据层。
 
@@ -339,7 +339,7 @@ volumes:
 ### 4.1 文档创作到知识可检索（核心闭环）
 
 ```
-用户编辑文档 → Wiki API 保存到 PostgreSQL
+用户编辑文档 → Mora API 保存到 PostgreSQL
                 ↓ 同步发布事件
             Valkey Streams (doc_events)
                 ↓ 异步消费
@@ -358,7 +358,7 @@ volumes:
 ```
 查询者/Agent 发起检索
     ↓
-Wiki API / MCP Server 接收请求
+Mora API / MCP Server 接收请求
     ↓
 RBAC 引擎计算用户可见的 workspace_id/directory_id/document_id 集合
     ↓
@@ -423,8 +423,8 @@ MCP Server 记录 McpToolCall + AuditLog
 **用途**：附件、导入源文件、导出文件。
 
 **关键操作**：
-- 上传：Wiki API 生成 `storage_key`（`workspace_id/document_id/attachment_id/filename`），存入 MinIO，元数据记录到 PostgreSQL。
-- 下载：预签名 URL（有效期可配），或经 Wiki API 代理下载（鉴权后）。
+- 上传：Mora API 生成 `storage_key`（`workspace_id/document_id/attachment_id/filename`），存入 MinIO，元数据记录到 PostgreSQL。
+- 下载：预签名 URL（有效期可配），或经 Mora API 代理下载（鉴权后）。
 - 删除：文档删除时级联删除 MinIO 对象（异步补偿）。
 
 ### 5.4 消息队列：Valkey Streams
@@ -487,19 +487,19 @@ type EmbeddingProvider interface {
 
 | 源 → 目标 | 协议 | 端口 | 鉴权 | 说明 |
 |---|---|---|---|---|
-| 前端 → Wiki API | HTTPS REST | 443/8080 | Session/JWT | 主 API |
+| 前端 → Mora API | HTTPS REST | 443/8080 | Session/JWT | 主 API |
 | 前端 → yjs-server | WSS | 443/8082 | Session Token | 协同编辑 |
-| 前端 → Wiki API | SSE | 443/8080 | Session/JWT | 实时通知 |
+| 前端 → Mora API | SSE | 443/8080 | Session/JWT | 实时通知 |
 | Agent → MCP Server | HTTP/SSE | 443/8081 | Bearer Token | MCP 协议 |
-| Wiki API → PostgreSQL | TCP | 5432 | 用户名/密码 | pgx 连接池 |
-| Wiki API → Valkey | TCP | 6379 | ACL/密码 | 缓存/MQ |
-| Wiki API → MinIO | HTTP/S3 | 9000 | AccessKey/SecretKey | 附件 |
-| Wiki API → Qdrant | HTTP/gRPC | 6333/6334 | API Key（可选） | 检索 |
+| Mora API → PostgreSQL | TCP | 5432 | 用户名/密码 | pgx 连接池 |
+| Mora API → Valkey | TCP | 6379 | ACL/密码 | 缓存/MQ |
+| Mora API → MinIO | HTTP/S3 | 9000 | AccessKey/SecretKey | 附件 |
+| Mora API → Qdrant | HTTP/gRPC | 6333/6334 | API Key（可选） | 检索 |
 | RAG Worker → Valkey | TCP | 6379 | ACL/密码 | 消费事件 |
 | RAG Worker → TEI | HTTP | 8080 | 无（内网） | Embedding |
 | RAG Worker → Qdrant | gRPC | 6334 | API Key（可选） | 向量写入 |
 | RAG Worker → PostgreSQL | TCP | 5432 | 用户名/密码 | 状态更新 |
-| MCP Server → Wiki API | HTTP | 8080 | 内部服务 Token | RBAC/文档 |
+| MCP Server → Mora API | HTTP | 8080 | 内部服务 Token | RBAC/文档 |
 | MCP Server → RAG 检索 | HTTP | 8080 | 内部服务 Token | 检索 |
 | 所有 → Prometheus | HTTP | 9090 | 无 | 指标拉取 |
 | 所有组件 → Loki | HTTP | 3100 | 无 | 日志推送 |
@@ -559,7 +559,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 
 | 组件 | 扩展方式 | 状态管理 |
 |---|---|---|
-| Wiki API | 无状态，直接加副本 | 会话/缓存走 Valkey |
+| Mora API | 无状态，直接加副本 | 会话/缓存走 Valkey |
 | MCP Server | 无状态，直接加副本 | Token 验证走 PostgreSQL/Valkey 缓存 |
 | RAG Worker | 无状态，消费组负载均衡 | 无本地状态 |
 | yjs-server | 按文档分片，粘性路由 | awareness 走 Valkey 共享 |
@@ -568,7 +568,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 
 | 组件 | MVP（Compose） | 生产（K8s） |
 |---|---|---|
-| Wiki API | 单实例（降级可用） | 多副本 + HPA |
+| Mora API | 单实例（降级可用） | 多副本 + HPA |
 | PostgreSQL | 单实例 | 主从 + 自动故障转移（PG Operator） |
 | Valkey | 单实例 | 主从 + 哨兵 |
 | Qdrant | 单实例 | 单实例（MVP）/ 集群（大规模） |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deployments/export.sh
-# Wiki 全量数据导出与迁移工具（AC-23）。
+# Mora 全量数据导出与迁移工具（AC-23）。
 # 导出全部：PG 数据 + Qdrant 向量索引（快照）+ 配置信息，打包为 tar.gz。
 # 可在另一私有实例通过 import 子命令恢复。
 #
@@ -20,7 +20,7 @@ export_data() {
   local OUTPUT="${1:-wiki-export-$(date +%Y%m%d_%H%M%S).tar.gz}"
   mkdir -p "$TEMP_DIR"
 
-  echo "=== Wiki 全量导出 → $OUTPUT ==="
+  echo "=== Mora 全量导出 → $OUTPUT ==="
 
   # 1. PG 元数据
   echo "--- 导出 PostgreSQL 数据 ---"
@@ -66,7 +66,7 @@ import_data() {
     exit 1
   fi
 
-  echo "=== Wiki 全量导入 ← $INPUT ==="
+  echo "=== Mora 全量导入 ← $INPUT ==="
 
   # 确认
   echo "⚠ 导入将覆盖当前所有数据！确认继续？(yes/no)"
@@ -122,7 +122,7 @@ case "${1:-help}" in
     import_data "$2"
     ;;
   *)
-    echo "Wiki 全量数据导出/迁移工具"
+    echo "Mora 全量数据导出/迁移工具"
     echo ""
     echo "用法:"
     echo "  $0 export  [output.tar.gz]  导出当前实例全量数据"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deployments/restore.sh
-# Wiki 平台数据恢复：PG 恢复 + Qdrant 快照恢复 + 向量库一致性校验。
+# Mora 平台数据恢复：PG 恢复 + Qdrant 快照恢复 + 向量库一致性校验。
 # 用法: ./deployments/restore.sh <backup_dir>
 # 前置条件：服务已 `docker compose up -d` 运行，postgres 和 qdrant healthy。
 set -euo pipefail
@@ -20,7 +20,7 @@ if [ ! -d "$BACKUP_DIR" ]; then
   exit 1
 fi
 
-echo "=== Wiki 数据恢复 ← $BACKUP_DIR ==="
+echo "=== Mora 数据恢复 ← $BACKUP_DIR ==="
 echo "⚠ 恢复将覆盖当前数据库和向量数据！确认继续？(yes/no)"
 read -r CONFIRM
 if [ "$CONFIRM" != "yes" ]; then

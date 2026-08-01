@@ -1,7 +1,7 @@
 # grafana/dashboards/dashboards.yml — 自动加载仪表盘
 apiVersion: 1
 providers:
-  - name: "Wiki Platform"
+  - name: "Mora Platform"
     orgId: 1
     folder: ""
     type: file

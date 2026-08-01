@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Wiki RAG API
+  title: Mora RAG API
   version: "1.0"
   description: |
     Automated RAG & vector engine (PRD §4 模块二 / YS-8). 摘自 04-api-contract.md §9。

@@ -1,6 +1,6 @@
 # MCP Server 设计
 
-> 文档版本：v1.0 ｜ 产出人：Wiki 知识库架构师 ｜ 对应任务：YS-5
+> 文档版本：v1.0 ｜ 产出人：Mora 知识库架构师 ｜ 对应任务：YS-5
 > 依据：PRD §4 模块三（F3.1/F3.2/F3.3）、§5.2 交互流程、§6.3 MCP 域、§9 非功能需求
 > 技术选型：Go MCP Server（HTTP/SSE 为主，stdio 为辅），见 01-tech-selection-decision.md
 
@@ -11,7 +11,7 @@
 向外部 AI Agent 生态暴露符合 **Model Context Protocol (MCP)** 规范的标准服务端点，实现：
 - **协议合规**：标准 initialize/capabilities 握手、tools/resources 列表与调用。
 - **能力暴露**：Resources（页面列表/目录树/文档元数据）+ Tools（语义检索/读文档/建草稿/更新文档）。
-- **安全复用**：API Key/Bearer Token 鉴权，身份透传复用 Wiki RBAC 引擎，杜绝越权。
+- **安全复用**：API Key/Bearer Token 鉴权，身份透传复用 Mora RBAC 引擎，杜绝越权。
 - **可观测**：全量审计、限流、连接可观测。
 
 ### 1.1 非功能约束（PRD §9）
@@ -125,7 +125,7 @@ Agent 进程 ──stdin──▶ MCP Server 子进程 ──stdout──▶ Age
 
 ## 4. Resources 清单
 
-Resources 以 URI 暴露只读知识结构，供 Agent 感知 Wiki 结构（PRD F3.2）。
+Resources 以 URI 暴露只读知识结构，供 Agent 感知 Mora 结构（PRD F3.2）。
 
 | URI | 方法 | 描述 | RBAC |
 |---|---|---|---|
@@ -199,7 +199,7 @@ Tools 暴露可执行操作（PRD F3.2）。
 ```jsonc
 {
   "name": "search_knowledge_base",
-  "description": "在 Wiki 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。",
+  "description": "在 Mora 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。",
   "inputSchema": {
     "type": "object",
     "required": ["query"],
@@ -328,17 +328,17 @@ MCP Server 中间件:
     │
     ▼
 Tool/Resource 处理器:
-  - 调用 Wiki RBAC 引擎 (REST /permissions/check 或内部 SDK)
+  - 调用 Mora RBAC 引擎 (REST /permissions/check 或内部 SDK)
   - 只读工具: RBAC 过滤可见范围 → 无权命中返回空（不报存在）
   - 写工具: 校验 write 权限 → 无权返回 403
 ```
 
 ### 6.3 RBAC 复用
 
-- **不重复实现权限逻辑**：MCP Server 通过内部 HTTP 调用 Wiki API（`INTERNAL_SERVICE_TOKEN`），复用同一 RBAC 引擎与 `/rag/search` 检索服务。
+- **不重复实现权限逻辑**：MCP Server 通过内部 HTTP 调用 Mora API（`INTERNAL_SERVICE_TOKEN`），复用同一 RBAC 引擎与 `/rag/search` 检索服务。
 - **检索工具**：调用 `/rag/search` 时携带 identity 上下文，检索服务在 Qdrant payload 层 + PG SQL 层双重 RBAC 过滤（见 05-rag-pipeline-design.md §4.3、§6.3）。
-- **写工具**：`create_draft`/`update_document` 调 Wiki API 创建草稿，Wiki 层校验 write 权限。
-- **作用域约束**：Token `scope=readonly` 时，写工具直接拒绝（不调用 Wiki 层）。
+- **写工具**：`create_draft`/`update_document` 调 Mora API 创建草稿，Mora 层校验 write 权限。
+- **作用域约束**：Token `scope=readonly` 时，写工具直接拒绝（不调用 Mora 层）。
 
 ### 6.4 防存在性泄露
 - 只读工具（`get_document`/`search_knowledge_base`/Resources）无权限时返回**空结果**，不返回 403/404，防止 Agent 推断文档存在性（PRD F3.2 边界）。
@@ -396,7 +396,7 @@ internal/module/mcp/
 │   └── session.go   # 会话管理
 ├── resource/        # Resources 实现（URI → 处理器）
 │   └── resource.go
-├── tool/            # Tools 实现（name → 处理器，调 Wiki/RAG REST）
+├── tool/            # Tools 实现（name → 处理器，调 Mora/RAG REST）
 │   ├── search.go    # search_knowledge_base
 │   ├── document.go  # get_document / create_draft / update_document
 │   └── tool.go      # 注册中心
@@ -410,8 +410,8 @@ internal/module/mcp/
 cmd/mcp-server/main.go   # 入口，按 --transport 启动 HTTP/stdio
 ```
 
-- MCP Server 与 Wiki API 同一代码仓库（模块化单体），共享 `platform/rbac`、`domain`、`pkg`。
-- 通过内部 REST 调用 Wiki/RAG 能力，不重复实现业务逻辑（见 02-system-architecture.md §2.2）。
+- MCP Server 与 Mora API 同一代码仓库（模块化单体），共享 `platform/rbac`、`domain`、`pkg`。
+- 通过内部 REST 调用 Mora/RAG 能力，不重复实现业务逻辑（见 02-system-architecture.md §2.2）。
 
 ---
 

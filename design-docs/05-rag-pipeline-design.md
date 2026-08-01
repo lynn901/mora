@@ -1,6 +1,6 @@
 # RAG 流水线与向量库设计
 
-> 文档版本：v1.0 ｜ 产出人：Wiki 知识库架构师 ｜ 对应任务：YS-5
+> 文档版本：v1.0 ｜ 产出人：Mora 知识库架构师 ｜ 对应任务：YS-5
 > 依据：PRD §4 模块二（F2.1/F2.2/F2.3）、§5 交互流程、§6.2 RAG 向量域、§9 非功能需求
 > 技术选型：Qdrant 1.8+ + Valkey Streams + TEI/Ollama + PostgreSQL FTS（见 01-tech-selection-decision.md）
 
@@ -19,12 +19,12 @@
 | 全文检索（BM25） | P95 ≤ 1s（10 万文档级） |
 | 并发检索 | 单实例 ≥ 200 并发 |
 | 可靠性 | 流水线失败自动重试（指数退避，最多 3 次），幂等不产生重复向量 |
-| 最终一致 | Wiki 与向量库最终一致；删除级联有对账补偿；权限变更触发可见性重算 |
+| 最终一致 | Mora 与向量库最终一致；删除级联有对账补偿；权限变更触发可见性重算 |
 | 私有化 | 默认不出网；Embedding 限定本地 TEI/Ollama，外部模型须显式授权+审计 |
 | 可插拔 | Embedding Provider、Reranker、检索后端均可抽象替换 |
 
 ### 1.3 设计原则
-1. **事件驱动、读写隔离**：Wiki 读写不被向量化阻塞；流水线异步消费事件。
+1. **事件驱动、读写隔离**：Mora 读写不被向量化阻塞；流水线异步消费事件。
 2. **RBAC 硬约束**：权限过滤在向量库 payload 层与 SQL 层双重生效，不可被任何参数绕过。
 3. **幂等优先**：以 `event_id` + `document_id+version_no+chunk_index` 双重去重。
 4. **可补偿**：级联删除/权限重算失败有对账任务兜底，清理孤儿向量。
@@ -36,7 +36,7 @@
 
 ### 2.1 事件源与事件类型
 
-Wiki API 在文档/附件/权限变更时，向 Valkey Streams 投递事件。事件是流水线的唯一触发源。
+Mora API 在文档/附件/权限变更时，向 Valkey Streams 投递事件。事件是流水线的唯一触发源。
 
 | 事件源 | event_type | 触发时机 | 流水线动作 |
 |---|---|---|---|
@@ -69,7 +69,7 @@ Wiki API 在文档/附件/权限变更时，向 Valkey Streams 投递事件。�
 
 ```
 ┌──────────┐  保存文档   ┌──────────┐  投递事件   ┌───────────────┐
-│  用户/   │───────────▶│ Wiki API │──────────▶│ Valkey Streams │
+│  用户/   │───────────▶│ Mora API │──────────▶│ Valkey Streams │
 │  Agent   │  (PG 事务) │ (Go/Gin) │  (事务后置) │ stream:       │
 └──────────┘            └──────────┘            │ doc_events    │
                                                  └──────┬────────┘
@@ -96,12 +96,12 @@ Wiki API 在文档/附件/权限变更时，向 Valkey Streams 投递事件。�
                               │
                               ▼  索引就绪回执
                         ┌──────────┐
-                        │ Wiki API │  更新 documents.index_status
+                        │ Mora API │  更新 documents.index_status
                         │ (PG)     │  → 文档徽标刷新（SSE 推前端）
                         └──────────┘
 ```
 
-**事务一致性**：Wiki API 在 PG 事务内完成文档写入，**事务提交后**再投递事件到 Valkey Streams（使用事务后置钩子 `pgx.AfterCommit`）。若投递失败则记录到 `indexing_tasks(status=pending)` 待补偿扫描器重投，保证事件不丢。
+**事务一致性**：Mora API 在 PG 事务内完成文档写入，**事务提交后**再投递事件到 Valkey Streams（使用事务后置钩子 `pgx.AfterCommit`）。若投递失败则记录到 `indexing_tasks(status=pending)` 待补偿扫描器重投，保证事件不丢。
 
 ### 2.4 消费组与可靠性
 
@@ -496,7 +496,7 @@ type HybridSearcher interface {
 | F2.3 Dense+BM25 混合 + RRF + Reranking | §6 混合检索 | ✅ |
 | F2.3 RBAC payload 过滤（硬约束） | §4.3 | ✅ |
 | §9 向量化 P95 ≤ 30s / 检索 P95 ≤ 800ms | §7 性能预算 | ✅ |
-| §7 异常: 向量化失败不阻塞 Wiki / 模型不可用降级 BM25 | §3.1 + §5.4 | ✅ |
+| §7 异常: 向量化失败不阻塞 Mora / 模型不可用降级 BM25 | §3.1 + §5.4 | ✅ |
 | §7 权限变更触发可见性重算 | §4.3.3 | ✅ |
 | §7 删除级联失败补偿 | §2.5 对账 | ✅ |
 
