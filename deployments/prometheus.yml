@@ -4,9 +4,9 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: "wiki-api"
+  - job_name: "mora-api"
     static_configs:
-      - targets: ["wiki-api:8080"]
+      - targets: ["mora-api:8080"]
     metrics_path: "/metrics"
 
   - job_name: "mcp-server"

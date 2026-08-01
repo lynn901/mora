@@ -2,21 +2,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "wiki.fullname" . }}-valkey
+  name: {{ include "mora.fullname" . }}-valkey
   labels:
     app.kubernetes.io/component: valkey
-    {{- include "wiki.labels" . | nindent 4 }}
+    {{- include "mora.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/component: valkey
-      {{- include "wiki.selectorLabels" . | nindent 6 }}
+      {{- include "mora.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
         app.kubernetes.io/component: valkey
-        {{- include "wiki.selectorLabels" . | nindent 8 }}
+        {{- include "mora.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -49,15 +49,15 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "wiki.fullname" . }}-valkey
+            claimName: {{ include "mora.fullname" . }}-valkey
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "wiki.fullname" . }}-valkey
+  name: {{ include "mora.fullname" . }}-valkey
   labels:
     app.kubernetes.io/component: valkey
-    {{- include "wiki.labels" . | nindent 4 }}
+    {{- include "mora.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -67,15 +67,15 @@ spec:
       name: valkey
   selector:
     app.kubernetes.io/component: valkey
-    {{- include "wiki.selectorLabels" . | nindent 4 }}
+    {{- include "mora.selectorLabels" . | nindent 4 }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "wiki.fullname" . }}-valkey
+  name: {{ include "mora.fullname" . }}-valkey
   labels:
     app.kubernetes.io/component: valkey
-    {{- include "wiki.labels" . | nindent 4 }}
+    {{- include "mora.labels" . | nindent 4 }}
 spec:
   accessModes: ["ReadWriteOnce"]
   {{- with .Values.persistence.defaultStorageClass }}

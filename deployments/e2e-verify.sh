@@ -2,12 +2,12 @@
 # deployments/e2e-verify.sh
 # YS-12 端到端联调验证脚本：一键验证 docker compose up 后全部 AC。
 # 用法： ./deployments/e2e-verify.sh
-# 前提： docker compose up -d 已执行，wiki-api 在 localhost:${WIKI_API_PORT:-8990}。
+# 前提： docker compose up -d 已执行，mora-api 在 localhost:${MORA_API_PORT:-8990}。
 set -uo pipefail
 
-WIKI_PORT="${WIKI_API_PORT:-8990}"
+MORA_PORT="${MORA_API_PORT:-8990}"
 MCP_PORT="${MCP_SERVER_PORT:-8081}"
-WIKI="http://localhost:${WIKI_PORT}"
+WIKI="http://localhost:${MORA_PORT}"
 MCP="http://localhost:${MCP_PORT}"
 ADMIN_EMAIL="admin@mora.local"
 ADMIN_PW="admin123"
@@ -31,9 +31,9 @@ fi
 
 section "1. 健康检查"
 HC=$(curlv "${WIKI}/healthz")
-if echo "${HC}" | grep -q '"status":"ok"'; then ok "wiki-api /healthz"; else fail "wiki-api /healthz"; echo "  响应: ${HC}"; fi
+if echo "${HC}" | grep -q '"status":"ok"'; then ok "mora-api /healthz"; else fail "mora-api /healthz"; echo "  响应: ${HC}"; fi
 HC=$(curlv "${WIKI}/ready")
-if echo "${HC}" | grep -q '"status":"ready"'; then ok "wiki-api /ready (PG 连通)"; else fail "wiki-api /ready"; echo "  响应: ${HC}"; fi
+if echo "${HC}" | grep -q '"status":"ready"'; then ok "mora-api /ready (PG 连通)"; else fail "mora-api /ready"; echo "  响应: ${HC}"; fi
 HC=$(curlv "${MCP}/mcp/health")
 if echo "${HC}" | grep -q '"status":"ok"'; then ok "mcp-server /mcp/health"; else fail "mcp-server /mcp/health"; echo "  响应: ${HC}"; echo "  提示: docker compose logs mcp-server 查看启动错误"; fi
 
@@ -75,7 +75,7 @@ if [ -n "$JWT" ] && [ "$JWT" != "" ]; then
     if [ "$IDX_STATUS" = "indexed" ]; then ok "index_status=indexed（RAG 索引成功）"; else fail "index_status=${IDX_STATUS}"; echo "  提示: docker compose logs rag-worker 查看索引错误; docker compose logs tei 查看模型加载状态"; fi
   fi
 
-  section "6. wiki-api FTS 搜索（BM25）"
+  section "6. mora-api FTS 搜索（BM25）"
   SEARCH_RESP=$(curlv "${WIKI}/api/v1/search?workspace_id=11111111-1111-1111-1111-111111111111&q=向量检索" -H "${AUTH}")
   SEARCH_TOTAL=$(echo "${SEARCH_RESP}" | python3 -c "import json,sys; s=sys.stdin.read().split('__HTTP_CODE__')[0]; d=json.loads(s); print(d.get('data',{}).get('total',0) if isinstance(d.get('data'),dict) else 0)" 2>/dev/null || echo "0")
   SEARCH_CODE=$(echo "${SEARCH_RESP}" | grep -o '__HTTP_CODE__[0-9]*' | grep -o '[0-9]*')
@@ -96,7 +96,7 @@ SEARCH_TOOL=$(curlv -XPOST "${MCP}/mcp" \
 SEARCH_ITEMS=$(echo "${SEARCH_TOOL}" | python3 -c "import json,sys; s=sys.stdin.read().split('__HTTP_CODE__')[0]; r=json.loads(s); c=r.get('result',{}).get('content',[]); print(len(c) if c else 0)" 2>/dev/null || echo "0")
 if [ "$SEARCH_ITEMS" -gt 0 ] 2>/dev/null; then ok "search_knowledge_base 返回结果（${SEARCH_ITEMS} 条 content）"; else fail "search_knowledge_base 无结果或报错"; echo "  响应: ${SEARCH_TOOL}"; fi
 
-section "9. MCP get_document（wiki-api 文档正文）"
+section "9. MCP get_document（mora-api 文档正文）"
 if [ -n "${DOC_ID:-}" ] && [ "${DOC_ID:-}" != "" ]; then
   GET_DOC=$(curlv -XPOST "${MCP}/mcp" \
     -H "Authorization: Bearer ${DEV_TOKEN}" -H 'Content-Type: application/json' \

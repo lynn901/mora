@@ -1,10 +1,10 @@
 # Mora 平台单机部署（试用 / ≤50 人）。
-# 一键 `docker compose up -d` 拉起全部组件：前端（nginx） + 3 应用（wiki-api / rag-worker / mcp-server）
+# 一键 `docker compose up -d` 拉起全部组件：前端（nginx） + 3 应用（mora-api / rag-worker / mcp-server）
 # + 4 基础设施（postgres / valkey / qdrant / tei）+ 1 迁移 init 容器，数据卷本地挂载，100% 私有化。
 # 对应架构设计 02-system-architecture.md §3.1。
 #
 # 启动顺序：postgres(healthy) → valkey/qdrant/tei(started) → migrate(completed)
-#           → wiki-api(healthy) → frontend + rag-worker + mcp-server(healthy)。
+#           → mora-api(healthy) → frontend + rag-worker + mcp-server(healthy)。
 # 默认 TEI 作为 Embedding 推理；可选 Ollama：`docker compose --profile ollama up -d`。
 # 可选可观测：Prometheus + Grafana：`docker compose --profile monitoring up -d`。
 #
@@ -12,7 +12,7 @@
 # 激活的 embedding 模型、MCP dev token(wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4)。
 #
 # 宿主端口冲突时用环境变量覆盖（无需改文件）：
-#   WIKI_API_PORT=9000 MCP_SERVER_PORT=9001 docker compose up -d
+#   MORA_API_PORT=9000 MCP_SERVER_PORT=9001 docker compose up -d
 # 或先清理残留容器：docker compose down && docker compose up -d
 
 services:
@@ -22,11 +22,11 @@ services:
     image: postgres:16
     volumes: ["pg_data:/var/lib/postgresql/data"]
     environment:
-      POSTGRES_DB: wiki
-      POSTGRES_USER: wiki
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki}
+      POSTGRES_DB: mora
+      POSTGRES_USER: mora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mora}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wiki -d wiki"]
+      test: ["CMD-SHELL", "pg_isready -U mora -d mora"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -88,7 +88,7 @@ services:
       - ../migrations:/migrations:ro
       - ./run-migrations.sh:/run-migrations.sh:ro
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mora}
     entrypoint: ["sh", "/run-migrations.sh"]
     restart: "no" # 一次性任务，由 schema_migrations 保证幂等
 
@@ -98,9 +98,9 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile.web
-    ports: ["${WIKI_FRONTEND_PORT:-3010}:80"]
+    ports: ["${MORA_FRONTEND_PORT:-3010}:80"]
     depends_on:
-      wiki-api: { condition: service_healthy }
+      mora-api: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
       interval: 10s
@@ -110,20 +110,20 @@ services:
 
   # ---------- 应用服务 ----------
 
-  wiki-api:
+  mora-api:
     build:
       context: ..
       dockerfile: deployments/Dockerfile
       args:
-        TARGET: wiki-api
-    ports: ["${WIKI_API_PORT:-8990}:8080"]
+        TARGET: mora-api
+    ports: ["${MORA_API_PORT:-8990}:8080"]
     depends_on:
       postgres: { condition: service_healthy }
       valkey: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
     environment:
       HTTP_ADDR: ":8080"
-      DATABASE_URL: "postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable"
+      DATABASE_URL: "postgres://mora:${POSTGRES_PASSWORD:-mora}@postgres:5432/mora?sslmode=disable"
       VALKEY_URL: "valkey:6379"
       QDRANT_URL: "http://qdrant:6333"
       TEI_URL: "http://tei:8080"
@@ -132,7 +132,7 @@ services:
       EMBEDDING_DIM: "${EMBEDDING_DIM:-384}"
       FTS_CONFIG: "${FTS_CONFIG:-simple}" # postgres:16 无 zhparser，用 simple；装了 zhparser 改 chinese_zh
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
-      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-wiki-internal-token}"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-mora-internal-token}"
       COLLAB_MAX_CONCURRENT: "50"
       RATE_LIMIT_DOC_PER_MIN: "300"
       RATE_LIMIT_SEARCH_PER_MIN: "200"
@@ -157,7 +157,7 @@ services:
       tei: { condition: service_started } # TEI 模型加载较慢；worker 自带重试，不阻塞启动
       migrate: { condition: service_completed_successfully }
     environment:
-      DATABASE_URL: "postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable"
+      DATABASE_URL: "postgres://mora:${POSTGRES_PASSWORD:-mora}@postgres:5432/mora?sslmode=disable"
       VALKEY_URL: "valkey:6379"
       QDRANT_URL: "http://qdrant:6333"
       TEI_URL: "http://tei:8080"
@@ -185,14 +185,14 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       valkey: { condition: service_healthy }
-      wiki-api: { condition: service_healthy }
+      mora-api: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
     environment:
       HTTP_ADDR: ":8081"
-      DATABASE_URL: "postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable"
+      DATABASE_URL: "postgres://mora:${POSTGRES_PASSWORD:-mora}@postgres:5432/mora?sslmode=disable"
       VALKEY_URL: "valkey:6379"
-      WIKI_API_URL: "http://wiki-api:8080"
-      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-wiki-internal-token}"
+      MORA_API_URL: "http://mora-api:8080"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-mora-internal-token}"
       MCP_RATE_LIMIT_READ: "100"
       MCP_RATE_LIMIT_WRITE: "20"
       # 不设 MCP_USE_MOCK → prod 模式（PG token/session/audit + Valkey 限流 + HTTP WikiClient）
@@ -269,7 +269,7 @@ services:
     environment:
       BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-30}"
       COMPOSE_FILE: "/host/deployments/docker-compose.yml"
-      COMPOSE_PROJECT: "wiki"
+      COMPOSE_PROJECT: "mora"
     entrypoint:
       - sh
       - -c
@@ -288,7 +288,7 @@ services:
           # 每周日执行一次全量导出
           if [ "$$(date +%u)" = "7" ]; then
             echo "backup-cron: running weekly full export..."
-            /usr/local/bin/export.sh export /backup/wiki-weekly-$$(date +%Y%m%d).tar.gz || echo "backup-cron: export failed"
+            /usr/local/bin/export.sh export /backup/mora-weekly-$$(date +%Y%m%d).tar.gz || echo "backup-cron: export failed"
           fi
         done
     restart: unless-stopped

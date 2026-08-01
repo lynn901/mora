@@ -13,7 +13,7 @@ fi
 
 BACKUP_DIR="$1"
 COMPOSE_FILE="deployments/docker-compose.yml"
-COMPOSE_PROJECT="wiki"
+COMPOSE_PROJECT="mora"
 
 if [ ! -d "$BACKUP_DIR" ]; then
   echo "错误: 备份目录不存在: $BACKUP_DIR"
@@ -38,15 +38,15 @@ if [ -f "$MANIFEST" ]; then
 fi
 
 # 1. 恢复 PostgreSQL
-PG_DUMP="$BACKUP_DIR/wiki_pg_dump.sql.gz"
+  PG_DUMP="$BACKUP_DIR/mora_pg_dump.sql.gz"
 if [ -f "$PG_DUMP" ]; then
   echo "--- PostgreSQL 恢复 ---"
   gunzip -c "$PG_DUMP" | docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T postgres \
-    psql -U wiki -d wiki -v ON_ERROR_STOP=1
+    psql -U mora -d mora -v ON_ERROR_STOP=1
   echo "  ✔ PostgreSQL 恢复完成"
-elif [ -f "$BACKUP_DIR/wiki_pg_dump.sql" ]; then
+elif [ -f "$BACKUP_DIR/mora_pg_dump.sql" ]; then
   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T postgres \
-    psql -U wiki -d wiki -v ON_ERROR_STOP=1 < "$BACKUP_DIR/wiki_pg_dump.sql"
+    psql -U mora -d mora -v ON_ERROR_STOP=1 < "$BACKUP_DIR/mora_pg_dump.sql"
   echo "  ✔ PostgreSQL 恢复完成"
 else
   echo "  ⚠ 未找到 pg dump 文件，跳过"
@@ -96,7 +96,7 @@ fi
 if command -v python3 &>/dev/null; then
   echo "  交叉验证 PG 文档数与 Qdrant chunk 数（采样）..."
   DOC_COUNT=$(docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T postgres \
-    psql -U wiki -d wiki -tAc "SELECT COUNT(*) FROM documents WHERE status='published';" 2>/dev/null || echo "0")
+    psql -U mora -d mora -tAc "SELECT COUNT(*) FROM documents WHERE status='published';" 2>/dev/null || echo "0")
   POINT_COUNT=0
   for col in $RESTORED_COLLECTIONS; do
     COUNT=$(docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T qdrant \

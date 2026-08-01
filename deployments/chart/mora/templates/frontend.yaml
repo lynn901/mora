@@ -2,10 +2,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "wiki.fullname" . }}-frontend
+  name: {{ include "mora.fullname" . }}-frontend
   labels:
     app.kubernetes.io/component: frontend
-    {{- include "wiki.labels" . | nindent 4 }}
+    {{- include "mora.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.frontend.replicaCount }}
   strategy:
@@ -16,12 +16,12 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/component: frontend
-      {{- include "wiki.selectorLabels" . | nindent 6 }}
+      {{- include "mora.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
         app.kubernetes.io/component: frontend
-        {{- include "wiki.selectorLabels" . | nindent 8 }}
+        {{- include "mora.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -29,7 +29,7 @@ spec:
       {{- end }}
       containers:
         - name: frontend
-          image: "{{ include "wiki.image" . }}{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          image: "{{ include "mora.image" . }}{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 80
@@ -54,10 +54,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "wiki.fullname" . }}-frontend
+  name: {{ include "mora.fullname" . }}-frontend
   labels:
     app.kubernetes.io/component: frontend
-    {{- include "wiki.labels" . | nindent 4 }}
+    {{- include "mora.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
@@ -67,16 +67,16 @@ spec:
       name: http
   selector:
     app.kubernetes.io/component: frontend
-    {{- include "wiki.selectorLabels" . | nindent 4 }}
+    {{- include "mora.selectorLabels" . | nindent 4 }}
 {{- if .Values.frontend.ingress.enabled }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "wiki.fullname" . }}-frontend
+  name: {{ include "mora.fullname" . }}-frontend
   labels:
     app.kubernetes.io/component: frontend
-    {{- include "wiki.labels" . | nindent 4 }}
+    {{- include "mora.labels" . | nindent 4 }}
 {{- with .Values.frontend.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -86,7 +86,7 @@ spec:
   tls:
     - hosts:
         - {{ .Values.frontend.ingress.host | quote }}
-      secretName: {{ .Values.frontend.ingress.tls.secretName | default (printf "%s-tls" (include "wiki.fullname" .)) }}
+      secretName: {{ .Values.frontend.ingress.tls.secretName | default (printf "%s-tls" (include "mora.fullname" .)) }}
   {{- end }}
   rules:
     - host: {{ .Values.frontend.ingress.host | quote }}
@@ -96,7 +96,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "wiki.fullname" . }}-frontend
+                name: {{ include "mora.fullname" . }}-frontend
                 port:
                   number: {{ .Values.frontend.servicePort }}
 {{- end }}

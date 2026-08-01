@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 # Mora 平台后端镜像（多目标构建）。
-# 通过 --build-arg TARGET=<wiki-api|rag-worker|mcp-server> 选择构建哪个二进制；
+# 通过 --build-arg TARGET=<mora-api|rag-worker|mcp-server> 选择构建哪个二进制；
 # 三个服务共用同一 Go builder 阶段，runtime 用 distroless 最小化攻击面。
 # 同时构建一个静态 healthcheck 探针：distroless 无 shell/curl，compose 的
 # HEALTHCHECK 通过该探针发起 HTTP 健康检查。
 
-ARG TARGET=wiki-api
+ARG TARGET=mora-api
 
 FROM golang:1.25-alpine AS builder
 ARG TARGET

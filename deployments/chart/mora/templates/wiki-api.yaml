@@ -2,12 +2,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "wiki.fullname" . }}-wiki-api
+  name: {{ include "mora.fullname" . }}-mora-api
   labels:
-    app.kubernetes.io/component: wiki-api
-    {{- include "wiki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mora-api
+    {{- include "mora.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.wikiApi.replicaCount }}
+  replicas: {{ .Values.moraApi.replicaCount }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -15,13 +15,13 @@ spec:
       maxSurge: 1
   selector:
     matchLabels:
-      app.kubernetes.io/component: wiki-api
-      {{- include "wiki.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mora-api
+      {{- include "mora.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/component: wiki-api
-        {{- include "wiki.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mora-api
+        {{- include "mora.selectorLabels" . | nindent 8 }}
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
@@ -32,8 +32,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: wiki-api
-          image: "{{ include "wiki.image" . }}{{ .Values.wikiApi.image.repository }}:{{ .Values.wikiApi.image.tag }}"
+        - name: mora-api
+          image: "{{ include "mora.image" . }}{{ .Values.moraApi.image.repository }}:{{ .Values.moraApi.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8080
@@ -42,33 +42,33 @@ spec:
             - name: HTTP_ADDR
               value: ":8080"
             - name: DATABASE_URL
-              value: "postgres://{{ .Values.postgresql.auth.username }}:$(POSTGRES_PASSWORD)@{{ include "wiki.fullname" . }}-postgresql:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
+              value: "postgres://{{ .Values.postgresql.auth.username }}:$(POSTGRES_PASSWORD)@{{ include "mora.fullname" . }}-postgresql:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
             - name: VALKEY_URL
-              value: "{{ include "wiki.fullname" . }}-valkey:6379"
+              value: "{{ include "mora.fullname" . }}-valkey:6379"
             - name: QDRANT_URL
-              value: "http://{{ include "wiki.fullname" . }}-qdrant:6333"
+              value: "http://{{ include "mora.fullname" . }}-qdrant:6333"
             - name: TEI_URL
-              value: "http://{{ include "wiki.fullname" . }}-tei:8080"
+              value: "http://{{ include "mora.fullname" . }}-tei:8080"
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "wiki.fullname" . }}-secrets
+                  name: {{ include "mora.fullname" . }}-secrets
                   key: jwt-secret
             - name: INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "wiki.fullname" . }}-secrets
+                  name: {{ include "mora.fullname" . }}-secrets
                   key: internal-service-token
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "wiki.fullname" . }}-secrets
+                  name: {{ include "mora.fullname" . }}-secrets
                   key: postgres-password
           envFrom:
             - configMapRef:
-                name: {{ include "wiki.fullname" . }}-config
+                name: {{ include "mora.fullname" . }}-config
           resources:
-            {{- toYaml .Values.wikiApi.resources | nindent 12 }}
+            {{- toYaml .Values.moraApi.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -87,41 +87,41 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "wiki.fullname" . }}-wiki-api
+  name: {{ include "mora.fullname" . }}-mora-api
   labels:
-    app.kubernetes.io/component: wiki-api
-    {{- include "wiki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mora-api
+    {{- include "mora.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   ports:
-    - port: {{ .Values.wikiApi.servicePort }}
+    - port: {{ .Values.moraApi.servicePort }}
       targetPort: 8080
       protocol: TCP
       name: http
   selector:
-    app.kubernetes.io/component: wiki-api
-    {{- include "wiki.selectorLabels" . | nindent 4 }}
-{{- if .Values.wikiApi.hpa.enabled }}
+    app.kubernetes.io/component: mora-api
+    {{- include "mora.selectorLabels" . | nindent 4 }}
+{{- if .Values.moraApi.hpa.enabled }}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "wiki.fullname" . }}-wiki-api
+  name: {{ include "mora.fullname" . }}-mora-api
   labels:
-    app.kubernetes.io/component: wiki-api
-    {{- include "wiki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mora-api
+    {{- include "mora.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "wiki.fullname" . }}-wiki-api
-  minReplicas: {{ .Values.wikiApi.hpa.minReplicas }}
-  maxReplicas: {{ .Values.wikiApi.hpa.maxReplicas }}
+    name: {{ include "mora.fullname" . }}-mora-api
+  minReplicas: {{ .Values.moraApi.hpa.minReplicas }}
+  maxReplicas: {{ .Values.moraApi.hpa.maxReplicas }}
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: {{ .Values.wikiApi.hpa.targetCPUUtilizationPercentage }}
+          averageUtilization: {{ .Values.moraApi.hpa.targetCPUUtilizationPercentage }}
 {{- end }}

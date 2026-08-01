@@ -1,8 +1,8 @@
-{{- define "wiki.name" -}}
+{{- define "mora.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "wiki.fullname" -}}
+{{- define "mora.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -15,22 +15,22 @@
 {{- end }}
 {{- end }}
 
-{{- define "wiki.labels" -}}
-helm.sh/chart: {{ include "wiki.name" . }}-{{ .Chart.Version | replace "+" "_" }}
-{{ include "wiki.selectorLabels" . }}
+{{- define "mora.labels" -}}
+helm.sh/chart: {{ include "mora.name" . }}-{{ .Chart.Version | replace "+" "_" }}
+{{ include "mora.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: {{ include "wiki.name" . }}
+app.kubernetes.io/part-of: {{ include "mora.name" . }}
 {{- end }}
 
-{{- define "wiki.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "wiki.name" . }}
+{{- define "mora.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "mora.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{- define "wiki.image" -}}
+{{- define "mora.image" -}}
 {{- if .Values.global.imageRegistry -}}
 {{ .Values.global.imageRegistry }}/
 {{- else if .Values.image.registry -}}
