@@ -10,14 +10,14 @@
 set -euo pipefail
 
 COMPOSE_FILE="deployments/docker-compose.yml"
-COMPOSE_PROJECT="wiki"
-TEMP_DIR="/tmp/wiki-export-$$"
+COMPOSE_PROJECT="mora"
+TEMP_DIR="/tmp/mora-export-$$"
 
 cleanup() { rm -rf "$TEMP_DIR"; }
 trap cleanup EXIT
 
 export_data() {
-  local OUTPUT="${1:-wiki-export-$(date +%Y%m%d_%H%M%S).tar.gz}"
+  local OUTPUT="${1:-mora-export-$(date +%Y%m%d_%H%M%S).tar.gz}"
   mkdir -p "$TEMP_DIR"
 
   echo "=== Mora 全量导出 → $OUTPUT ==="
@@ -25,8 +25,8 @@ export_data() {
   # 1. PG 元数据
   echo "--- 导出 PostgreSQL 数据 ---"
   docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T postgres \
-    pg_dump -U wiki -d wiki --no-owner --no-acl \
-    > "$TEMP_DIR/wiki_pg_dump.sql"
+    pg_dump -U mora -d mora --no-owner --no-acl \
+    > "$TEMP_DIR/mora_pg_dump.sql"
   echo "  ✔ PostgreSQL dump saved"
 
   # 2. Qdrant 快照
@@ -80,10 +80,10 @@ import_data() {
   tar xzf "$INPUT" -C "$TEMP_DIR"
 
   # 1. 恢复 PG
-  if [ -f "$TEMP_DIR/wiki_pg_dump.sql" ]; then
+  if [ -f "$TEMP_DIR/mora_pg_dump.sql" ]; then
     echo "--- 恢复 PostgreSQL ---"
     docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T postgres \
-      psql -U wiki -d wiki -v ON_ERROR_STOP=1 < "$TEMP_DIR/wiki_pg_dump.sql"
+      psql -U mora -d mora -v ON_ERROR_STOP=1 < "$TEMP_DIR/mora_pg_dump.sql"
     echo "  ✔ PostgreSQL 恢复完成"
   fi
 
@@ -129,8 +129,8 @@ case "${1:-help}" in
     echo "  $0 import  <input.tar.gz>   在目标实例恢复数据"
     echo ""
     echo "示例:"
-    echo "  $0 export wiki-backup-20260731.tar.gz"
-    echo "  scp wiki-backup-20260731.tar.gz new-server:/data/"
-    echo "  $0 import wiki-backup-20260731.tar.gz"
+    echo "  $0 export mora-backup-20260731.tar.gz"
+    echo "  scp mora-backup-20260731.tar.gz new-server:/data/"
+    echo "  $0 import mora-backup-20260731.tar.gz"
     ;;
 esac

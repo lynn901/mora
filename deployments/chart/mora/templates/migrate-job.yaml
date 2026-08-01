@@ -1,10 +1,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "wiki.fullname" . }}-migrate
+  name: {{ include "mora.fullname" . }}-migrate
   labels:
     app.kubernetes.io/component: migrate
-    {{- include "wiki.labels" . | nindent 4 }}
+    {{- include "mora.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "1"
@@ -14,7 +14,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/component: migrate
-        {{- include "wiki.selectorLabels" . | nindent 8 }}
+        {{- include "mora.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -28,7 +28,7 @@ spec:
           command: ["sh", "/migrations/run-migrations.sh"]
           env:
             - name: PGHOST
-              value: {{ include "wiki.fullname" . }}-postgresql
+              value: {{ include "mora.fullname" . }}-postgresql
             - name: PGPORT
               value: "5432"
             - name: PGUSER
@@ -38,7 +38,7 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "wiki.fullname" . }}-secrets
+                  name: {{ include "mora.fullname" . }}-secrets
                   key: postgres-password
           volumeMounts:
             - name: migrations
@@ -47,4 +47,4 @@ spec:
       volumes:
         - name: migrations
           configMap:
-            name: {{ include "wiki.fullname" . }}-migrations
+            name: {{ include "mora.fullname" . }}-migrations

@@ -1,12 +1,12 @@
 # Chart.yaml — Mora 平台 Helm Chart
 apiVersion: v2
-name: wiki
+name: mora
 description: Mora 协同知识库平台 — 生产级 K8s 部署
 type: application
 version: 1.0.0
 appVersion: "1.0.0"
 keywords:
-  - wiki
+  - mora
   - knowledge-base
   - collaboration
 home: https://github.com/lynn901/mora

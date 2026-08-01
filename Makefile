@@ -12,7 +12,7 @@
 #        make verify  — 冒烟验证
 
 COMPOSE_FILE = deployments/docker-compose.yml
-COMPOSE_PROJECT = wiki
+COMPOSE_PROJECT = mora
 
 .PHONY: build up down logs ps restart reset backup restore export verify config
 

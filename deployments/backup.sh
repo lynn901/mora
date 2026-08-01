@@ -11,7 +11,7 @@ BACKUP_ROOT="./backup"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 BACKUP_DIR="${1:-${BACKUP_ROOT}/$(date +%Y-%m-%d_%H%M%S)}"
 COMPOSE_FILE="deployments/docker-compose.yml"
-COMPOSE_PROJECT="wiki"
+COMPOSE_PROJECT="mora"
 
 mkdir -p "$BACKUP_DIR"
 echo "=== Mora 备份开始 → $BACKUP_DIR ==="
@@ -19,10 +19,10 @@ echo "=== Mora 备份开始 → $BACKUP_DIR ==="
 # 1. PostgreSQL dump
 echo "--- PostgreSQL dump ---"
 docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T postgres \
-  pg_dump -U wiki -d wiki --no-owner --no-acl \
-  > "$BACKUP_DIR/wiki_pg_dump.sql"
-gzip "$BACKUP_DIR/wiki_pg_dump.sql"
-echo "  ✔ wiki_pg_dump.sql.gz ($(du -h "$BACKUP_DIR/wiki_pg_dump.sql.gz" | cut -f1))"
+  pg_dump -U mora -d mora --no-owner --no-acl \
+  > "$BACKUP_DIR/mora_pg_dump.sql"
+  gzip "$BACKUP_DIR/mora_pg_dump.sql"
+  echo "  ✔ mora_pg_dump.sql.gz ($(du -h "$BACKUP_DIR/mora_pg_dump.sql.gz" | cut -f1))"
 
 # 2. Qdrant 快照（通过 REST API）
 echo "--- Qdrant snapshot ---"
@@ -62,8 +62,8 @@ echo "  ✔ docker-compose resolved config saved"
 # 4. 保存备份元数据（恢复一致性校验用）
 {
   echo "backup_time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo "wiki_version: $(docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T wiki-api /app/app -version 2>/dev/null || echo 'unknown')"
-  echo "pg_dump: wiki_pg_dump.sql.gz"
+  echo "mora_version: $(docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T mora-api /app/app -version 2>/dev/null || echo 'unknown')"
+  echo "pg_dump: mora_pg_dump.sql.gz"
   echo "qdrant_snapshots:"
   for snap in "$BACKUP_DIR"/*_snapshot.snapshot; do
     [ -f "$snap" ] && echo "  - $(basename "$snap")"

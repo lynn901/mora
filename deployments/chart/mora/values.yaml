@@ -1,5 +1,5 @@
 # values.yaml — Mora 平台 Helm Chart 默认值
-# 覆盖方式：helm install wiki ./deployments/chart/wiki -f my-values.yaml
+# 覆盖方式：helm install mora ./deployments/chart/mora -f my-values.yaml
 
 global:
   imageRegistry: ""
@@ -18,8 +18,8 @@ postgresql:
     repository: postgres
     tag: "16"
   auth:
-    database: wiki
-    username: wiki
+    database: mora
+    username: mora
     password: ""  # 必填，建议 values 文件外部注入
     existingSecret: ""
     secretKey: ""
@@ -89,9 +89,9 @@ ollama:
 
 # ---------- 应用服务 ----------
 
-wikiApi:
+moraApi:
   image:
-    repository: wiki-api
+    repository: mora-api
     tag: "latest"
   replicaCount: 2
   servicePort: 8080
@@ -131,7 +131,7 @@ mcpServer:
 
 frontend:
   image:
-    repository: wiki-frontend
+    repository: mora-frontend
     tag: "latest"
   replicaCount: 2
   servicePort: 80
