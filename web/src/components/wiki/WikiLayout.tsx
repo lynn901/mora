@@ -146,7 +146,7 @@ export function WikiLayout() {
               <Button variant="ghost" size="icon" className="size-8" onClick={() => setSidebarOpen(true)}>
                 <Menu className="size-4" />
               </Button>
-              <span className="text-sm font-medium truncate">{currentDocument?.title || "Wiki"}</span>
+              <span className="text-sm font-medium truncate">{currentDocument?.title || "Mora"}</span>
             </div>
           )}
 
@@ -175,7 +175,7 @@ export function WikiLayout() {
             <div className="flex items-center justify-center flex-1">
               <div className="text-center max-w-sm">
                 <BookOpen className="size-12 text-muted-foreground/50 mx-auto" />
-                <h2 className="text-lg font-medium mt-4">Welcome to Wiki</h2>
+                <h2 className="text-lg font-medium mt-4">Welcome to Mora</h2>
                 <p className="text-sm text-muted-foreground mt-1">Select a page from the sidebar to start editing, or create a new one.</p>
               </div>
             </div>
