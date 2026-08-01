@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag"
-	"github.com/wiki/wiki-backend/internal/module/rag/pipeline"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag"
+	"github.com/lynn901/mora/internal/module/rag/pipeline"
 )
 
 // Worker owns the consume loop, idempotency, the task state machine and retry.

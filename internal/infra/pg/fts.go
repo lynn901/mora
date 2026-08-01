@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wiki/wiki-backend/internal/module/rag"
+	"github.com/lynn901/mora/internal/module/rag"
 )
 
 // FTSStore runs BM25 retrieval over documents.content_text with a GIN index
@@ -26,7 +26,7 @@ type FTSStore struct {
 	// / ts_headline / plainto_tsquery. It MUST match the config the documents
 	// GIN index was built with (003_documents.up.sql picks chinese_zh when
 	// zhparser is installed, else simple). Default "simple" so BM25 works on a
-	// stock postgres:16 image without zhparser; wiki-api injects cfg.FTSConfig.
+	// stock postgres:16 image without zhparser; mora-api injects cfg.FTSConfig.
 	Config string
 }
 

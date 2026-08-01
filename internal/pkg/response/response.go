@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wiki/wiki-backend/internal/pkg/errors"
+	"github.com/lynn901/mora/internal/pkg/errors"
 )
 
 type Envelope struct {

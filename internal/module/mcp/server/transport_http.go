@@ -6,9 +6,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lynn901/mora/internal/module/mcp/audit"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/wiki/wiki-backend/internal/module/mcp/audit"
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
 )
 
 const (

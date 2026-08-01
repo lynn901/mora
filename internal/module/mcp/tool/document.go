@@ -3,10 +3,10 @@ package tool
 import (
 	"context"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	"github.com/wiki/wiki-backend/internal/module/mcp/server"
-	"github.com/wiki/wiki-backend/internal/module/mcp/wikiclient"
-	domainerr "github.com/wiki/wiki-backend/internal/pkg/errors"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/moraclient"
+	"github.com/lynn901/mora/internal/module/mcp/server"
+	domainerr "github.com/lynn901/mora/internal/pkg/errors"
 )
 
 // GetDocumentTool implements get_document (design doc 06 §5.2.2). Read-only.
@@ -14,7 +14,7 @@ import (
 type GetDocumentTool struct{ base }
 
 // NewGetDocumentTool builds a get_document tool.
-func NewGetDocumentTool(client wikiclient.WikiClient) *GetDocumentTool {
+func NewGetDocumentTool(client moraclient.MoraClient) *GetDocumentTool {
 	return &GetDocumentTool{base: base{client: client}}
 }
 
@@ -45,7 +45,7 @@ func (t *GetDocumentTool) Execute(ctx context.Context, args map[string]any) (*se
 	if err != nil {
 		return nil, err
 	}
-	doc, err := t.client.GetDocument(ctx, toWikiAuth(auth.FromContext(ctx)), docID,
+	doc, err := t.client.GetDocument(ctx, toMoraAuth(auth.FromContext(ctx)), docID,
 		optString(args, "format"), optInt(args, "version_no", 0))
 	if err != nil {
 		if domainerr.Is(err, domainerr.ErrNotFound) || domainerr.Is(err, domainerr.ErrForbidden) {
@@ -62,7 +62,7 @@ func (t *GetDocumentTool) Execute(ctx context.Context, args map[string]any) (*se
 type CreateDraftTool struct{ base }
 
 // NewCreateDraftTool builds a create_draft tool.
-func NewCreateDraftTool(client wikiclient.WikiClient) *CreateDraftTool {
+func NewCreateDraftTool(client moraclient.MoraClient) *CreateDraftTool {
 	return &CreateDraftTool{base: base{client: client}}
 }
 
@@ -107,7 +107,7 @@ func (t *CreateDraftTool) Execute(ctx context.Context, args map[string]any) (*se
 	if err != nil {
 		return nil, err
 	}
-	req := wikiclient.CreateDraftRequest{
+	req := moraclient.CreateDraftRequest{
 		WorkspaceID: wsID,
 		ParentID:    optString(args, "parent_id"),
 		Title:       title,
@@ -117,7 +117,7 @@ func (t *CreateDraftTool) Execute(ctx context.Context, args map[string]any) (*se
 	if req.Format == "" {
 		req.Format = "markdown"
 	}
-	res, err := t.client.CreateDraft(ctx, toWikiAuth(auth.FromContext(ctx)), req)
+	res, err := t.client.CreateDraft(ctx, toMoraAuth(auth.FromContext(ctx)), req)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (t *CreateDraftTool) Execute(ctx context.Context, args map[string]any) (*se
 type UpdateDocumentTool struct{ base }
 
 // NewUpdateDocumentTool builds an update_document tool.
-func NewUpdateDocumentTool(client wikiclient.WikiClient) *UpdateDocumentTool {
+func NewUpdateDocumentTool(client moraclient.MoraClient) *UpdateDocumentTool {
 	return &UpdateDocumentTool{base: base{client: client}}
 }
 
@@ -167,7 +167,7 @@ func (t *UpdateDocumentTool) Execute(ctx context.Context, args map[string]any) (
 	if err != nil {
 		return nil, err
 	}
-	req := wikiclient.UpdateDocumentRequest{
+	req := moraclient.UpdateDocumentRequest{
 		DocumentID: docID,
 		Content:    content,
 		Format:     optString(args, "format"),
@@ -176,7 +176,7 @@ func (t *UpdateDocumentTool) Execute(ctx context.Context, args map[string]any) (
 	if req.Format == "" {
 		req.Format = "markdown"
 	}
-	res, err := t.client.UpdateDocument(ctx, toWikiAuth(auth.FromContext(ctx)), req)
+	res, err := t.client.UpdateDocument(ctx, toMoraAuth(auth.FromContext(ctx)), req)
 	if err != nil {
 		return nil, err
 	}

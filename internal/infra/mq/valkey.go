@@ -11,15 +11,15 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag"
 	"github.com/redis/go-redis/v9"
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag"
 )
 
 const (
-	StreamName  = "doc_events"
-	DeadStream  = "doc_events:dead"
-	GroupName   = "rag_pipeline_group"
+	StreamName = "doc_events"
+	DeadStream = "doc_events:dead"
+	GroupName  = "rag_pipeline_group"
 )
 
 // ValkeyQueue is a Valkey/Redis Streams implementation of rag.EventQueue.

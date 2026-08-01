@@ -1,5 +1,5 @@
 // Command healthcheck is a tiny static HTTP probe used as the docker compose
-// HEALTHCHECK for the distroless application images (wiki-api, rag-worker,
+// HEALTHCHECK for the distroless application images (mora-api, rag-worker,
 // mcp-server). distroless has no shell/curl/wget, so a static binary is the
 // only way to run an HTTP healthcheck inside those images.
 //

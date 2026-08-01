@@ -3,10 +3,10 @@ package tool
 import (
 	"context"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	"github.com/wiki/wiki-backend/internal/module/mcp/server"
-	"github.com/wiki/wiki-backend/internal/module/mcp/wikiclient"
-	domainerr "github.com/wiki/wiki-backend/internal/pkg/errors"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/moraclient"
+	"github.com/lynn901/mora/internal/module/mcp/server"
+	domainerr "github.com/lynn901/mora/internal/pkg/errors"
 )
 
 // ListDocumentsTool implements list_documents (design doc 06 §5.1). Read-only:
@@ -15,7 +15,7 @@ import (
 type ListDocumentsTool struct{ base }
 
 // NewListDocumentsTool builds a list_documents tool.
-func NewListDocumentsTool(client wikiclient.WikiClient) *ListDocumentsTool {
+func NewListDocumentsTool(client moraclient.MoraClient) *ListDocumentsTool {
 	return &ListDocumentsTool{base: base{client: client}}
 }
 
@@ -49,7 +49,7 @@ func (t *ListDocumentsTool) Execute(ctx context.Context, args map[string]any) (*
 	if err != nil {
 		return nil, err
 	}
-	params := wikiclient.ListDocumentsParams{
+	params := moraclient.ListDocumentsParams{
 		WorkspaceID: wsID,
 		DirectoryID: optString(args, "directory_id"),
 		Tag:         optString(args, "tag"),
@@ -57,7 +57,7 @@ func (t *ListDocumentsTool) Execute(ctx context.Context, args map[string]any) (*
 		Page:        optInt(args, "page", 1),
 		PageSize:    optInt(args, "page_size", 20),
 	}
-	items, total, err := t.client.ListDocuments(ctx, toWikiAuth(auth.FromContext(ctx)), params)
+	items, total, err := t.client.ListDocuments(ctx, toMoraAuth(auth.FromContext(ctx)), params)
 	if err != nil {
 		if isNotFound(err) {
 			return asTextResult(map[string]any{"items": []any{}, "total": 0})
@@ -72,7 +72,7 @@ func (t *ListDocumentsTool) Execute(ctx context.Context, args map[string]any) (*
 type GetTagsTool struct{ base }
 
 // NewGetTagsTool builds a get_tags tool.
-func NewGetTagsTool(client wikiclient.WikiClient) *GetTagsTool {
+func NewGetTagsTool(client moraclient.MoraClient) *GetTagsTool {
 	return &GetTagsTool{base: base{client: client}}
 }
 
@@ -100,7 +100,7 @@ func (t *GetTagsTool) Execute(ctx context.Context, args map[string]any) (*server
 	if err != nil {
 		return nil, err
 	}
-	tags, err := t.client.GetTags(ctx, toWikiAuth(auth.FromContext(ctx)), wsID)
+	tags, err := t.client.GetTags(ctx, toMoraAuth(auth.FromContext(ctx)), wsID)
 	if err != nil {
 		if isNotFound(err) {
 			return asTextResult([]any{})

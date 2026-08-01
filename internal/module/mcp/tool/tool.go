@@ -1,30 +1,30 @@
 // Package tool implements the MCP Tools exposed by the server (design doc 06
 // §5). Each tool implements server.ToolHandler and delegates to the upstream
-// WikiClient, enforcing token-scope gating and existence-leak prevention
-// locally while RBAC is applied server-side by the Wiki/RAG services.
+// MoraClient, enforcing token-scope gating and existence-leak prevention
+// locally while RBAC is applied server-side by the Mora/RAG services.
 package tool
 
 import (
 	"encoding/json"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	"github.com/wiki/wiki-backend/internal/module/mcp/server"
-	"github.com/wiki/wiki-backend/internal/module/mcp/wikiclient"
-	domainerr "github.com/wiki/wiki-backend/internal/pkg/errors"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/moraclient"
+	"github.com/lynn901/mora/internal/module/mcp/server"
+	domainerr "github.com/lynn901/mora/internal/pkg/errors"
 )
 
-// base is the common state shared by all tools: the upstream Wiki client.
+// base is the common state shared by all tools: the upstream Mora client.
 type base struct {
-	client wikiclient.WikiClient
+	client moraclient.MoraClient
 }
 
-// toWikiAuth converts the MCP AuthContext (from the request) into the
-// wikiclient.AuthContext propagated to upstream calls.
-func toWikiAuth(ac *auth.AuthContext) *wikiclient.AuthContext {
+// toMoraAuth converts the MCP AuthContext (from the request) into the
+// moraclient.AuthContext propagated to upstream calls.
+func toMoraAuth(ac *auth.AuthContext) *moraclient.AuthContext {
 	if ac == nil {
 		return nil
 	}
-	return &wikiclient.AuthContext{
+	return &moraclient.AuthContext{
 		TokenID:      ac.TokenID,
 		IdentityType: ac.IdentityType,
 		IdentityID:   ac.IdentityID,

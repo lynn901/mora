@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag"
 )
 
 // Client is a thin Qdrant REST client implementing rag.VectorStore.
@@ -123,9 +123,9 @@ func (c *Client) SearchDense(ctx context.Context, req rag.VectorSearchRequest) (
 	}
 	var resp struct {
 		Result []struct {
-			ID      string                 `json:"id"`
-			Score   float32                `json:"score"`
-			Payload map[string]any         `json:"payload"`
+			ID      string         `json:"id"`
+			Score   float32        `json:"score"`
+			Payload map[string]any `json:"payload"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
@@ -193,13 +193,13 @@ func mustMatchInt(key string, value int) map[string]any {
 
 func payloadToMeta(p map[string]any) domain.ChunkMetadata {
 	m := domain.ChunkMetadata{
-		DocumentID:   str(p["document_id"]),
-		WorkspaceID:  str(p["workspace_id"]),
-		DirectoryID:  str(p["directory_id"]),
-		ChunkText:    str(p["chunk_text"]),
-		SectionPath:  str(p["section_path"]),
-		ModelID:      str(p["model_id"]),
-		Status:       str(p["status"]),
+		DocumentID:  str(p["document_id"]),
+		WorkspaceID: str(p["workspace_id"]),
+		DirectoryID: str(p["directory_id"]),
+		ChunkText:   str(p["chunk_text"]),
+		SectionPath: str(p["section_path"]),
+		ModelID:     str(p["model_id"]),
+		Status:      str(p["status"]),
 	}
 	m.VersionNo = toInt(p["version_no"])
 	m.ChunkIndex = toInt(p["chunk_index"])

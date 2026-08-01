@@ -1,11 +1,11 @@
-// Command mcp-server runs the Wiki MCP Server (design doc 06). It supports two
+// Command mcp-server runs the Mora MCP Server (design doc 06). It supports two
 // transports (HTTP/SSE default, stdio P2) and two backends:
 //
-//   - Mock (--mock or MCP_USE_MOCK=1): in-memory WikiClient + token/session/
+//   - Mock (--mock or MCP_USE_MOCK=1): in-memory MoraClient + token/session/
 //     audit/rate-limit stores seeded with sample data. Lets the MCP module run
-//     end-to-end before YS-6 (Wiki backend) / YS-8 (RAG) are integrated — the
+//     end-to-end before YS-6 (Mora backend) / YS-8 (RAG) are integrated — the
 //     "mock 先行" strategy from the YS-4 dependency plan.
-//   - Production: real HTTP WikiClient + PostgreSQL + Valkey stores, used once
+//   - Production: real HTTP MoraClient + PostgreSQL + Valkey stores, used once
 //     the upstream services and infra are available.
 //
 // Usage:
@@ -30,20 +30,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/audit"
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	"github.com/wiki/wiki-backend/internal/module/mcp/resource"
-	"github.com/wiki/wiki-backend/internal/module/mcp/server"
-	"github.com/wiki/wiki-backend/internal/module/mcp/tool"
-	"github.com/wiki/wiki-backend/internal/module/mcp/wikiclient"
-	"github.com/wiki/wiki-backend/internal/platform/config"
-	"github.com/wiki/wiki-backend/internal/platform/rbac"
+	"github.com/lynn901/mora/internal/module/mcp/audit"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/moraclient"
+	"github.com/lynn901/mora/internal/module/mcp/resource"
+	"github.com/lynn901/mora/internal/module/mcp/server"
+	"github.com/lynn901/mora/internal/module/mcp/tool"
+	"github.com/lynn901/mora/internal/platform/config"
+	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
 func main() {
 	transport := flag.String("transport", "", "transport: http (default) or stdio")
 	apiToken := flag.String("api-token", "", "stdio: API token plaintext (or MCP_API_TOKEN)")
-	useMock := flag.Bool("mock", false, "use in-memory mock WikiClient + stores (standalone dev)")
+	useMock := flag.Bool("mock", false, "use in-memory mock MoraClient + stores (standalone dev)")
 	flag.Parse()
 
 	cfg := config.FromEnv()
@@ -61,7 +61,7 @@ func main() {
 	}
 
 	var (
-		wikiClient wikiclient.WikiClient
+		moraClient moraclient.MoraClient
 		tokenStore auth.TokenStore
 		sessions   server.SessionStore
 		auditStore audit.Store
@@ -70,14 +70,14 @@ func main() {
 	)
 
 	if *useMock || (cfg.PostgresDSN == "" && cfg.ValkeyURL == "") {
-		wikiClient, tokenStore, stdioToken = buildMock()
+		moraClient, tokenStore, stdioToken = buildMock()
 		sessions = server.NewMemorySessionStore()
 		auditStore = audit.NewMemoryStore()
 		limiter = auth.NewMemoryRateLimiter()
 		log.Printf("MCP server starting in MOCK mode (transport=%s)", cfg.Transport)
 	} else {
-		// Production wiring: real HTTP Wiki client + PG + Valkey.
-		wikiClient = wikiclient.NewHTTPClient(cfg.WikiAPIURL, cfg.InternalToken)
+		// Production wiring: real HTTP Mora client + PG + Valkey.
+		moraClient = moraclient.NewHTTPClient(cfg.MoraAPIURL, cfg.InternalToken)
 
 		pool, err := pgxpool.New(context.Background(), cfg.PostgresDSN)
 		if err != nil {
@@ -89,21 +89,21 @@ func main() {
 
 		rdb := redis.NewClient(&redis.Options{Addr: cfg.ValkeyURL})
 		limiter = auth.NewValkeyRateLimiter(rdb)
-		log.Printf("MCP server starting in PROD mode (transport=%s, wiki_api=%s)", cfg.Transport, cfg.WikiAPIURL)
+		log.Printf("MCP server starting in PROD mode (transport=%s, mora_api=%s)", cfg.Transport, cfg.MoraAPIURL)
 	}
 
 	// Build tools + resources.
-	resReg := resource.NewRegistry(wikiClient)
+	resReg := resource.NewRegistry(moraClient)
 	srv := server.NewServer(resReg, sessions, auditStore, limiter, cfg.ServerName, cfg.ServerVersion,
 		server.WithRateLimits(cfg.RateLimitRead, cfg.RateLimitWrite),
 		server.WithProtocolVersion(cfg.ProtocolVersion),
 	)
-	srv.RegisterTool(tool.NewSearchTool(wikiClient))
-	srv.RegisterTool(tool.NewGetDocumentTool(wikiClient))
-	srv.RegisterTool(tool.NewListDocumentsTool(wikiClient))
-	srv.RegisterTool(tool.NewGetTagsTool(wikiClient))
-	srv.RegisterTool(tool.NewCreateDraftTool(wikiClient))
-	srv.RegisterTool(tool.NewUpdateDocumentTool(wikiClient))
+	srv.RegisterTool(tool.NewSearchTool(moraClient))
+	srv.RegisterTool(tool.NewGetDocumentTool(moraClient))
+	srv.RegisterTool(tool.NewListDocumentsTool(moraClient))
+	srv.RegisterTool(tool.NewGetTagsTool(moraClient))
+	srv.RegisterTool(tool.NewCreateDraftTool(moraClient))
+	srv.RegisterTool(tool.NewUpdateDocumentTool(moraClient))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -149,39 +149,39 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// buildMock seeds an in-memory WikiClient + token store with sample data and a
+// buildMock seeds an in-memory MoraClient + token store with sample data and a
 // dev token, returning the resolved token record for stdio mode.
-func buildMock() (wikiclient.WikiClient, auth.TokenStore, *auth.TokenRecord) {
-	mock := wikiclient.NewMock()
+func buildMock() (moraclient.MoraClient, auth.TokenStore, *auth.TokenRecord) {
+	mock := moraclient.NewMock()
 	const wsEng = "ws-eng-0001"
 	const wsSales = "ws-sales-0001"
 	const dirRoot = "dir-eng-root-0001"
 
-	mock.AddWorkspace(wikiclient.Workspace{ID: wsEng, Name: "工程团队", Slug: "eng", OwnerID: "user-1"})
-	mock.AddWorkspace(wikiclient.Workspace{ID: wsSales, Name: "销售团队", Slug: "sales", OwnerID: "user-2"})
-	mock.AddDirectory(wikiclient.DirectoryNode{ID: dirRoot, Name: "工程文档", Path: "", SortOrder: 1}, wsEng)
-	mock.AddDocument(wikiclient.DocumentMeta{
+	mock.AddWorkspace(moraclient.Workspace{ID: wsEng, Name: "工程团队", Slug: "eng", OwnerID: "user-1"})
+	mock.AddWorkspace(moraclient.Workspace{ID: wsSales, Name: "销售团队", Slug: "sales", OwnerID: "user-2"})
+	mock.AddDirectory(moraclient.DirectoryNode{ID: dirRoot, Name: "工程文档", Path: "", SortOrder: 1}, wsEng)
+	mock.AddDocument(moraclient.DocumentMeta{
 		ID: "doc-api-0001", WorkspaceID: wsEng, DirectoryID: dirRoot, Title: "API 设计规范",
 		Status: "published", IndexStatus: "indexed", VersionNo: 5, Tags: []string{"api"},
 		CreatedBy: "user-1", UpdatedAt: "2026-07-29T08:00:00Z",
 	},
 		"# API 设计规范\n\n分页采用 page/page_size 参数，响应包含 total/page/page_size。\n\nRESTful 资源命名使用复数名词。",
 		"markdown",
-		[]wikiclient.VersionSummary{
+		[]moraclient.VersionSummary{
 			{VersionNo: 5, DiffSummary: "补充分页说明", AuthorID: "user-1", CreatedAt: "2026-07-29T08:00:00Z"},
 			{VersionNo: 4, DiffSummary: "初始版本", AuthorID: "user-1", CreatedAt: "2026-07-20T08:00:00Z"},
 		},
 	)
-	mock.AddDocument(wikiclient.DocumentMeta{
+	mock.AddDocument(moraclient.DocumentMeta{
 		ID: "doc-onboarding-0002", WorkspaceID: wsEng, DirectoryID: "", Title: "新人入职指南",
 		Status: "published", IndexStatus: "indexed", VersionNo: 2, Tags: []string{"guide"},
 		CreatedBy: "user-1", UpdatedAt: "2026-07-25T08:00:00Z",
 	},
 		"# 新人入职指南\n\n欢迎加入工程团队。请先配置开发环境。",
 		"markdown",
-		[]wikiclient.VersionSummary{{VersionNo: 2, DiffSummary: "更新环境清单", AuthorID: "user-1", CreatedAt: "2026-07-25T08:00:00Z"}},
+		[]moraclient.VersionSummary{{VersionNo: 2, DiffSummary: "更新环境清单", AuthorID: "user-1", CreatedAt: "2026-07-25T08:00:00Z"}},
 	)
-	mock.AddTags(wsEng, []wikiclient.Tag{{ID: "tag-api", Name: "api"}, {ID: "tag-guide", Name: "guide"}})
+	mock.AddTags(wsEng, []moraclient.Tag{{ID: "tag-api", Name: "api"}, {ID: "tag-guide", Name: "guide"}})
 
 	// ACL: user-1 has read+write on eng, read only on sales.
 	mock.GrantWrite("user-1", wsEng)

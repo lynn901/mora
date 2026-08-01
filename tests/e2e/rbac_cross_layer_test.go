@@ -10,7 +10,7 @@ import (
 )
 
 // TestRBACCrossLayerConsistency verifies PRD §7 / §4.3.3: a permission change
-// in the Wiki layer propagates so that retrieval (FTS + RAG) and MCP results
+// in the Mora layer propagates so that retrieval (FTS + RAG) and MCP results
 // converge to the same visibility for the affected principal.
 //
 // Flow:

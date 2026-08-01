@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/platform/rbac"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
 // RBACAdapter combines PermissionRepo, DirectoryRepo and DocumentRepo to

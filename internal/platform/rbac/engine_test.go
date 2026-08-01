@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/lynn901/mora/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wiki/wiki-backend/internal/domain"
 )
 
 // fakeRepo is an in-memory Repository for engine unit tests.
@@ -74,7 +74,7 @@ func TestDecide_ExplicitAllow(t *testing.T) {
 	doc := uuid.New()
 	grants := []domain.Grant{{
 		SubjectType: domain.SubjectUser, SubjectID: uuid.New(),
-		Actions: []domain.Action{domain.ActionRead},
+		Actions:    []domain.Action{domain.ActionRead},
 		TargetType: domain.TargetDocument, TargetID: doc, Effect: domain.EffectAllow,
 	}}
 	d := decide(grants, []node{{typ: domain.TargetDocument, id: doc}}, domain.ActionRead)
@@ -104,7 +104,7 @@ func TestDecide_InheritedAllow(t *testing.T) {
 	subj := uuid.New()
 	grants := []domain.Grant{{
 		SubjectType: domain.SubjectUser, SubjectID: subj,
-		Actions: []domain.Action{domain.ActionRead},
+		Actions:    []domain.Action{domain.ActionRead},
 		TargetType: domain.TargetDirectory, TargetID: dir, Effect: domain.EffectAllow,
 	}}
 	// chain: doc (no grant) -> dir (allow) -> ws
@@ -145,7 +145,7 @@ func TestDecide_AdminImpliesAll(t *testing.T) {
 	subj := uuid.New()
 	grants := []domain.Grant{{
 		SubjectType: domain.SubjectUser, SubjectID: subj,
-		Actions: []domain.Action{domain.ActionAdmin},
+		Actions:    []domain.Action{domain.ActionAdmin},
 		TargetType: domain.TargetDocument, TargetID: doc, Effect: domain.EffectAllow,
 	}}
 	chain := []node{{typ: domain.TargetDocument, id: doc}}
@@ -159,7 +159,7 @@ func TestDecide_WriteImpliesRead(t *testing.T) {
 	doc := uuid.New()
 	grants := []domain.Grant{{
 		SubjectType: domain.SubjectUser, SubjectID: uuid.New(),
-		Actions: []domain.Action{domain.ActionWrite},
+		Actions:    []domain.Action{domain.ActionWrite},
 		TargetType: domain.TargetDocument, TargetID: doc, Effect: domain.EffectAllow,
 	}}
 	chain := []node{{typ: domain.TargetDocument, id: doc}}
@@ -188,7 +188,7 @@ func TestEngine_Check_FullChain(t *testing.T) {
 	// Grant read on root directory (subtree) via group membership.
 	f.grants = []domain.Grant{{
 		SubjectType: domain.SubjectGroup, SubjectID: group,
-		Actions: []domain.Action{domain.ActionRead},
+		Actions:    []domain.Action{domain.ActionRead},
 		TargetType: domain.TargetDirectory, TargetID: root, Effect: domain.EffectAllow,
 	}}
 

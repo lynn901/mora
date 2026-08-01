@@ -14,13 +14,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/audit"
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	"github.com/wiki/wiki-backend/internal/module/mcp/resource"
-	"github.com/wiki/wiki-backend/internal/module/mcp/server"
-	"github.com/wiki/wiki-backend/internal/module/mcp/tool"
-	"github.com/wiki/wiki-backend/internal/module/mcp/wikiclient"
-	"github.com/wiki/wiki-backend/internal/platform/rbac"
+	"github.com/lynn901/mora/internal/module/mcp/audit"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/moraclient"
+	"github.com/lynn901/mora/internal/module/mcp/resource"
+	"github.com/lynn901/mora/internal/module/mcp/server"
+	"github.com/lynn901/mora/internal/module/mcp/tool"
+	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
 const (
@@ -32,12 +32,12 @@ const (
 	sessionHdr = "Mcp-Session-Id"
 )
 
-// testEnv wires a Server with an in-memory mock WikiClient + memory stores and
+// testEnv wires a Server with an in-memory mock MoraClient + memory stores and
 // a seeded ACL.
 type testEnv struct {
 	engine   *gin.Engine
 	srv      *server.Server
-	mock     *wikiclient.Mock
+	mock     *moraclient.Mock
 	tokens   *auth.MemoryTokenStore
 	tokenRW  string
 	tokenRO  string
@@ -48,23 +48,23 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T, rateRead, rateWrite int) *testEnv {
 	t.Helper()
-	mock := wikiclient.NewMock()
-	mock.AddWorkspace(wikiclient.Workspace{ID: wsEng, Name: "工程团队", Slug: "eng", OwnerID: identity})
-	mock.AddWorkspace(wikiclient.Workspace{ID: "ws-sales-0001", Name: "销售团队", Slug: "sales", OwnerID: "user-2"})
-	mock.AddDirectory(wikiclient.DirectoryNode{ID: dirRoot, Name: "工程文档", Path: "", SortOrder: 1}, wsEng)
-	mock.AddDocument(wikiclient.DocumentMeta{
+	mock := moraclient.NewMock()
+	mock.AddWorkspace(moraclient.Workspace{ID: wsEng, Name: "工程团队", Slug: "eng", OwnerID: identity})
+	mock.AddWorkspace(moraclient.Workspace{ID: "ws-sales-0001", Name: "销售团队", Slug: "sales", OwnerID: "user-2"})
+	mock.AddDirectory(moraclient.DirectoryNode{ID: dirRoot, Name: "工程文档", Path: "", SortOrder: 1}, wsEng)
+	mock.AddDocument(moraclient.DocumentMeta{
 		ID: docAPI, WorkspaceID: wsEng, DirectoryID: dirRoot, Title: "API 设计规范",
 		Status: "published", IndexStatus: "indexed", VersionNo: 5, Tags: []string{"api"},
 		CreatedBy: identity, UpdatedAt: "2026-07-29T08:00:00Z",
 	}, "# API 设计规范\n\n分页采用 page/page_size 参数。\n", "markdown",
-		[]wikiclient.VersionSummary{{VersionNo: 5, DiffSummary: "补充分页", AuthorID: identity, CreatedAt: "2026-07-29T08:00:00Z"}})
-	mock.AddDocument(wikiclient.DocumentMeta{
+		[]moraclient.VersionSummary{{VersionNo: 5, DiffSummary: "补充分页", AuthorID: identity, CreatedAt: "2026-07-29T08:00:00Z"}})
+	mock.AddDocument(moraclient.DocumentMeta{
 		ID: docOnb, WorkspaceID: wsEng, DirectoryID: "", Title: "新人入职指南",
 		Status: "published", IndexStatus: "indexed", VersionNo: 2, Tags: []string{"guide"},
 		CreatedBy: identity, UpdatedAt: "2026-07-25T08:00:00Z",
 	}, "# 新人入职指南\n\n欢迎加入。\n", "markdown",
-		[]wikiclient.VersionSummary{{VersionNo: 2, AuthorID: identity, CreatedAt: "2026-07-25T08:00:00Z"}})
-	mock.AddTags(wsEng, []wikiclient.Tag{{ID: "tag-api", Name: "api"}})
+		[]moraclient.VersionSummary{{VersionNo: 2, AuthorID: identity, CreatedAt: "2026-07-25T08:00:00Z"}})
+	mock.AddTags(wsEng, []moraclient.Tag{{ID: "tag-api", Name: "api"}})
 	mock.GrantWrite(identity, wsEng)
 
 	tokenStore := auth.NewMemoryTokenStore()
@@ -92,7 +92,7 @@ func newTestEnv(t *testing.T, rateRead, rateWrite int) *testEnv {
 	})
 
 	resReg := resource.NewRegistry(mock)
-	srv := server.NewServer(resReg, server.NewMemorySessionStore(), env.aud, env.limiter, "wiki-mcp", "1.0.0",
+	srv := server.NewServer(resReg, server.NewMemorySessionStore(), env.aud, env.limiter, "mora-mcp", "1.0.0",
 		server.WithRateLimits(rateRead, rateWrite),
 		server.WithProtocolVersion("2025-06-18"))
 	srv.RegisterTool(tool.NewSearchTool(mock))
@@ -176,7 +176,7 @@ func TestInitializeHandshake(t *testing.T) {
 	assert.Equal(t, "2025-06-18", initResult.ProtocolVersion)
 	assert.NotNil(t, initResult.Capabilities.Tools)
 	assert.NotNil(t, initResult.Capabilities.Resources)
-	assert.Equal(t, "wiki-mcp", initResult.ServerInfo.Name)
+	assert.Equal(t, "mora-mcp", initResult.ServerInfo.Name)
 
 	// The handshake must advertise the Mcp-Session-Id header.
 	body, _ := json.Marshal(raw)

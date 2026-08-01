@@ -10,14 +10,14 @@ import (
 
 // Config holds all runtime configuration for the modular monolith, sourced
 // exclusively from env vars (no hardcoded secrets — 01-tech-selection-decision
-// §3.4). One struct serves every binary (wiki-api, rag-worker, mcp-server);
-// each binary reads the subset of fields it needs. Load() is the wiki-api
+// §3.4). One struct serves every binary (mora-api, rag-worker, mcp-server);
+// each binary reads the subset of fields it needs. Load() is the mora-api
 // entrypoint (returns *Config + error); FromEnv()/Default() are the MCP
 // entrypoints (return Config).
 type Config struct {
 	// --- shared ---
 	HTTPAddr      string
-	DatabaseURL   string // wiki-api / rag-worker PG DSN
+	DatabaseURL   string // mora-api / rag-worker PG DSN
 	PostgresDSN   string // mcp-server PG DSN (alias of DatabaseURL)
 	ValkeyURL     string
 	QdrantURL     string
@@ -34,7 +34,7 @@ type Config struct {
 	EmbeddingDim      int
 	FTSConfig         string // chinese_zh when zhparser present, else simple
 
-	// --- wiki domain ---
+	// --- mora domain ---
 	VersionRetentionDays  int
 	VersionRetentionCount int
 	CollabMaxConcurrent   int
@@ -49,8 +49,8 @@ type Config struct {
 
 	// --- mcp domain ---
 	Transport       string // "http" (default) or "stdio"
-	WikiAPIURL      string // internal Wiki API base URL
-	InternalToken   string // INTERNAL_SERVICE_TOKEN for MCP->Wiki service auth
+	MoraAPIURL      string // internal Mora API base URL
+	InternalToken   string // INTERNAL_SERVICE_TOKEN for MCP->Mora service auth
 	RateLimitRead   int
 	RateLimitWrite  int
 	SessionTTL      time.Duration
@@ -63,7 +63,7 @@ type Config struct {
 }
 
 // Load reads configuration from environment variables with safe defaults for
-// the wiki-api binary. Returns an error only on malformed duration/int values.
+// the mora-api binary. Returns an error only on malformed duration/int values.
 func Load() (*Config, error) {
 	cfg := &Config{
 		HTTPAddr:              getenv("HTTP_ADDR", ":8080"),
@@ -88,12 +88,12 @@ func Load() (*Config, error) {
 		RateLimitSearchPerMin: getenvInt("RATE_LIMIT_SEARCH_PER_MIN", 200),
 		RateLimitMCPPerMin:    getenvInt("RATE_LIMIT_MCP_PER_MIN", 100),
 		Transport:             getenv("MCP_TRANSPORT", "http"),
-		WikiAPIURL:            getenv("WIKI_API_URL", "http://localhost:8080"),
+		MoraAPIURL:            getenv("WIKI_API_URL", "http://localhost:8080"),
 		InternalToken:         os.Getenv("INTERNAL_SERVICE_TOKEN"),
 		RateLimitRead:         getenvInt("MCP_RATE_LIMIT_READ", 100),
 		RateLimitWrite:        getenvInt("MCP_RATE_LIMIT_WRITE", 20),
 		ProtocolVersion:       getenv("MCP_PROTOCOL_VERSION", "2025-06-18"),
-		ServerName:            getenv("MCP_SERVER_NAME", "wiki-mcp"),
+		ServerName:            getenv("MCP_SERVER_NAME", "mora-mcp"),
 		ServerVersion:         getenv("MCP_SERVER_VERSION", "1.0.0"),
 		ConsumerName:          getenv("CONSUMER_NAME", "rag-worker-1"),
 		LogLevel:              strings.ToLower(getenv("LOG_LEVEL", "info")),
@@ -124,7 +124,7 @@ func Default() Config {
 	return Config{
 		HTTPAddr:        ":8081",
 		Transport:       "http",
-		WikiAPIURL:      "http://localhost:8080",
+		MoraAPIURL:      "http://localhost:8080",
 		InternalToken:   "",
 		PostgresDSN:     "",
 		DatabaseURL:     "",
@@ -133,7 +133,7 @@ func Default() Config {
 		RateLimitWrite:  20,
 		SessionTTL:      30 * time.Minute,
 		ProtocolVersion: "2025-06-18",
-		ServerName:      "wiki-mcp",
+		ServerName:      "mora-mcp",
 		ServerVersion:   "1.0.0",
 		LogLevel:        "info",
 	}
@@ -152,7 +152,7 @@ func FromEnv() Config {
 		c.Transport = strings.ToLower(v)
 	}
 	if v := getenv("WIKI_API_URL", ""); v != "" {
-		c.WikiAPIURL = strings.TrimRight(v, "/")
+		c.MoraAPIURL = strings.TrimRight(v, "/")
 	}
 	c.InternalToken = os.Getenv("INTERNAL_SERVICE_TOKEN")
 	c.DatabaseURL = os.Getenv("DATABASE_URL")
@@ -190,8 +190,8 @@ func FromEnv() Config {
 // String returns a redacted, human-readable representation (no secrets).
 func (c Config) String() string {
 	return fmt.Sprintf(
-		"Config{http=%s transport=%s wiki_api=%s pg=%v valkey=%v qdrant=%s tei=%s rl_read=%d rl_write=%d proto=%s server=%s/%s}",
-		c.HTTPAddr, c.Transport, c.WikiAPIURL,
+		"Config{http=%s transport=%s mora_api=%s pg=%v valkey=%v qdrant=%s tei=%s rl_read=%d rl_write=%d proto=%s server=%s/%s}",
+		c.HTTPAddr, c.Transport, c.MoraAPIURL,
 		c.DatabaseURL != "", c.ValkeyURL != "",
 		c.QdrantURL, c.TEIURL,
 		c.RateLimitRead, c.RateLimitWrite,

@@ -2,10 +2,10 @@
 // modular monolith. The RBAC decision engine itself lives here in production
 // (backed by the permissions tables — see design doc 03 §2.5); the MCP module
 // reuses the same AuthContext and Permission vocabulary so identity flows
-// consistently from Token → AuthContext → Wiki API RBAC engine.
+// consistently from Token → AuthContext → Mora API RBAC engine.
 //
 // Per design doc 06 §6.3, the MCP Server does NOT re-implement permission
-// logic: it delegates RBAC to the Wiki API (which consults this engine) and
+// logic: it delegates RBAC to the Mora API (which consults this engine) and
 // only enforces token-scope gating and existence-leak prevention locally.
 package rbac
 

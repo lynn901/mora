@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/audit"
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	domainerr "github.com/wiki/wiki-backend/internal/pkg/errors"
-	"github.com/wiki/wiki-backend/internal/platform/observ"
+	"github.com/lynn901/mora/internal/module/mcp/audit"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	domainerr "github.com/lynn901/mora/internal/pkg/errors"
+	"github.com/lynn901/mora/internal/platform/observ"
 )
 
 // ToolHandler is implemented by each MCP tool. The server dispatches tools/call

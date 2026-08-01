@@ -7,18 +7,18 @@ import (
 	"context"
 	"time"
 
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag"
+	"github.com/lynn901/mora/internal/module/rag/provider"
 	"github.com/redis/go-redis/v9"
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag"
-	"github.com/wiki/wiki-backend/internal/module/rag/provider"
 )
 
 // DefaultProviderFactory builds TEI or Ollama providers per model config.
 // TEI is primary; Ollama is the lightweight alternative (05 §5.2).
 type DefaultProviderFactory struct {
-	TEIURL       string
-	OllamaURL    string
-	RerankModel  string // TEI reranker model name (e.g. BAAI/bge-reranker-large)
+	TEIURL      string
+	OllamaURL   string
+	RerankModel string // TEI reranker model name (e.g. BAAI/bge-reranker-large)
 }
 
 func (f *DefaultProviderFactory) For(ctx context.Context, m domain.EmbeddingModel) (provider.EmbeddingProvider, error) {

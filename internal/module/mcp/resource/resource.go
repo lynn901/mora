@@ -1,7 +1,7 @@
 // Package resource implements the MCP Resources exposed by the server (design
 // doc 06 §4). Resources are read-only knowledge structure URIs (wiki:// scheme)
-// that let an Agent discover the Wiki layout. All handlers delegate to the
-// upstream WikiClient; no read permission surfaces as a not-found error which
+// that let an Agent discover the Mora layout. All handlers delegate to the
+// upstream MoraClient; no read permission surfaces as a not-found error which
 // the server converts to empty contents (existence-leak prevention, §6.4).
 package resource
 
@@ -10,22 +10,22 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	"github.com/wiki/wiki-backend/internal/module/mcp/server"
-	"github.com/wiki/wiki-backend/internal/module/mcp/wikiclient"
-	domainerr "github.com/wiki/wiki-backend/internal/pkg/errors"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/moraclient"
+	"github.com/lynn901/mora/internal/module/mcp/server"
+	domainerr "github.com/lynn901/mora/internal/pkg/errors"
 )
 
 const mimeTypeJSON = "application/json"
 
 // Registry implements server.ResourceRegistry, dispatching wiki:// URIs to the
-// matching handler backed by the WikiClient.
+// matching handler backed by the MoraClient.
 type Registry struct {
-	client wikiclient.WikiClient
+	client moraclient.MoraClient
 }
 
 // NewRegistry builds a resource Registry.
-func NewRegistry(client wikiclient.WikiClient) *Registry {
+func NewRegistry(client moraclient.MoraClient) *Registry {
 	return &Registry{client: client}
 }
 
@@ -35,7 +35,7 @@ func NewRegistry(client wikiclient.WikiClient) *Registry {
 // discovered through the tree (which lists documents), keeping List bounded.
 func (r *Registry) List(ctx context.Context) ([]server.ResourceDef, error) {
 	ac := auth.FromContext(ctx)
-	wss, err := r.client.ListWorkspaces(ctx, toWikiAuth(ac))
+	wss, err := r.client.ListWorkspaces(ctx, toMoraAuth(ac))
 	if err != nil {
 		return nil, err
 	}
@@ -62,15 +62,15 @@ func (r *Registry) Read(ctx context.Context, uri string) (*server.ResourceReadRe
 	var payload any
 	switch parts.kind {
 	case "workspaces":
-		payload, err = r.client.ListWorkspaces(ctx, toWikiAuth(ac))
+		payload, err = r.client.ListWorkspaces(ctx, toMoraAuth(ac))
 	case "tree":
-		payload, err = r.client.GetDirectoryTree(ctx, toWikiAuth(ac), parts.id)
+		payload, err = r.client.GetDirectoryTree(ctx, toMoraAuth(ac), parts.id)
 	case "tags":
-		payload, err = r.client.GetTags(ctx, toWikiAuth(ac), parts.id)
+		payload, err = r.client.GetTags(ctx, toMoraAuth(ac), parts.id)
 	case "meta":
-		payload, err = r.client.GetDocumentMeta(ctx, toWikiAuth(ac), parts.id)
+		payload, err = r.client.GetDocumentMeta(ctx, toMoraAuth(ac), parts.id)
 	case "versions":
-		payload, err = r.client.GetDocumentVersions(ctx, toWikiAuth(ac), parts.id)
+		payload, err = r.client.GetDocumentVersions(ctx, toMoraAuth(ac), parts.id)
 	default:
 		return nil, domainerr.ErrNotFound
 	}
@@ -132,12 +132,12 @@ func parseURI(uri string) (uriParts, error) {
 	return uriParts{}, domainerr.ErrNotFound
 }
 
-// toWikiAuth converts the MCP AuthContext into the wikiclient.AuthContext.
-func toWikiAuth(ac *auth.AuthContext) *wikiclient.AuthContext {
+// toMoraAuth converts the MCP AuthContext into the moraclient.AuthContext.
+func toMoraAuth(ac *auth.AuthContext) *moraclient.AuthContext {
 	if ac == nil {
 		return nil
 	}
-	return &wikiclient.AuthContext{
+	return &moraclient.AuthContext{
 		TokenID:      ac.TokenID,
 		IdentityType: ac.IdentityType,
 		IdentityID:   ac.IdentityID,

@@ -28,10 +28,10 @@ import (
 // ---------------------------------------------------------------------------
 
 type config struct {
-	BaseURL       string        // wiki-api, e.g. http://localhost:8990
-	MCPURL        string        // mcp-server, e.g. http://localhost:8081
-	DatabaseURL   string        // for seeding non-admin users/tokens (RBAC tests)
-	InternalToken string        // INTERNAL_SERVICE_TOKEN (trusted internal caller)
+	BaseURL       string // mora-api, e.g. http://localhost:8990
+	MCPURL        string // mcp-server, e.g. http://localhost:8081
+	DatabaseURL   string // for seeding non-admin users/tokens (RBAC tests)
+	InternalToken string // INTERNAL_SERVICE_TOKEN (trusted internal caller)
 	AdminEmail    string
 	AdminPassword string
 	DevToken      string        // seeded MCP dev token (readwrite, admin-bound)
@@ -84,11 +84,11 @@ type Suite struct {
 	bobJWT      string
 
 	// MCP tokens bound to seeded identities (only when pool != nil).
-	aliceRWToken string
-	aliceROToken string
-	bobROToken   string
-	expiredToken   string
-	revokeableTok  string
+	aliceRWToken  string
+	aliceROToken  string
+	bobROToken    string
+	expiredToken  string
+	revokeableTok string
 
 	viewerRoleID string
 	editorRoleID string
@@ -113,7 +113,7 @@ func (s *Suite) SetupSuite() {
 	// misconfigured environment surfaces as a clear skip rather than a flood
 	// of connection-refused failures.
 	if !s.probe(s.cfg.BaseURL + "/healthz") {
-		s.T().Skipf("wiki-api not ready at %s (GET /healthz failed)", s.cfg.BaseURL)
+		s.T().Skipf("mora-api not ready at %s (GET /healthz failed)", s.cfg.BaseURL)
 	}
 	if !s.probe(s.cfg.MCPURL + "/mcp/health") {
 		s.T().Skipf("mcp-server not ready at %s (GET /mcp/health failed)", s.cfg.MCPURL)
@@ -175,7 +175,7 @@ func newClient(base, bearer, identityID string) *Client {
 	}
 }
 
-func (s *Suite) adminClient() *Client  { return newClient(s.cfg.BaseURL, s.adminJWT, "") }
+func (s *Suite) adminClient() *Client         { return newClient(s.cfg.BaseURL, s.adminJWT, "") }
 func (s *Suite) jwtClient(jwt string) *Client { return newClient(s.cfg.BaseURL, jwt, "") }
 
 // internalClient acts as a trusted internal service propagating identityID.
@@ -226,7 +226,7 @@ func (c *Client) raw(method, path string, body any, headers map[string]string) (
 	return resp.StatusCode, resp.Header, data, nil
 }
 
-// call performs a JSON call, parses the wiki-api {code,data,message} envelope,
+// call performs a JSON call, parses the mora-api {code,data,message} envelope,
 // and unmarshals data into out (when non-nil and HTTP 2xx).
 func (c *Client) call(method, path string, body any, out any, headers map[string]string) (int, *envelope, []byte) {
 	status, _, data, err := c.raw(method, path, body, headers)
@@ -413,16 +413,16 @@ type directory struct {
 }
 
 type document struct {
-	ID          string              `json:"id"`
-	WorkspaceID string              `json:"workspace_id"`
-	DirectoryID *string             `json:"directory_id,omitempty"`
-	Title       string              `json:"title"`
-	Content     []map[string]any    `json:"content"`
-	Format      string              `json:"format"`
-	Status      string              `json:"status"`
-	IndexStatus string              `json:"index_status"`
-	VersionNo   int                 `json:"version_no"`
-	CreatedBy   string              `json:"created_by"`
+	ID          string           `json:"id"`
+	WorkspaceID string           `json:"workspace_id"`
+	DirectoryID *string          `json:"directory_id,omitempty"`
+	Title       string           `json:"title"`
+	Content     []map[string]any `json:"content"`
+	Format      string           `json:"format"`
+	Status      string           `json:"status"`
+	IndexStatus string           `json:"index_status"`
+	VersionNo   int              `json:"version_no"`
+	CreatedBy   string           `json:"created_by"`
 }
 
 type permission struct {
@@ -466,7 +466,7 @@ type ragResult struct {
 }
 
 // ---------------------------------------------------------------------------
-// Wiki API helpers
+// Mora API helpers
 // ---------------------------------------------------------------------------
 
 func (s *Suite) createWorkspace(cl *Client, name, slug string) workspace {
@@ -752,8 +752,8 @@ func (ms *mcpSession) deleteSession() int {
 }
 
 // toolCallsAudit queries the MCP admin audit endpoint for tool-call records.
-// The audit endpoint lives on the MCP server (not wiki-api) and returns a bare
-// {"items":[...]} JSON (not the wiki-api {code,data,message} envelope), so the
+// The audit endpoint lives on the MCP server (not mora-api) and returns a bare
+// {"items":[...]} JSON (not the mora-api {code,data,message} envelope), so the
 // response is parsed directly.
 func (s *Suite) toolCallsAudit(cl *Client, query string) []map[string]any {
 	path := "/mcp/tool-calls"
@@ -782,7 +782,7 @@ func paragraphBlock(text string) map[string]any {
 
 func codeBlock(language, code string) map[string]any {
 	return map[string]any{
-		"type": "codeBlock",
+		"type":  "codeBlock",
 		"attrs": map[string]any{"language": language},
 		"content": []map[string]any{
 			{"type": "text", "text": code},

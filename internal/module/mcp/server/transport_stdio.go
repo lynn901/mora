@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
 )
 
 // RunStdio runs the MCP server over the stdio transport: each line on stdin is
