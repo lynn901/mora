@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 48">
+  <defs>
+    <linearGradient id="moraGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7B61FF"/>
+      <stop offset="50%" stop-color="#4F6BFF"/>
+      <stop offset="100%" stop-color="#3CC7FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- M mark: two open book pages forming letter M -->
+  <path d="M4 44
+           L4 16
+           C4 8 10 2 18 2
+           L24 2
+           C32 2 38 8 38 18
+           C38 22 38 22 38 18
+           C38 8 44 2 52 2
+           L58 2
+           C66 2 72 8 72 16
+           L72 44
+           L60 44
+           L60 20
+           C60 14 56 10 52 10
+           C48 10 44 14 44 20
+           L44 44
+           L32 44
+           L32 20
+           C32 14 28 10 24 10
+           C20 10 16 14 16 20
+           L16 44
+           Z"
+        fill="url(#moraGrad)"/>
+
+  <!-- "mora" wordmark -->
+  <text x="84" y="33"
+        font-family="Inter,system-ui,-apple-system,'Helvetica Neue',sans-serif"
+        font-size="24"
+        font-weight="600"
+        letter-spacing="-0.5"
+        fill="#0F172A">mora</text>
+</svg>
