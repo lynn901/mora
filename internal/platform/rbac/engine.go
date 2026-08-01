@@ -13,7 +13,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/wiki/wiki-backend/internal/domain"
+	"github.com/lynn901/mora/internal/domain"
 )
 
 // Engine decides whether a subject may perform an action on a target.

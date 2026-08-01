@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag"
-	"github.com/wiki/wiki-backend/internal/module/rag/provider"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag"
+	"github.com/lynn901/mora/internal/module/rag/provider"
 )
 
 // ---------------------------------------------------------------------------
@@ -22,10 +22,10 @@ import (
 
 // FakeModelStore holds embedding model configs; exactly one is active.
 type FakeModelStore struct {
-	mu      sync.Mutex
-	models  map[string]domain.EmbeddingModel
-	active  string
-	autoID  int
+	mu     sync.Mutex
+	models map[string]domain.EmbeddingModel
+	active string
+	autoID int
 }
 
 func NewFakeModelStore(active domain.EmbeddingModel) *FakeModelStore {
@@ -104,10 +104,10 @@ func (m *FakeModelStore) SetActive(ctx context.Context, id string) error {
 // FakeProviderFactory returns a configurable FakeProvider/Reranker. Flip
 // EmbedFail/RerankFail or Unavailable to simulate outages (AC-13, degradation).
 type FakeProviderFactory struct {
-	Dim        int
-	EmbedFail  bool
+	Dim         int
+	EmbedFail   bool
 	Unavailable bool
-	RerankFail bool
+	RerankFail  bool
 }
 
 func (f *FakeProviderFactory) For(ctx context.Context, model domain.EmbeddingModel) (provider.EmbeddingProvider, error) {
@@ -192,9 +192,9 @@ func (d *FakeDocumentStore) PublishedDocumentIDs(ctx context.Context, cursor str
 
 // FakeRBACResolver maps document → visible subjects and user → group membership.
 type FakeRBACResolver struct {
-	mu       sync.Mutex
-	readers  map[string][]string // docID → subjects
-	groups   map[string][]string // userID → group ids
+	mu      sync.Mutex
+	readers map[string][]string // docID → subjects
+	groups  map[string][]string // userID → group ids
 }
 
 func NewFakeRBACResolver() *FakeRBACResolver {
@@ -242,9 +242,9 @@ type fakePoint struct {
 }
 
 type FakeVectorStore struct {
-	mu       sync.Mutex
-	colls    map[string][]fakePoint
-	ensured  map[string]int
+	mu         sync.Mutex
+	colls      map[string][]fakePoint
+	ensured    map[string]int
 	FailUpsert bool // force UpsertChunks to fail (AC-13 retry/dead-letter test)
 }
 
@@ -448,19 +448,19 @@ func (f *FakeFTSStore) SearchBM25(ctx context.Context, req rag.FTSRequest) ([]ra
 // ---------------------------------------------------------------------------
 
 type FakeIndexStatusStore struct {
-	mu      sync.Mutex
-	tasks   map[string]domain.IndexingTask // taskID → task
-	tasksByEvent map[string]string          // docID|eventID → taskID
-	docs    map[string]rag.IndexStatusInfo
-	chunks  map[string]map[int][]domain.Chunk // docID → version → chunks
+	mu           sync.Mutex
+	tasks        map[string]domain.IndexingTask // taskID → task
+	tasksByEvent map[string]string              // docID|eventID → taskID
+	docs         map[string]rag.IndexStatusInfo
+	chunks       map[string]map[int][]domain.Chunk // docID → version → chunks
 }
 
 func NewFakeIndexStatusStore() *FakeIndexStatusStore {
 	return &FakeIndexStatusStore{
-		tasks: map[string]domain.IndexingTask{},
+		tasks:        map[string]domain.IndexingTask{},
 		tasksByEvent: map[string]string{},
-		docs:   map[string]rag.IndexStatusInfo{},
-		chunks: map[string]map[int][]domain.Chunk{},
+		docs:         map[string]rag.IndexStatusInfo{},
+		chunks:       map[string]map[int][]domain.Chunk{},
 	}
 }
 
@@ -636,12 +636,12 @@ type FakeEventQueue struct {
 }
 
 type entry struct {
-	id  string
-	ev  domain.DocEvent
-	ts  time.Time
+	id string
+	ev domain.DocEvent
+	ts time.Time
 }
 type deadEntry struct {
-	ev    domain.DocEvent
+	ev     domain.DocEvent
 	reason string
 }
 

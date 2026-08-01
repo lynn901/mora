@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	"github.com/wiki/wiki-backend/internal/module/mcp/wikiclient"
-	domainerr "github.com/wiki/wiki-backend/internal/pkg/errors"
-	"github.com/wiki/wiki-backend/internal/platform/rbac"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/moraclient"
+	domainerr "github.com/lynn901/mora/internal/pkg/errors"
+	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
 const (
@@ -124,18 +124,18 @@ func TestReadUnknownURI(t *testing.T) {
 
 // newMockWith builds a mock with one workspace + one document readable/writable
 // by the given identity.
-func newMockWith(t *testing.T, wsID, docID, identityID string) *wikiclient.Mock {
+func newMockWith(t *testing.T, wsID, docID, identityID string) *moraclient.Mock {
 	t.Helper()
-	m := wikiclient.NewMock()
-	m.AddWorkspace(wikiclient.Workspace{ID: wsID, Name: "工程", Slug: "eng", OwnerID: identityID})
-	m.AddDirectory(wikiclient.DirectoryNode{ID: "dir-r-1", Name: "Docs", Path: "", SortOrder: 1}, wsID)
-	m.AddDocument(wikiclient.DocumentMeta{
+	m := moraclient.NewMock()
+	m.AddWorkspace(moraclient.Workspace{ID: wsID, Name: "工程", Slug: "eng", OwnerID: identityID})
+	m.AddDirectory(moraclient.DirectoryNode{ID: "dir-r-1", Name: "Docs", Path: "", SortOrder: 1}, wsID)
+	m.AddDocument(moraclient.DocumentMeta{
 		ID: docID, WorkspaceID: wsID, DirectoryID: "dir-r-1", Title: "API 规范",
 		Status: "published", IndexStatus: "indexed", VersionNo: 3, Tags: []string{"api"},
 		CreatedBy: identityID, UpdatedAt: "2026-07-29T08:00:00Z",
 	}, "# API 规范\n\n分页说明。\n", "markdown",
-		[]wikiclient.VersionSummary{{VersionNo: 3, AuthorID: identityID, CreatedAt: "2026-07-29T08:00:00Z"}})
-	m.AddTags(wsID, []wikiclient.Tag{{ID: "tag-r-1", Name: "api"}})
+		[]moraclient.VersionSummary{{VersionNo: 3, AuthorID: identityID, CreatedAt: "2026-07-29T08:00:00Z"}})
+	m.AddTags(wsID, []moraclient.Tag{{ID: "tag-r-1", Name: "api"}})
 	m.GrantWrite(identityID, wsID)
 	return m
 }

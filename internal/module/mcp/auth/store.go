@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wiki/wiki-backend/internal/platform/rbac"
+	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
 // TokenRecord is the resolved API token + its bound identity. Token plaintext
@@ -134,8 +134,8 @@ func (s *PostgresTokenStore) Lookup(ctx context.Context, tokenHash string) (*Tok
 	t.Scope = rbac.Scope(scope)
 	t.IsAdmin = email == "admin@wiki.local"
 	// Groups resolution: fetch group memberships for the identity (defence in
-	// depth; the Wiki RBAC engine is authoritative). Left empty here as the
-	// groups table is owned by the wiki module; MCP relies on identity-id based
+	// depth; the Mora RBAC engine is authoritative). Left empty here as the
+	// groups table is owned by the mora module; MCP relies on identity-id based
 	// RBAC upstream. This can be extended with a join when groups land.
 	t.Groups = nil
 	return &t, nil

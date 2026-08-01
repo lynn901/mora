@@ -63,7 +63,7 @@ func (s *Suite) TestAC10_CascadeCleanupOnUpdateAndDelete() {
 }
 
 // TestAC11_EmbeddingConnectivity covers AC-11: TEI/Ollama + Qwen3-Embedding
-// connectivity. The admin embedding-model routes are not mounted in wiki-api
+// connectivity. The admin embedding-model routes are not mounted in mora-api
 // (known gap — see README), so connectivity is verified indirectly: a document
 // reaching index_status=indexed proves the embedding provider + vector store
 // are wired and producing vectors.
@@ -85,7 +85,7 @@ func (s *Suite) TestAC11_EmbeddingConnectivity() {
 	require.Equal(s.T(), "indexed", indexed.IndexStatus, "indexed status proves embedding + vector pipeline connectivity")
 
 	// NOTE: model hot-switch +存量重建 (/admin/embedding-models/{id}/rebuild) is
-	// not exercised — those routes are not mounted in wiki-api. Tracked as a gap.
+	// not exercised — those routes are not mounted in mora-api. Tracked as a gap.
 }
 
 // TestAC12_HybridSearchAndRBAC covers AC-12: Dense+BM25 hybrid search returns

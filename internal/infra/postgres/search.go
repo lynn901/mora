@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/wiki/search"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/mora/search"
 )
 
 // SearchExec implements handler.SearchExecutor against PostgreSQL FTS.

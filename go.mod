@@ -1,4 +1,4 @@
-module github.com/wiki/wiki-backend
+module github.com/lynn901/mora
 
 go 1.25.0
 

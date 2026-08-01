@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag"
+	"github.com/lynn901/mora/internal/module/rag/handler"
+	"github.com/lynn901/mora/internal/module/rag/pipeline"
+	"github.com/lynn901/mora/internal/module/rag/ragtest"
+	"github.com/lynn901/mora/internal/module/rag/search"
+	"github.com/lynn901/mora/internal/module/rag/worker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag"
-	"github.com/wiki/wiki-backend/internal/module/rag/handler"
-	"github.com/wiki/wiki-backend/internal/module/rag/pipeline"
-	"github.com/wiki/wiki-backend/internal/module/rag/ragtest"
-	"github.com/wiki/wiki-backend/internal/module/rag/search"
-	"github.com/wiki/wiki-backend/internal/module/rag/worker"
 )
 
 // stack bundles the fakes + wired RAG components for a test scenario.
@@ -70,8 +70,8 @@ func newStack(t *testing.T) *stack {
 	})
 	s.worker = worker.New(worker.Worker{
 		Queue: s.queue, Idem: s.idem, Status: s.status, Pipeline: s.pipe,
-		Cfg:      s.pipe.Cfg,
-		Sleep:    func(ctx context.Context, d time.Duration) error { return nil }, // instant retries in tests
+		Cfg:   s.pipe.Cfg,
+		Sleep: func(ctx context.Context, d time.Duration) error { return nil }, // instant retries in tests
 	})
 	s.searcher = search.New(search.HybridSearcher{
 		Models: s.models, Factory: s.factory, Vectors: s.vectors, FTS: s.fts, RBAC: s.rbac,
@@ -218,7 +218,7 @@ func TestDEFECT06_DraftSkipNotStuckThenPublishIndexes(t *testing.T) {
 		}
 	}
 
-	// A draft document — e.g. freshly created via the wiki API (Create defaults
+	// A draft document — e.g. freshly created via the mora API (Create defaults
 	// to draft per AC-17) or MCP create_draft. It carries indexable content.
 	s.docs.Put(rag.DocumentSnapshot{
 		DocumentID: "docDraft", WorkspaceID: "ws1", DirectoryID: "dir1",

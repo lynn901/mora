@@ -2,7 +2,9 @@
 
 // Package integration contains end-to-end tests against a live PostgreSQL
 // instance. Skipped unless DATABASE_URL is set (run with:
-//   DATABASE_URL=... go test -tags=integration ./test/integration/...
+//
+//	DATABASE_URL=... go test -tags=integration ./test/integration/...
+//
 // ). These verify the ACs that span DB + RBAC + service layers.
 package integration
 
@@ -17,12 +19,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/infra/postgres"
-	"github.com/wiki/wiki-backend/internal/module/wiki/event"
-	"github.com/wiki/wiki-backend/internal/module/wiki/service"
-	"github.com/wiki/wiki-backend/internal/pkg/pagination"
-	"github.com/wiki/wiki-backend/internal/platform/rbac"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/infra/postgres"
+	"github.com/lynn901/mora/internal/module/mora/event"
+	"github.com/lynn901/mora/internal/module/mora/service"
+	"github.com/lynn901/mora/internal/pkg/pagination"
+	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
 func TestMain(m *testing.M) {

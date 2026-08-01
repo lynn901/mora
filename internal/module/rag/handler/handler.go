@@ -1,7 +1,7 @@
 // Package handler exposes the RAG HTTP endpoints (API 04 §9): semantic hybrid
 // search, document index-status, and embedding-model admin. Handlers are plain
 // net/http so YS-6 can mount them into its Gin router; they depend only on RAG
-// ports + an Authenticator supplied by the Wiki backend.
+// ports + an Authenticator supplied by the Mora backend.
 package handler
 
 import (
@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag"
-	"github.com/wiki/wiki-backend/internal/module/rag/pipeline"
-	"github.com/wiki/wiki-backend/internal/module/rag/search"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag"
+	"github.com/lynn901/mora/internal/module/rag/pipeline"
+	"github.com/lynn901/mora/internal/module/rag/search"
 )
 
 // Authenticator resolves the authenticated user id from a request. YS-6 supplies
@@ -55,13 +55,13 @@ func (h *Handler) Routes() http.Handler {
 // --- search ---
 
 type searchReq struct {
-	Query       string   `json:"query"`
-	WorkspaceID string   `json:"workspace_id"`
-	DirectoryID string   `json:"directory_id"`
-	Tags        []string `json:"tags"`
-	TopK        int      `json:"top_k"`
-	TopN        int      `json:"top_n"`
-	Rerank      bool     `json:"rerank"`
+	Query       string         `json:"query"`
+	WorkspaceID string         `json:"workspace_id"`
+	DirectoryID string         `json:"directory_id"`
+	Tags        []string       `json:"tags"`
+	TopK        int            `json:"top_k"`
+	TopN        int            `json:"top_n"`
+	Rerank      bool           `json:"rerank"`
 	Filters     map[string]any `json:"filters"`
 }
 

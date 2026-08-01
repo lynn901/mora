@@ -3,9 +3,9 @@ package tool
 import (
 	"context"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	"github.com/wiki/wiki-backend/internal/module/mcp/server"
-	"github.com/wiki/wiki-backend/internal/module/mcp/wikiclient"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/moraclient"
+	"github.com/lynn901/mora/internal/module/mcp/server"
 )
 
 // SearchTool implements search_knowledge_base (design doc 06 §5.2.1): semantic
@@ -15,7 +15,7 @@ import (
 type SearchTool struct{ base }
 
 // NewSearchTool builds a search_knowledge_base tool.
-func NewSearchTool(client wikiclient.WikiClient) *SearchTool {
+func NewSearchTool(client moraclient.MoraClient) *SearchTool {
 	return &SearchTool{base: base{client: client}}
 }
 
@@ -23,7 +23,7 @@ func NewSearchTool(client wikiclient.WikiClient) *SearchTool {
 func (t *SearchTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "search_knowledge_base",
-		Description: "在 Wiki 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。",
+		Description: "在 Mora 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"query"},
@@ -50,7 +50,7 @@ func (t *SearchTool) Execute(ctx context.Context, args map[string]any) (*server.
 	if err != nil {
 		return nil, err
 	}
-	req := wikiclient.SearchRequest{
+	req := moraclient.SearchRequest{
 		Query:       query,
 		WorkspaceID: optString(args, "workspace_id"),
 		DirectoryID: optString(args, "directory_id"),
@@ -59,12 +59,12 @@ func (t *SearchTool) Execute(ctx context.Context, args map[string]any) (*server.
 		TopN:        optInt(args, "top_n", 10),
 		Rerank:      optBool(args, "rerank", false),
 	}
-	result, err := t.client.Search(ctx, toWikiAuth(auth.FromContext(ctx)), req)
+	result, err := t.client.Search(ctx, toMoraAuth(auth.FromContext(ctx)), req)
 	if err != nil {
 		return nil, err
 	}
 	if result == nil {
-		result = &wikiclient.SearchResult{}
+		result = &moraclient.SearchResult{}
 	}
 	return asTextResult(result)
 }

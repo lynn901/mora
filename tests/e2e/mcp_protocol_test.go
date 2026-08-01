@@ -28,9 +28,9 @@ func (s *Suite) TestMCP_InitializeHandshake() {
 	require.NoError(s.T(), err)
 	var rpc struct {
 		Result struct {
-			ProtocolVersion string                 `json:"protocolVersion"`
-			Capabilities    map[string]any         `json:"capabilities"`
-			ServerInfo      map[string]any         `json:"serverInfo"`
+			ProtocolVersion string         `json:"protocolVersion"`
+			Capabilities    map[string]any `json:"capabilities"`
+			ServerInfo      map[string]any `json:"serverInfo"`
 		} `json:"result"`
 	}
 	require.NoError(s.T(), json.Unmarshal(data, &rpc))
@@ -112,10 +112,10 @@ func (s *Suite) TestMCP_WriteToolsDraftState() {
 	// Grant alice write (editor) on the workspace so create_draft is authorized.
 	s.grantPermission(admin, "user", s.aliceUserID, s.editorRoleID, "workspace", ws.ID, "allow")
 
-	// AC-17 core contract at the wiki layer: a newly created doc defaults to draft
+	// AC-17 core contract at the mora layer: a newly created doc defaults to draft
 	// (writes never publish directly). This path is independent of the MCP client.
-	d := s.createDocMarkdown(admin, ws.ID, "E2E-AC17-WikiDraft", "# wiki-layer draft")
-	require.Equal(s.T(), "draft", d.Status, "wiki create must default to draft, not published (AC-17)")
+	d := s.createDocMarkdown(admin, ws.ID, "E2E-AC17-MoraDraft", "# mora-layer draft")
+	require.Equal(s.T(), "draft", d.Status, "mora create must default to draft, not published (AC-17)")
 
 	// AC-17 via the MCP create_draft tool: alice (write) creates a draft.
 	ms := s.mcpInitialize(s.mcpClient(s.aliceRWToken))
@@ -123,12 +123,12 @@ func (s *Suite) TestMCP_WriteToolsDraftState() {
 		"workspace_id": ws.ID, "title": "E2E-MCP-Draft", "content": "# draft via mcp", "format": "markdown",
 	})
 	if err != nil || isToolError(res) {
-		// Known contract drift (YS-10 scope): the MCP wikiclient sends `content`
-		// as a string while wiki-api create expects `markdown` (string) or `content`
+		// Known contract drift (YS-10 scope): the MCP moraclient sends `content`
+		// as a string while mora-api create expects `markdown` (string) or `content`
 		// ([]Block), so the MCP write path currently 400s. Skip the MCP-path
 		// assertion until YS-10 fixes the wiring; AC-17 draft-state was verified
-		// at the wiki layer above.
-		s.T().Skipf("MCP create_draft unavailable (err=%v res=%+v) — known wikiclient/wiki-api "+
+		// at the mora layer above.
+		s.T().Skipf("MCP create_draft unavailable (err=%v res=%+v) — known moraclient/mora-api "+
 			"content-shape contract drift, tracked in YS-10 mock→真实联调修复", err, res)
 		return
 	}
@@ -188,7 +188,7 @@ func (s *Suite) TestMCP_TokenScope() {
 	s.requireDB("scoped tokens")
 	admin := s.adminClient()
 	ws := s.createWorkspace(admin, "E2E MCP Scope WS", "e2e-mcpscope-"+randHex(4))
-	// Give alice write permission at the Wiki layer so the ONLY blocker is token scope.
+	// Give alice write permission at the Mora layer so the ONLY blocker is token scope.
 	s.grantPermission(admin, "user", s.aliceUserID, s.editorRoleID, "workspace", ws.ID, "allow")
 
 	roSess := s.mcpInitialize(s.mcpClient(s.aliceROToken))
@@ -197,7 +197,7 @@ func (s *Suite) TestMCP_TokenScope() {
 	_, err := roSess.toolsCall("search_knowledge_base", map[string]any{"query": "anything", "workspace_id": ws.ID})
 	require.Nil(s.T(), err, "readonly token must allow read tools")
 
-	// Write tool is rejected by scope (ErrScopeDenied), regardless of Wiki RBAC.
+	// Write tool is rejected by scope (ErrScopeDenied), regardless of Mora RBAC.
 	_, writeErr := roSess.toolsCall("create_draft", map[string]any{
 		"workspace_id": ws.ID, "title": "should-fail", "content": "# no", "format": "markdown",
 	})

@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wiki/wiki-backend/internal/module/mcp/auth"
-	"github.com/wiki/wiki-backend/internal/module/mcp/wikiclient"
-	domainerr "github.com/wiki/wiki-backend/internal/pkg/errors"
-	"github.com/wiki/wiki-backend/internal/platform/rbac"
+	"github.com/lynn901/mora/internal/module/mcp/auth"
+	"github.com/lynn901/mora/internal/module/mcp/moraclient"
+	domainerr "github.com/lynn901/mora/internal/pkg/errors"
+	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
 const (
@@ -19,11 +19,11 @@ const (
 	tuser   = "user-t-1"
 )
 
-func newTestClient(t *testing.T) (*wikiclient.Mock, *auth.AuthContext) {
+func newTestClient(t *testing.T) (*moraclient.Mock, *auth.AuthContext) {
 	t.Helper()
-	m := wikiclient.NewMock()
-	m.AddWorkspace(wikiclient.Workspace{ID: twsEng, Name: "工程", Slug: "eng"})
-	m.AddDocument(wikiclient.DocumentMeta{
+	m := moraclient.NewMock()
+	m.AddWorkspace(moraclient.Workspace{ID: twsEng, Name: "工程", Slug: "eng"})
+	m.AddDocument(moraclient.DocumentMeta{
 		ID: tdocAPI, WorkspaceID: twsEng, Title: "API 规范", Status: "published",
 		IndexStatus: "indexed", VersionNo: 1, CreatedBy: tuser,
 	}, "# API 规范\n\n分页。\n", "markdown", nil)

@@ -3,8 +3,8 @@ package search
 import (
 	"testing"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag"
 )
 
 func mkDense(docID string, chunkIdx int, score float32) rag.VectorHit {

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wiki/wiki-backend/internal/domain"
+	"github.com/lynn901/mora/internal/domain"
 )
 
 // ModelStore persists embedding_models config (03-data-model.md §2.7).

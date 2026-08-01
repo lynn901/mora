@@ -15,14 +15,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/infra/mq"
+	"github.com/lynn901/mora/internal/infra/pg"
+	"github.com/lynn901/mora/internal/infra/qdrant"
+	"github.com/lynn901/mora/internal/infra/ragwiring"
+	"github.com/lynn901/mora/internal/module/rag/pipeline"
+	"github.com/lynn901/mora/internal/module/rag/worker"
 	"github.com/redis/go-redis/v9"
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/infra/mq"
-	"github.com/wiki/wiki-backend/internal/infra/pg"
-	"github.com/wiki/wiki-backend/internal/infra/qdrant"
-	"github.com/wiki/wiki-backend/internal/infra/ragwiring"
-	"github.com/wiki/wiki-backend/internal/module/rag/pipeline"
-	"github.com/wiki/wiki-backend/internal/module/rag/worker"
 )
 
 func env(key, def string) string {
@@ -62,8 +62,8 @@ func main() {
 	}
 
 	pipe := pipeline.New(pipeline.Pipeline{
-		Cfg:     pipeline.DefaultConfig(),
-		Docs:    docs, RBAC: rbac, Vectors: vectors, Models: models, Factory: factory, Status: status,
+		Cfg:  pipeline.DefaultConfig(),
+		Docs: docs, RBAC: rbac, Vectors: vectors, Models: models, Factory: factory, Status: status,
 		// Wire the pipeline logger so skip/index/error diagnostics are visible.
 		// Without this, pipeline.New defaults Logf to a no-op and every skip
 		// (e.g. a draft document) or swallowed error becomes invisible — the

@@ -8,7 +8,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/wiki/wiki-backend/internal/domain"
+	"github.com/lynn901/mora/internal/domain"
 )
 
 // Repo is the minimal audit append interface.

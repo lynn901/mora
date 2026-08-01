@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/wiki/wiki-backend/internal/domain"
+	"github.com/lynn901/mora/internal/domain"
 )
 
 // AuditRepo appends audit log records. Per security design (07-security §5.2)

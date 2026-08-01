@@ -7,7 +7,7 @@ package search
 import (
 	"sort"
 
-	"github.com/wiki/wiki-backend/internal/module/rag"
+	"github.com/lynn901/mora/internal/module/rag"
 )
 
 // rrfK is the RRF constant (05 §6.4, default 60).

@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/wiki/service"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/mora/service"
 )
 
 type DocumentRepo struct{ db *DB }

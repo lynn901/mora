@@ -17,9 +17,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/wiki/service"
-	"github.com/wiki/wiki-backend/internal/pkg/pagination"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/mora/service"
+	"github.com/lynn901/mora/internal/pkg/pagination"
 )
 
 func TestUserRepo_List_NullAvatarURLScan(t *testing.T) {

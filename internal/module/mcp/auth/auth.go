@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	domainerr "github.com/wiki/wiki-backend/internal/pkg/errors"
-	"github.com/wiki/wiki-backend/internal/platform/rbac"
+	domainerr "github.com/lynn901/mora/internal/pkg/errors"
+	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
 // AuthContext is the resolved caller identity carried through an MCP request.
 // It is set on the Gin context by AuthMiddleware and consumed by tools,
-// resources, audit, and the upstream WikiClient.
+// resources, audit, and the upstream MoraClient.
 type AuthContext struct {
 	TokenID      string
 	TokenName    string
@@ -135,7 +135,7 @@ func abortUnauthorized(c *gin.Context, msg string) {
 }
 
 // CheckWriteScope returns ErrScopeDenied when the token scope forbids writes.
-// Called by write tools before dispatching to the upstream WikiClient.
+// Called by write tools before dispatching to the upstream MoraClient.
 func CheckWriteScope(a *AuthContext) error {
 	if a == nil || !a.AllowsWrite() {
 		return domainerr.ErrScopeDenied

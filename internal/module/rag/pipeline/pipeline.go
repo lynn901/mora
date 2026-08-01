@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag"
-	"github.com/wiki/wiki-backend/internal/module/rag/provider"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag"
+	"github.com/lynn901/mora/internal/module/rag/provider"
 )
 
 // Pipeline executes one indexing attempt for a document event. It is the
@@ -189,18 +189,18 @@ func (p *Pipeline) handleIndex(ctx context.Context, ev domain.DocEvent) error {
 	for i, r := range refs {
 		pid := domain.PointID(domain.RAGNamespace().String(), ev.DocumentID, ev.VersionNo, r.ChunkIndex)
 		payload := domain.ChunkMetadata{
-			DocumentID:   ev.DocumentID,
-			WorkspaceID:  snap.WorkspaceID,
-			DirectoryID:  snap.DirectoryID,
-			VersionNo:    ev.VersionNo,
-			ChunkIndex:   r.ChunkIndex,
-			ChunkText:    r.Text,
-			SectionPath:  r.SectionPath,
-			ModelID:      model.ID,
-			Tags:         snap.Tags,
-			VisibleTo:    visibleTo,
-			Status:       string(snap.Status),
-			CreatedAt:    now,
+			DocumentID:  ev.DocumentID,
+			WorkspaceID: snap.WorkspaceID,
+			DirectoryID: snap.DirectoryID,
+			VersionNo:   ev.VersionNo,
+			ChunkIndex:  r.ChunkIndex,
+			ChunkText:   r.Text,
+			SectionPath: r.SectionPath,
+			ModelID:     model.ID,
+			Tags:        snap.Tags,
+			VisibleTo:   visibleTo,
+			Status:      string(snap.Status),
+			CreatedAt:   now,
 		}
 		points[i] = rag.VectorPoint{PointID: pid, Vector: vectors[i], Payload: payload}
 		chunkMetas[i] = domain.Chunk{

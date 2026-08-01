@@ -16,12 +16,12 @@ import (
 // call without permission must not modify the document and the attempt is
 // recorded in the audit log.
 //
-// NOTE: the MCP wikiclient currently sends `content` as a string while wiki-api
+// NOTE: the MCP moraclient currently sends `content` as a string while mora-api
 // expects `[]Block`/`markdown` (known contract drift, YS-10 scope). Until fixed,
 // update_document via MCP fails before/without reaching RBAC. This test asserts
 // the SECURITY OUTCOME (no tampering + audited) which holds regardless of
 // whether the rejection is 403 (RBAC) or 400 (drift). The precise 403 RBAC
-// denial is verified at the wiki layer in TestBoundary_WikiWriteRBACDenied.
+// denial is verified at the mora layer in TestBoundary_MoraWriteRBACDenied.
 func (s *Suite) TestBoundary_MCPOverPermissionDenied() {
 	s.requireDB("non-admin token for over-permission")
 	admin := s.adminClient()
@@ -50,11 +50,11 @@ func (s *Suite) TestBoundary_MCPOverPermissionDenied() {
 	}, 15*time.Second, 2*time.Second, "over-permission attempt must be audited")
 }
 
-// TestBoundary_WikiWriteRBACDenied verifies the precise 403 RBAC write denial at
-// the wiki-api layer: alice (no write permission) issuing a valid PATCH is
+// TestBoundary_MoraWriteRBACDenied verifies the precise 403 RBAC write denial at
+// the mora-api layer: alice (no write permission) issuing a valid PATCH is
 // rejected with 403/forbidden. This complements the MCP over-permission test
 // (which is currently masked by the content-shape contract drift).
-func (s *Suite) TestBoundary_WikiWriteRBACDenied() {
+func (s *Suite) TestBoundary_MoraWriteRBACDenied() {
 	s.requireDB("non-admin user for write RBAC denial")
 	admin := s.adminClient()
 	ws := s.createWorkspace(admin, "E2E Boundary WriteRBAC WS", "e2e-writerbac-"+randHex(4))
@@ -123,7 +123,7 @@ func (s *Suite) TestBoundary_ExistenceIndistinguishable() {
 	// HTTP GET on hidden vs non-existent must both be non-200 (no content leak).
 	// NOTE: the API contract (04 §5) says 404 covers "not exist OR no permission";
 	// if the implementation returns 403 for hidden + 404 for non-existent, that
-	// distinction leaks existence at the wiki-api GET layer and should be reviewed.
+	// distinction leaks existence at the mora-api GET layer and should be reviewed.
 	// The MCP get_document layer (asserted above) is the authoritative non-leak
 	// boundary per PRD F3.2.
 	_, stHidden, _ := s.getDoc(bob, hidden.ID)
@@ -131,7 +131,7 @@ func (s *Suite) TestBoundary_ExistenceIndistinguishable() {
 	require.NotEqual(s.T(), http.StatusOK, stHidden, "hidden doc must not be 200")
 	require.NotEqual(s.T(), http.StatusOK, stNonExist, "non-existent doc must not be 200")
 	if stHidden != stNonExist {
-		s.T().Logf("existence-leak review: wiki-api GET returned %d (hidden) vs %d (non-existent); "+
+		s.T().Logf("existence-leak review: mora-api GET returned %d (hidden) vs %d (non-existent); "+
 			"contract intends 404 for both. MCP layer non-leak verified above.", stHidden, stNonExist)
 	}
 }

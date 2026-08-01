@@ -3,13 +3,13 @@
 // These types mirror the YS-5 data model (03-data-model.md §2.7, §3.2) and the
 // RAG pipeline contract (05-rag-pipeline-design.md). They are intentionally
 // framework-free so the RAG module can be built and tested mock-first while the
-// Wiki backend (YS-6) supplies the concrete repositories.
+// Mora backend (YS-6) supplies the concrete repositories.
 package domain
 
 import "time"
 
 // NOTE: IndexStatus / IndexPending / IndexProcessing / IndexIndexed / IndexFailed
-// are defined in user.go (owned by the Wiki backend, YS-6) and reused by RAG.
+// are defined in user.go (owned by the Mora backend, YS-6) and reused by RAG.
 
 // DocStatus mirrors documents.status.
 type DocStatus string
@@ -60,18 +60,18 @@ type Chunk struct {
 // ChunkMetadata is stored in both the chunks.metadata JSONB column and the
 // Qdrant point payload (03-data-model.md §3.2). visible_to is the RBAC core.
 type ChunkMetadata struct {
-	WorkspaceID  string   `json:"workspace_id"`
-	DirectoryID  string   `json:"directory_id,omitempty"`
-	VersionNo    int      `json:"version_no"`
-	ChunkIndex   int      `json:"chunk_index"`
-	ChunkText    string   `json:"chunk_text"`
-	SectionPath  string   `json:"section_path,omitempty"`
-	ModelID      string   `json:"model_id"`
-	Tags         []string `json:"tags,omitempty"`
-	VisibleTo    []string `json:"visible_to"` // subject ids: "user:<id>" / "group:<id>"
-	Status       string   `json:"status"`     // document status snapshot
-	DocumentID   string   `json:"document_id"`
-	CreatedAt    string   `json:"created_at"`
+	WorkspaceID string   `json:"workspace_id"`
+	DirectoryID string   `json:"directory_id,omitempty"`
+	VersionNo   int      `json:"version_no"`
+	ChunkIndex  int      `json:"chunk_index"`
+	ChunkText   string   `json:"chunk_text"`
+	SectionPath string   `json:"section_path,omitempty"`
+	ModelID     string   `json:"model_id"`
+	Tags        []string `json:"tags,omitempty"`
+	VisibleTo   []string `json:"visible_to"` // subject ids: "user:<id>" / "group:<id>"
+	Status      string   `json:"status"`     // document status snapshot
+	DocumentID  string   `json:"document_id"`
+	CreatedAt   string   `json:"created_at"`
 }
 
 // IndexingTask mirrors the indexing_tasks table (state machine).

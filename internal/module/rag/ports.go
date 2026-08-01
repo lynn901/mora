@@ -3,7 +3,7 @@
 // ports.go defines every external capability the RAG module needs. The RAG
 // pipeline, search engine, worker and HTTP handlers depend only on these
 // interfaces, never on concrete infra. This is the "mock-first" contract: the
-// Wiki backend (YS-6) supplies the concrete RBAC / document / FTS / index-status
+// Mora backend (YS-6) supplies the concrete RBAC / document / FTS / index-status
 // repositories, infra supplies Qdrant + Valkey clients, and tests supply
 // in-memory fakes — so the engine is fully exercised without a database.
 package rag
@@ -12,12 +12,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/wiki/wiki-backend/internal/domain"
-	"github.com/wiki/wiki-backend/internal/module/rag/provider"
+	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/rag/provider"
 )
 
 // ---------------------------------------------------------------------------
-// Document access (owned by YS-6 Wiki backend; RAG consumes read-only snapshots)
+// Document access (owned by YS-6 Mora backend; RAG consumes read-only snapshots)
 // ---------------------------------------------------------------------------
 
 // DocumentSnapshot is the immutable input to the pipeline for one document
@@ -27,9 +27,9 @@ type DocumentSnapshot struct {
 	WorkspaceID string
 	DirectoryID string
 	Title       string
-	Content     []byte            // Block JSONB array
-	ContentText string            // pre-extracted plain text (documents.content_text), may be empty
-	Format      string            // blocks | markdown
+	Content     []byte // Block JSONB array
+	ContentText string // pre-extracted plain text (documents.content_text), may be empty
+	Format      string // blocks | markdown
 	VersionNo   int
 	Status      domain.DocStatus
 	Tags        []string
@@ -52,10 +52,10 @@ type DocumentStore interface {
 // ids ("user:<id>" + "group:<id>" for every group membership) that must
 // intersect a chunk's visible_to, plus the workspace scoping.
 type ViewerScope struct {
-	UserID        string
-	SubjectIDs    []string // ["user:<id>", "group:<g1>", ...]
-	WorkspaceIDs  []string // workspaces the user may read (empty = all visible)
-	DirectoryIDs  []string // optional directory scoping (empty = no dir filter)
+	UserID       string
+	SubjectIDs   []string // ["user:<id>", "group:<g1>", ...]
+	WorkspaceIDs []string // workspaces the user may read (empty = all visible)
+	DirectoryIDs []string // optional directory scoping (empty = no dir filter)
 }
 
 // RBACResolver resolves read visibility. Owned by YS-6 platform/rbac.
@@ -74,9 +74,9 @@ type RBACResolver interface {
 
 // VectorPoint is a chunk vector + payload written to Qdrant.
 type VectorPoint struct {
-	PointID  string
-	Vector   []float32
-	Payload  domain.ChunkMetadata
+	PointID string
+	Vector  []float32
+	Payload domain.ChunkMetadata
 }
 
 // VectorSearchRequest is a Dense search with an RBAC hard filter baked in.
@@ -92,9 +92,9 @@ type VectorSearchRequest struct {
 
 // VectorHit is a raw Dense retrieval result before fusion.
 type VectorHit struct {
-	PointID    string
-	Score      float32
-	Payload    domain.ChunkMetadata
+	PointID string
+	Score   float32
+	Payload domain.ChunkMetadata
 }
 
 // VectorStore is the Qdrant abstraction.
@@ -169,10 +169,10 @@ type IndexStatusStore interface {
 
 // IndexStatusInfo is the document index badge read model (API 04 §9.1).
 type IndexStatusInfo struct {
-	IndexStatus    domain.IndexStatus
-	LastIndexedAt  *time.Time
-	ChunkCount     int
-	LastError      string
+	IndexStatus   domain.IndexStatus
+	LastIndexedAt *time.Time
+	ChunkCount    int
+	LastError     string
 }
 
 // ---------------------------------------------------------------------------
