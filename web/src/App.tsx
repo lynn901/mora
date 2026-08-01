@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import { WikiLayout } from "@/components/wiki/WikiLayout"
+import { MoraLayout } from "@/components/mora/MoraLayout"
 import { LoginPage } from "@/components/auth/LoginPage"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAuthStore } from "@/stores/auth"
@@ -18,7 +18,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/*" element={
             <ProtectedRoute>
-              <WikiLayout />
+              <MoraLayout />
             </ProtectedRoute>
           } />
         </Routes>

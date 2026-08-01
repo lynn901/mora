@@ -13,16 +13,18 @@ export class ApiError extends Error {
   }
 }
 
+const TOKEN_KEY = "mora_token"
+
 export function getToken(): string | null {
-  return localStorage.getItem("wiki_token")
+  return localStorage.getItem(TOKEN_KEY)
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem("wiki_token", token)
+  localStorage.setItem(TOKEN_KEY, token)
 }
 
 export function clearToken(): void {
-  localStorage.removeItem("wiki_token")
+  localStorage.removeItem(TOKEN_KEY)
 }
 
 async function request<T>(

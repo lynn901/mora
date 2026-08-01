@@ -9,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import type { CollaboratorPresence, Comment } from "@/types"
 import { useCollabStore } from "@/stores/collab"
-import { useWikiStore } from "@/stores/wiki"
+import { useMoraStore } from "@/stores/mora"
 
 function StatusIndicator({ status }: { status: string }) {
   if (status === "connected") {
@@ -96,7 +96,7 @@ function PresenceAvatars({ presences }: { presences: CollaboratorPresence[] }) {
 }
 
 function CommentItem({ comment, onResolve }: { comment: Comment; onResolve: (id: string) => void }) {
-  const users = useWikiStore((s) => s.users)
+  const users = useMoraStore((s) => s.users)
   const author = users.find((u) => u.id === comment.createdBy)
 
   return (
@@ -136,7 +136,7 @@ function CommentItem({ comment, onResolve }: { comment: Comment; onResolve: (id:
 }
 
 export function CollabSidebar() {
-  const { currentDocument } = useWikiStore()
+  const { currentDocument } = useMoraStore()
   const { presences, comments, showComments, status, toggleComments, loadComments, addComment, resolveComment } = useCollabStore()
   const [newComment, setNewComment] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)

@@ -3,7 +3,7 @@ import type { Workspace, TreeNode, Document, User } from "@/types"
 import { apiGetWorkspaces, apiGetTree, apiGetDocument, apiSaveDocument, apiCreateDocument } from "@/api"
 import { ApiError } from "@/api/client"
 
-interface WikiState {
+interface MoraState {
   currentWorkspace: Workspace | null
   workspaces: Workspace[]
   tree: TreeNode[]
@@ -26,7 +26,7 @@ interface WikiState {
   setUsers: (users: User[]) => void
 }
 
-export const useWikiStore = create<WikiState>((set, get) => ({
+export const useMoraStore = create<MoraState>((set, get) => ({
   currentWorkspace: null,
   workspaces: [],
   tree: [],

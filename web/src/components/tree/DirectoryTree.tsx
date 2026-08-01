@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import type { TreeNode } from "@/types"
-import { useWikiStore } from "@/stores/wiki"
+import { useMoraStore } from "@/stores/mora"
 
 interface TreeNodeItemProps {
   node: TreeNode
@@ -75,7 +75,7 @@ function TreeNodeItem({ node, depth, onSelect, selectedId }: TreeNodeItemProps) 
 }
 
 export function DirectoryTree() {
-  const { tree, selectedNodeId, selectNode, currentWorkspace, createDocument } = useWikiStore()
+  const { tree, selectedNodeId, selectNode, currentWorkspace, createDocument } = useMoraStore()
   const [search, setSearch] = useState("")
 
   const handleSelect = useCallback((nodeId: string) => {

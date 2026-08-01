@@ -19,7 +19,7 @@ import {
   Heading1, Heading2, Heading3, List, ListOrdered, ListChecks,
   Quote, AlignLeft, AlignCenter, AlignRight, Undo, Redo, Save
 } from "lucide-react"
-import { useWikiStore } from "@/stores/wiki"
+import { useMoraStore } from "@/stores/mora"
 import { useCollabStore } from "@/stores/collab"
 
 const lowlight = createLowlight(common)
@@ -54,7 +54,7 @@ function renderSelection(user: Record<string, unknown>) {
 }
 
 export function BlockEditor() {
-  const { currentDocument, editorMode, setEditorMode, updateDocument, isDirty, saveDocument } = useWikiStore()
+  const { currentDocument, editorMode, setEditorMode, updateDocument, isDirty, saveDocument } = useMoraStore()
   const { provider, localMode, isReadOnly } = useCollabStore()
   const initRef = useRef<string | null>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)

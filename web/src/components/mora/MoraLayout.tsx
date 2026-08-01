@@ -11,17 +11,17 @@ import { RBACPanel } from "@/components/rbac/RBACPanel"
 import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
-import { useWikiStore } from "@/stores/wiki"
+import { useMoraStore } from "@/stores/mora"
 import { useCollabStore } from "@/stores/collab"
 import { useAuthStore } from "@/stores/auth"
 
 type SidePanel = "tree" | "search" | "rbac" | "history"
 
-export function WikiLayout() {
+export function MoraLayout() {
   const {
     currentWorkspace, workspaces, currentDocument, isLoading, error,
     loadWorkspaces, setWorkspace, selectNode,
-  } = useWikiStore()
+  } = useMoraStore()
   const [activePanel, setActivePanel] = useState<SidePanel>("tree")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)

@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { DocumentVersion, User } from "@/types"
 import { apiGetVersions, apiRollbackVersion, apiGetUsers } from "@/api"
-import { useWikiStore } from "@/stores/wiki"
+import { useMoraStore } from "@/stores/mora"
 
 function computeDiff(oldText: string, newText: string): { type: "added" | "removed" | "unchanged"; text: string }[] {
   const oldLines = oldText.split("\n")
@@ -30,7 +30,7 @@ function computeDiff(oldText: string, newText: string): { type: "added" | "remov
 }
 
 export function VersionHistory() {
-  const { currentDocument, selectNode } = useWikiStore()
+  const { currentDocument, selectNode } = useMoraStore()
   const [versions, setVersions] = useState<DocumentVersion[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [selectedVersions, setSelectedVersions] = useState<string[]>([])

@@ -70,7 +70,7 @@ interface PresenceEntry {
   read_only: boolean
 }
 
-export class WikiCollabProvider extends ObservableV2<CollabProviderEvents> {
+export class MoraCollabProvider extends ObservableV2<CollabProviderEvents> {
   public doc: Y.Doc
   public awareness: Awareness
   public status: CollabProviderStatus = "disconnected"

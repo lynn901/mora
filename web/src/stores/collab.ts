@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import type { Comment, CollaboratorPresence } from "@/types"
 import { apiGetComments, apiAddComment, apiResolveComment } from "@/api"
-import { WikiCollabProvider, type CollabProviderStatus } from "@/lib/collab-provider"
+import { MoraCollabProvider, type CollabProviderStatus } from "@/lib/collab-provider"
 
 const USER_COLORS = [
   "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6",
@@ -18,7 +18,7 @@ function pickColor(userId: string): string {
 }
 
 interface CollabState {
-  provider: WikiCollabProvider | null
+  provider: MoraCollabProvider | null
   status: CollabProviderStatus
   localMode: boolean
   presences: CollaboratorPresence[]
@@ -51,9 +51,9 @@ export const useCollabStore = create<CollabState>((set, get) => ({
 
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:"
     const serverUrl = `${wsProtocol}//${window.location.host}/api/v1/ws/collab/${documentId}`
-    const token = localStorage.getItem("wiki_token") || "dev-token"
+    const token = localStorage.getItem("mora_token") || "dev-token"
 
-    const provider = new WikiCollabProvider({
+    const provider = new MoraCollabProvider({
       serverUrl,
       documentId,
       token,

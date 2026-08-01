@@ -8,10 +8,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { Permission, User } from "@/types"
 import { apiGetPermissions, apiSetPermission, apiDeletePermission, apiGetUsers } from "@/api"
-import { useWikiStore } from "@/stores/wiki"
+import { useMoraStore } from "@/stores/mora"
 
 export function RBACPanel() {
-  const { currentWorkspace } = useWikiStore()
+  const { currentWorkspace } = useMoraStore()
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [showAdd, setShowAdd] = useState(false)
