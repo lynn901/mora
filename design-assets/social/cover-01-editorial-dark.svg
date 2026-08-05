@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080" role="img" aria-label="Mora editorial cover template">
-  <style>text{font-family:Inter,"Microsoft YaHei",sans-serif;letter-spacing:0}.ink{fill:#202523}.muted{fill:#626B67}.green{fill:#12A77C}.brand-green{fill:#12A77C}.rule{stroke:#DCE2DF;stroke-width:2}.title{font-size:82px;font-weight:700}.meta{font-size:23px;font-weight:650}.body{font-size:30px}</style>
-  <rect width="1080" height="1080" fill="#F7F9F8"/>
+  <style>text{font-family:Inter,"Microsoft YaHei",sans-serif;letter-spacing:0}.ink{fill:#F3F6F4}.muted{fill:#AAB3AF}.green{fill:#45D1A8}.brand-green{fill:#12A77C}.rule{stroke:#343C38;stroke-width:2}.title{font-size:82px;font-weight:700}.meta{font-size:23px;font-weight:650}.body{font-size:30px}</style>
+  <rect width="1080" height="1080" fill="#121614"/>
   <text x="72" y="95" class="green meta">MORA INSIGHT / 01</text><text x="1008" y="95" text-anchor="end" class="muted meta">2026.08</text>
   <path d="M72 132H1008" class="rule"/>
   <g id="editable-title" class="ink title"><text x="72" y="350">知识为何需要</text><text x="72" y="450">被持续连接？</text></g>
   <text id="editable-subtitle" x="72" y="535" class="muted body">从存储、协作到重新使用的三个判断</text>
-  <g id="brand-structure"><path d="M72 836H835L925 746" fill="none" stroke="#252A28" stroke-width="7" stroke-linejoin="round"/><rect x="880" y="701" width="90" height="90" rx="6" transform="rotate(45 925 746)" class="brand-green"/></g>
+  <g id="brand-structure"><path d="M72 836H835L925 746" fill="none" stroke="#AAB3AF" stroke-width="7" stroke-linejoin="round"/><rect x="880" y="701" width="90" height="90" rx="6" transform="rotate(45 925 746)" class="brand-green"/></g>
   <text x="72" y="980" class="ink meta">mora · 让知识保持生命力</text><text x="1008" y="980" text-anchor="end" class="muted body">01</text>
 </svg>

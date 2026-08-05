@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080" role="img" aria-label="Mora report cover template">
+  <style>text{font-family:Inter,"Microsoft YaHei",sans-serif;letter-spacing:0}.ink{fill:#F3F6F4}.muted{fill:#AAB3AF}.green{fill:#45D1A8}.rule{stroke:#343C38;stroke-width:2}.title{font-size:76px;font-weight:700}.meta{font-size:22px;font-weight:650}.body{font-size:28px}</style>
+  <rect width="1080" height="1080" fill="#121614"/>
+  <rect x="0" y="0" width="1080" height="18" class="green"/>
+  <path d="M72 72V1008M360 72V1008M1008 72V1008M72 226H1008M72 850H1008" class="rule"/>
+  <text x="92" y="125" class="green meta">MORA RESEARCH</text><text x="380" y="125" class="muted meta">REPORT 2026 / 03</text>
+  <text x="92" y="192" class="ink body">协同知识工作观察</text><text x="988" y="192" text-anchor="end" class="muted body">CN</text>
+  <g id="editable-title" class="ink title"><text x="92" y="390">团队知识的</text><text x="92" y="480">流动、沉淀</text><text x="92" y="570">与再利用</text></g>
+  <text x="92" y="690" class="muted body">在这里填写报告摘要，建议两行以内。</text><text x="92" y="735" class="muted body">保持标题主导，数据作为辅助信息。</text>
+  <g id="metric"><text x="752" y="720" class="green" style="font-size:112px;font-weight:700">28</text><text x="752" y="762" class="muted meta">INTERVIEWS</text></g>
+  <text x="92" y="925" class="ink meta">MORA KNOWLEDGE LAB</text><text x="988" y="925" text-anchor="end" class="muted body">mora.example</text>
+</svg>

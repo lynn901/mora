@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Mora page not found</title>
+  <desc id="desc">A deadpan Mora O character braces its feet and pulls an absurdly long blank page strip from an old machine displaying 404.</desc>
+  <rect width="1600" height="900" fill="#121614"/>
+  <defs>
+    <g id="mora-o">
+      <path fill="#F3F6F4" fill-rule="evenodd" d="M515 256C621 255 703 321 729 420C757 527 709 640 614 692C520 744 401 715 334 637C267 559 262 440 317 352C359 284 431 252 515 256ZM507 383C557 379 596 410 608 456C622 512 597 567 550 591C503 615 447 599 417 561C387 523 388 466 416 429C438 400 469 386 507 383Z"/>
+      <circle cx="474" cy="343" r="11" fill="#121614"/>
+      <circle cx="524" cy="339" r="11" fill="#121614"/>
+      <rect x="576" y="217" width="72" height="72" rx="5" transform="rotate(45 612 253)" fill="#12A77C"/>
+      <g fill="none" stroke="#F3F6F4" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M424 698C405 734 404 765 419 792M577 698C600 731 603 763 591 792"/>
+        <path d="M396 794C411 803 427 802 442 794M570 795C586 804 603 802 618 793"/>
+      </g>
+    </g>
+  </defs>
+
+  <!-- A low-tech page machine: imperfect geometry, no UI chrome. -->
+  <g id="page-machine" fill="none" stroke="#AAB3AF" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M374 210C492 191 693 195 822 216L811 678C678 696 497 694 361 674Z" stroke-width="7"/>
+    <path d="M405 239C516 224 681 228 786 243" stroke-width="3"/>
+    <path d="M459 271C538 260 667 263 742 276L737 392C652 402 548 402 461 390Z" stroke-width="6"/>
+
+    <!-- The machine counter reads 404 using paths, not a font. -->
+    <g stroke="#F3F6F4" stroke-width="11">
+      <path d="M497 346 531 298 531 370M493 345 551 345"/>
+      <path d="M607 299C588 299 579 313 579 335C579 358 589 371 607 371C626 371 636 358 636 335C636 313 626 299 607 299Z"/>
+      <path d="M666 346 700 298 700 370M662 345 720 345"/>
+    </g>
+
+    <path d="M442 444C524 431 691 433 768 449L765 529C676 542 526 541 437 526Z" stroke-width="6"/>
+    <path d="M480 486C558 476 674 478 733 489" stroke-width="8"/>
+    <circle cx="468" cy="598" r="12" stroke-width="6"/>
+    <circle cx="532" cy="603" r="12" stroke-width="6"/>
+    <path d="M598 594C649 586 713 589 756 599" stroke-width="6"/>
+    <path d="M400 676 385 754M771 681l18 73" stroke-width="7"/>
+  </g>
+
+  <!-- The output is physically long but semantically empty. -->
+  <path id="blank-page-strip" d="M735 477C827 468 907 475 975 488C1072 506 1169 500 1281 482L1293 559 1269 553 1255 568 1238 557 1220 570 1202 558C1115 573 1038 576 968 562C882 545 812 543 731 552Z" fill="#1A201D" stroke="#AAB3AF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M788 510C852 503 908 507 953 516" fill="none" stroke="#343C38" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Mora threads its O-shaped body onto the blank strip and pulls. -->
+  <g id="character" transform="translate(1037 514) scale(.48) translate(-512 -500)">
+    <use href="#mora-o"/>
+  </g>
+  <path d="M1142 522C1181 533 1208 547 1226 568" fill="none" stroke="#F3F6F4" stroke-width="11" stroke-linecap="round"/>
+  <path d="M1226 568C1238 562 1250 563 1260 572" fill="none" stroke="#F3F6F4" stroke-width="11" stroke-linecap="round"/>
+  <path d="M924 521C889 533 865 551 851 577" fill="none" stroke="#F3F6F4" stroke-width="11" stroke-linecap="round"/>
+  <path d="M851 577C840 571 829 572 819 581" fill="none" stroke="#F3F6F4" stroke-width="11" stroke-linecap="round"/>
+
+  <!-- A few hesitant motion marks add deadpan effort without turning into a diagram. -->
+  <g fill="none" stroke="#AAB3AF" stroke-width="4" stroke-linecap="round">
+    <path d="M1325 473c25-18 46-18 63 0M1333 510c20-9 39-6 53 8M324 386c-24 12-37 31-37 55"/>
+  </g>
+  <path d="M222 783C487 807 1117 808 1390 782" fill="none" stroke="#343C38" stroke-width="5" stroke-linecap="round"/>
+</svg>

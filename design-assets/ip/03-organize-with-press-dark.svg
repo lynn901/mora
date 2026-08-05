@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Mora organizes knowledge</title><desc id="desc">The Mora O character turns the crank of an old press that compacts scattered pages into an orderly bound volume.</desc>
+  <rect width="1600" height="900" fill="#121614"/>
+  <defs>
+    <g id="mora-o"><path fill="#F3F6F4" fill-rule="evenodd" d="M515 256C621 255 703 321 729 420C757 527 709 640 614 692C520 744 401 715 334 637C267 559 262 440 317 352C359 284 431 252 515 256ZM507 383C557 379 596 410 608 456C622 512 597 567 550 591C503 615 447 599 417 561C387 523 388 466 416 429C438 400 469 386 507 383Z"/><circle cx="474" cy="343" r="11" fill="#121614"/><circle cx="524" cy="339" r="11" fill="#121614"/><rect x="576" y="217" width="72" height="72" rx="5" transform="rotate(45 612 253)" fill="#12A77C"/><g fill="none" stroke="#F3F6F4" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"><path d="M424 698C412 732 415 760 429 784M577 698C590 731 587 760 573 786"/><path d="M411 787C424 794 437 793 450 787M556 789C569 795 583 794 596 788"/></g></g>
+  </defs>
+  <g id="press" fill="none" stroke="#AAB3AF" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M474 244C622 224 812 228 946 251L938 622C795 637 623 635 485 619Z" stroke-width="8"/>
+    <path d="M520 289 895 293M515 529 904 529M552 296 544 522M865 296l8 226" stroke-width="7"/>
+    <path d="M600 426C678 414 781 416 847 429L842 507C767 517 682 515 606 505Z" stroke-width="6"/>
+    <path d="M665 252 668 198 750 197 752 252M710 198 706 149M706 149C749 138 799 150 824 178" stroke-width="7"/><circle cx="843" cy="195" r="28" stroke-width="7"/>
+    <path d="M941 344C1005 337 1050 356 1071 401M487 344C425 337 385 357 359 398" stroke-width="7"/>
+    <path d="M294 399 448 382 468 446 310 466ZM255 486 428 462 450 527 276 551ZM323 569 470 545 486 606 338 629Z" stroke-width="5"/>
+    <path d="M966 518 1116 541 1100 601 953 579M990 537l104 16M981 558l105 17" stroke-width="5"/>
+    <path d="M505 622 481 744M911 622l24 122M447 746C608 762 827 761 970 745" stroke-width="7"/>
+  </g>
+  <g id="character" transform="translate(1170 500) scale(.53) translate(-512 -500)"><use href="#mora-o"/></g>
+  <path d="M1068 498C1025 472 1002 438 1008 400" fill="none" stroke="#F3F6F4" stroke-width="11" stroke-linecap="round"/>
+  <path d="M1008 400C1024 384 1042 382 1059 393" fill="none" stroke="#F3F6F4" stroke-width="11" stroke-linecap="round"/>
+  <path d="M204 796C467 818 1125 817 1391 793" fill="none" stroke="#343C38" stroke-width="5" stroke-linecap="round"/>
+</svg>

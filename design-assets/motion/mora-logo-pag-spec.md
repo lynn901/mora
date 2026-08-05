@@ -7,8 +7,9 @@
 - 总时长：`54f / 1.8s`
 - 背景：透明
 - 播放：单次，不循环
-- 色彩：主体 `#202523`，结构线 `#252A28`，活跃节点 `#12A77C`
-- 输出：PAG Exporter 导出矢量 `.pag`，关闭位图预合成
+- Light 色彩：主体 `#202523`，结构线 `#252A28`，活跃节点 `#12A77C`
+- Dark 色彩：主体与结构线 `#F3F6F4`，活跃节点保持 `#12A77C`
+- 输出：分别导出 `mora-logo-light.pag` 与 `mora-logo-dark.pag`，关闭位图预合成
 
 ## 图层顺序
 
@@ -61,4 +62,6 @@
 
 ## 当前预览
 
-`mora-logo-motion-preview.svg` 使用同一时间轴和分层命名，可在支持 SVG CSS 动画的浏览器中直接预览。
+- `mora-logo-motion-preview.svg`：Light 透明背景预览。
+- `mora-logo-motion-preview-dark.svg`：Dark 透明背景反白预览。
+- 两个版本使用完全相同的路径、时间轴、缓动与分层命名。

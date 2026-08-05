@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920" role="img" aria-label="Mora Story announcement template">
+  <style>text{font-family:Inter,"Microsoft YaHei",sans-serif;letter-spacing:0}.ink{fill:#F3F6F4}.muted{fill:#AAB3AF}.green{fill:#45D1A8}.rule{stroke:#343C38;stroke-width:2}.title{font-size:92px;font-weight:700}.meta{font-size:25px;font-weight:650}.body{font-size:34px}</style>
+  <rect width="1080" height="1920" fill="#121614"/>
+  <g id="brand" transform="translate(72 80) scale(.22)" fill="none" stroke="#F3F6F4" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M294 682V622c0-16 11-27 27-27s28 11 28 27v60M349 622c0-16 11-27 27-27s28 11 28 27v60M519 640C519 668 500 685 474 684C448 683 432 665 434 638C435 611 453 593 478 595C502 596 518 614 519 640ZM548 682v-80M548 629c5-21 19-34 40-34 10 0 18 2 25 7M719 639c0 27-17 45-42 45s-42-18-42-45 17-45 42-45 42 18 42 45ZM719 600v82"/><rect x="497" y="581" width="14" height="14" rx="1.5" transform="rotate(45 504 588)" fill="#12A77C" stroke="none"/>
+  </g>
+  <text x="72" y="390" class="green meta">PRODUCT UPDATE · 08.05</text>
+  <path d="M72 432H1008" class="rule"/>
+  <g id="editable-title" class="ink title">
+    <text x="72" y="620">让知识</text><text x="72" y="730">彼此连接，</text><text x="72" y="840">持续有用。</text>
+  </g>
+  <text id="editable-summary" x="72" y="960" class="muted body">在这里填写一句简洁的更新摘要，</text>
+  <text x="72" y="1012" class="muted body">建议控制在两行以内。</text>
+  <g id="active-marker"><rect x="839" y="1241" width="118" height="118" rx="7" transform="rotate(45 898 1300)" class="green"/><path d="M500 1460H898V1300" fill="none" stroke="#AAB3AF" stroke-width="8" stroke-linejoin="round"/></g>
+  <text x="72" y="1670" class="ink meta">MORA / COLLABORATIVE KNOWLEDGE</text>
+  <text x="72" y="1720" class="muted body">mora.example</text>
+  <text x="1008" y="1720" text-anchor="end" class="muted body">01</text>
+</svg>

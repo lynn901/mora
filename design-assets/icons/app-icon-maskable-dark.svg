@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Mora dark maskable app icon</title>
+  <desc id="desc">The Mora brand mark inside the maskable icon safe zone on an opaque dark-neutral field.</desc>
+  <rect width="1024" height="1024" fill="#121614"/>
+  <g transform="translate(254 218) scale(4.6) translate(-420 -570)" fill="none" stroke="#F3F6F4" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M519 640C519 668 500 685 474 684C448 683 432 665 434 638C435 611 453 593 478 595C502 596 518 614 519 640Z"/>
+    <rect x="497" y="581" width="14" height="14" rx="1.5" transform="rotate(45 504 588)" fill="#12A77C" stroke="none"/>
+  </g>
+</svg>
