@@ -6,7 +6,7 @@
     :root { --ink:#202523; --line:#252A28; --active:#12A77C; --duration:1.8s; }
     .network-line {
       fill:none; stroke:var(--line); stroke-width:7; stroke-linejoin:round;
-      stroke-dasharray:760; stroke-dashoffset:760;
+      stroke-dasharray:1 1; stroke-dashoffset:1;
       animation:draw-network var(--duration) cubic-bezier(.4,0,.2,1) both;
     }
     .node {
@@ -18,7 +18,7 @@
     .node-active { animation-name:reveal-node-active; }
     .word-stroke {
       fill:none; stroke:var(--ink); stroke-width:18; stroke-linecap:round; stroke-linejoin:round;
-      stroke-dasharray:var(--length); stroke-dashoffset:var(--length);
+      stroke-dasharray:1 1; stroke-dashoffset:1;
       animation-duration:var(--duration); animation-timing-function:cubic-bezier(.4,0,.2,1); animation-fill-mode:both;
     }
     .letter-m { animation-name:draw-m; }
@@ -32,7 +32,7 @@
       animation:activate-word-node var(--duration) cubic-bezier(.2,.75,.25,1) both;
     }
     @keyframes draw-network {
-      0%,9% { stroke-dashoffset:760; opacity:0; }
+      0%,9% { stroke-dashoffset:1; opacity:0; }
       10% { opacity:1; }
       37%,100% { stroke-dashoffset:0; opacity:1; }
     }
@@ -51,12 +51,12 @@
       25% { opacity:1; }
       42%,100% { opacity:1; transform:scale(1); }
     }
-    @keyframes draw-m { 0%,27% { stroke-dashoffset:var(--length); opacity:0; } 28% { opacity:1; } 48%,100% { stroke-dashoffset:0; opacity:1; } }
-    @keyframes draw-o { 0%,30% { stroke-dashoffset:var(--length); opacity:0; } 31% { opacity:1; } 52%,100% { stroke-dashoffset:0; opacity:1; } }
-    @keyframes draw-r-stem { 0%,33% { stroke-dashoffset:var(--length); opacity:0; } 34% { opacity:1; } 55%,100% { stroke-dashoffset:0; opacity:1; } }
-    @keyframes draw-r-arm { 0%,35% { stroke-dashoffset:var(--length); opacity:0; } 36% { opacity:1; } 58%,100% { stroke-dashoffset:0; opacity:1; } }
-    @keyframes draw-a-body { 0%,37% { stroke-dashoffset:var(--length); opacity:0; } 38% { opacity:1; } 63%,100% { stroke-dashoffset:0; opacity:1; } }
-    @keyframes draw-a-stem { 0%,39% { stroke-dashoffset:var(--length); opacity:0; } 40% { opacity:1; } 65%,100% { stroke-dashoffset:0; opacity:1; } }
+    @keyframes draw-m { 0%,27% { stroke-dashoffset:1; opacity:0; } 28% { opacity:1; } 48%,100% { stroke-dashoffset:0; opacity:1; } }
+    @keyframes draw-o { 0%,30% { stroke-dashoffset:1; opacity:0; } 31% { opacity:1; } 52%,100% { stroke-dashoffset:0; opacity:1; } }
+    @keyframes draw-r-stem { 0%,33% { stroke-dashoffset:1; opacity:0; } 34% { opacity:1; } 55%,100% { stroke-dashoffset:0; opacity:1; } }
+    @keyframes draw-r-arm { 0%,35% { stroke-dashoffset:1; opacity:0; } 36% { opacity:1; } 58%,100% { stroke-dashoffset:0; opacity:1; } }
+    @keyframes draw-a-body { 0%,37% { stroke-dashoffset:1; opacity:0; } 38% { opacity:1; } 63%,100% { stroke-dashoffset:0; opacity:1; } }
+    @keyframes draw-a-stem { 0%,39% { stroke-dashoffset:1; opacity:0; } 40% { opacity:1; } 65%,100% { stroke-dashoffset:0; opacity:1; } }
     @keyframes activate-word-node {
       0%,57% { opacity:0; transform:scale(.65); }
       58% { opacity:1; }
@@ -67,17 +67,18 @@
       .node,.word-node { animation:none; opacity:1; transform:none; }
     }
   </style>
-  <g id="01-network-line"><path class="network-line" d="M512 208 357 438H676L512 208Z"/></g>
+  <g id="01-network-line"><path class="network-line" pathLength="1" d="M512 208 357 438H676L512 208Z"/></g>
   <g id="02-node-left" class="node node-left"><rect x="312" y="393" width="90" height="90" rx="5" transform="rotate(45 357 438)" fill="#202523"/></g>
   <g id="03-node-top" class="node node-top"><rect x="467" y="163" width="90" height="90" rx="5" transform="rotate(45 512 208)" fill="#202523"/></g>
   <g id="04-node-active" class="node node-active"><rect x="631" y="393" width="90" height="90" rx="5" transform="rotate(45 676 438)" fill="#12A77C"/></g>
   <g id="05-wordmark" transform="translate(6 0)">
-    <path id="letter-m" class="word-stroke letter-m" style="--length:270" d="M294 682V622c0-16 11-27 27-27s28 11 28 27v60M349 622c0-16 11-27 27-27s28 11 28 27v60"/>
-    <path id="letter-o" class="word-stroke letter-o" style="--length:250" d="M519 640C519 668 500 685 474 684C448 683 432 665 434 638C435 611 453 593 478 595C502 596 518 614 519 640Z"/>
-    <path id="letter-r-stem" class="word-stroke letter-r-stem" style="--length:90" d="M548 682v-80"/>
-    <path id="letter-r-arm" class="word-stroke letter-r-arm" style="--length:110" d="M548 629c5-21 19-34 40-34 10 0 18 2 25 7"/>
-    <path id="letter-a-body" class="word-stroke letter-a-body" style="--length:280" d="M719 639c0 27-17 45-42 45s-42-18-42-45 17-45 42-45 42 18 42 45Z"/>
-    <path id="letter-a-stem" class="word-stroke letter-a-stem" style="--length:90" d="M719 600v82"/>
+    <path id="letter-m-left" class="word-stroke letter-m" pathLength="1" d="M294 682V622c0-16 11-27 27-27s28 11 28 27v60"/>
+    <path id="letter-m-right" class="word-stroke letter-m" pathLength="1" d="M349 622c0-16 11-27 27-27s28 11 28 27v60"/>
+    <path id="letter-o" class="word-stroke letter-o" pathLength="1" d="M519 640C519 668 500 685 474 684C448 683 432 665 434 638C435 611 453 593 478 595C502 596 518 614 519 640Z"/>
+    <path id="letter-r-stem" class="word-stroke letter-r-stem" pathLength="1" d="M548 682v-80"/>
+    <path id="letter-r-arm" class="word-stroke letter-r-arm" pathLength="1" d="M548 629c5-21 19-34 40-34 10 0 18 2 25 7"/>
+    <path id="letter-a-body" class="word-stroke letter-a-body" pathLength="1" d="M719 639c0 27-17 45-42 45s-42-18-42-45 17-45 42-45 42 18 42 45Z"/>
+    <path id="letter-a-stem" class="word-stroke letter-a-stem" pathLength="1" d="M719 600v82"/>
   </g>
-  <g id="06-wordmark-active-node" class="word-node"><rect x="503" y="581" width="14" height="14" rx="1.5" transform="rotate(45 510 588)" fill="#12A77C"/></g>
+  <g transform="translate(6 0)"><g id="06-wordmark-active-node" class="word-node"><rect x="497" y="581" width="14" height="14" rx="1.5" transform="rotate(45 504 588)" fill="#12A77C"/></g></g>
 </svg>
