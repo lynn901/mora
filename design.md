@@ -1,6 +1,6 @@
 # Mora Design Language
 
-> Version 3.0 · Updated 2026-08-05 · Status: canonical product UI reference
+> Version 3.1 · Updated 2026-08-05 · Status: canonical product UI reference
 >
 > Brand promise: **Make knowledge connected, useful, and alive.**
 
@@ -10,7 +10,7 @@ This document defines Mora's visual language, interaction behavior, and engineer
 
 ## 1. Brand foundation
 
-Mora is a private collaborative knowledge workspace. Its identity is built from three connected nodes: independent knowledge units become more valuable when relationships are visible, while one active green node represents knowledge currently being created, discussed, or applied.
+Mora is a private collaborative knowledge workspace. Its identity joins three connected knowledge nodes with a distinctive lowercase `o`: the network represents durable relationships, while the green network node and matching node on the `o` identify knowledge currently being created, discussed, or applied.
 
 ### Logo meaning
 
@@ -19,7 +19,8 @@ Mora is a private collaborative knowledge workspace. Its identity is built from 
 | Three nodes | documents, people, and agents as distinct knowledge actors | preserve identity and provenance |
 | Connecting triangle | relationships turn isolated content into a knowledge system | make context and links visible |
 | Ink nodes | durable, trusted knowledge | neutral surfaces carry most information |
-| Green node | active contribution and useful change | green marks intent, progress, and focus |
+| Green node motif | active contribution and useful change | green marks intent, progress, and focus |
+| Eccentric `o` | the capacity to hold and reuse knowledge | gives the wordmark and product IP one recognizable form |
 | Rounded wordmark | technology with a human cadence | precise without feeling mechanical |
 
 The logo is a brand asset, not a component library. Do not rotate cards into diamonds, repeat node triangles as page decoration, or turn every connection into a visible line.
@@ -57,7 +58,14 @@ The logo is a brand asset, not a component library. Do not rotate cards into dia
 
 - Source: `design-assets/brand/mora-master.svg`
 - Production wordmark must use outlined paths, not a runtime font.
-- Product icons and favicons are derived from the node mark, never manually redrawn.
+- Product icons and favicons are derived from the eccentric `o` and its active node, never manually redrawn.
+
+### Product IP
+
+- Source: `design-assets/ip/mora-ip-master.svg`.
+- The character is a complete, slightly eccentric ink `O` with a compact counter, close-set white eyes, short legs, and no mouth.
+- One green node rests at the one-thirty position and overlaps the outer contour; it is not held by a hand, brim, or connector.
+- The logo shares only the eccentric `o` and node hat. Eyes and limbs never appear in the wordmark.
 
 ### Clear space and scale
 
@@ -70,8 +78,8 @@ The logo is a brand asset, not a component library. Do not rotate cards into dia
 
 | Variant | Mark | Wordmark | Surface |
 |---|---|---|---|
-| Primary | Ink + Mora Green | Ink | light neutral |
-| Reversed | Soft white + Active Green | Soft white | dark neutral |
+| Primary | Ink + Mora Green | Ink + Mora Green | light neutral |
+| Reversed | Soft white + Active Green | Soft white + Active Green | dark neutral |
 | Monochrome dark | Ink | Ink | light or transparent |
 | Monochrome light | Soft white | Soft white | dark or photographic |
 
@@ -89,7 +97,7 @@ These values are immutable identity anchors:
 |---|---|---|
 | `--brand-ink` | `#202523` | wordmark, durable knowledge nodes |
 | `--brand-line` | `#252A28` | relationships and structural connection |
-| `--brand-green` | `#12A77C` | active knowledge node |
+| `--brand-green` | `#12A77C` | active knowledge node and IP hat |
 
 `--brand-green` is optimized for recognition in the logo. It is not dark enough for all small text or white-on-green controls. Product components use the accessible interaction tokens below.
 

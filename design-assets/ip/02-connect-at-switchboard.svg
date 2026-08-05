@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Mora connects knowledge</title><desc id="desc">The Mora O character operates a hand-drawn switchboard that connects two separated documents.</desc>
+  <rect width="1600" height="900" fill="#FFFFFF"/>
+  <defs>
+    <g id="mora-o"><path fill="#202523" fill-rule="evenodd" d="M515 256C621 255 703 321 729 420C757 527 709 640 614 692C520 744 401 715 334 637C267 559 262 440 317 352C359 284 431 252 515 256ZM507 383C557 379 596 410 608 456C622 512 597 567 550 591C503 615 447 599 417 561C387 523 388 466 416 429C438 400 469 386 507 383Z"/><circle cx="474" cy="343" r="11" fill="#FFFFFF"/><circle cx="524" cy="339" r="11" fill="#FFFFFF"/><rect x="576" y="217" width="72" height="72" rx="5" transform="rotate(45 612 253)" fill="#12A77C"/><g fill="none" stroke="#202523" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"><path d="M424 698C412 732 415 760 429 784M577 698C590 731 587 760 573 786"/><path d="M411 787C424 794 437 793 450 787M556 789C569 795 583 794 596 788"/></g></g>
+  </defs>
+  <g id="switchboard" fill="none" stroke="#252A28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M438 194C606 174 829 179 994 202L982 665C804 684 612 681 426 660Z" stroke-width="7"/>
+    <path d="M478 258C627 243 813 246 948 263L940 561C789 576 626 575 470 558Z" stroke-width="5"/>
+    <g stroke-width="7"><circle cx="548" cy="327" r="14"/><circle cx="660" cy="322" r="14"/><circle cx="775" cy="328" r="14"/><circle cx="884" cy="320" r="14"/><circle cx="548" cy="420" r="14"/><circle cx="660" cy="414" r="14"/><circle cx="775" cy="422" r="14"/><circle cx="884" cy="412" r="14"/><circle cx="548" cy="505" r="14"/><circle cx="660" cy="499" r="14"/><circle cx="775" cy="507" r="14"/><circle cx="884" cy="497" r="14"/></g>
+    <path d="M480 665 466 758M938 667l23 91M419 758C611 775 828 774 1003 758" stroke-width="7"/>
+    <path d="M246 286 383 267 399 441 262 458ZM275 332c32-6 64-8 95-7M280 375c29-4 57-5 87-4" stroke-width="6"/>
+    <path d="M1116 281 1254 301 1234 473 1096 455ZM1137 330c29 3 58 7 88 13M1131 375c30 4 59 8 88 14" stroke-width="6"/>
+    <path d="M400 363C449 357 490 344 533 329M899 323C971 316 1041 338 1114 365" stroke-width="5" stroke-dasharray="2 16"/>
+  </g>
+  <g id="character" transform="translate(772 512) scale(.48) translate(-512 -500)"><use href="#mora-o"/></g>
+  <path d="M679 509C638 490 616 459 615 420M866 507C907 483 927 451 923 413" fill="none" stroke="#202523" stroke-width="11" stroke-linecap="round"/>
+  <path d="M615 420C622 399 635 390 654 394M923 413C912 394 898 388 881 395" fill="none" stroke="#202523" stroke-width="11" stroke-linecap="round"/>
+  <path d="M614 420C603 446 605 475 625 494C651 520 694 516 718 486C743 454 739 421 716 403" fill="none" stroke="#252A28" stroke-width="7"/>
+  <path d="M921 413C925 445 913 474 889 493C858 518 817 510 798 481C779 453 783 424 803 405" fill="none" stroke="#252A28" stroke-width="7"/>
+  <path d="M204 796C480 818 1112 817 1384 793" fill="none" stroke="#DCE2DF" stroke-width="5" stroke-linecap="round"/>
+</svg>
