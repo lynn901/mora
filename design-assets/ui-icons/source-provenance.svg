@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title">
+  <title id="title">Source provenance</title>
+  <path d="M7 3.5h8l3 3V13H7Z"/><path d="M15 3.5v3h3M10 8l1.3 1.3L14 6.5"/>
+  <path d="M12.5 13v2.5M6 15.5h13M6 15.5V17M19 15.5V17"/>
+  <circle cx="6" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>
+</svg>

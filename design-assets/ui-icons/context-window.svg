@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title">
+  <title id="title">Context window</title>
+  <path d="M7 4H4v16h3M17 4h3v16h-3"/>
+  <circle cx="9" cy="8" r="1.4"/><circle cx="15" cy="8" r="1.4"/><path d="m10.2 8 3.4 0M9 9.4l2 4M15 9.4l-2 4"/>
+  <rect x="10.2" y="12.2" width="3.6" height="3.6" rx=".5" transform="rotate(45 12 14)" fill="currentColor" stroke="none"/>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title">
+  <title id="title">Knowledge chunk</title>
+  <path d="M5 3.5h10l4 4v13H5Z"/><path d="M15 3.5v4h4"/>
+  <path d="M8 10h8M8 17h8"/><rect x="7.5" y="12.3" width="9" height="2.8" rx=".8"/>
+  <rect x="15.2" y="11.7" width="2.6" height="2.6" rx=".4" transform="rotate(45 16.5 13)" fill="currentColor" stroke="none"/>
+</svg>

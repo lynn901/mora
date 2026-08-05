@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title">
+  <title id="title">Knowledge graph</title>
+  <path d="M12 4 5.5 17h13L12 4Z"/>
+  <circle cx="12" cy="4" r="2"/>
+  <circle cx="5.5" cy="17" r="2"/>
+  <rect x="16.5" y="15" width="4" height="4" rx=".6" transform="rotate(45 18.5 17)" fill="currentColor" stroke="none"/>
+</svg>
