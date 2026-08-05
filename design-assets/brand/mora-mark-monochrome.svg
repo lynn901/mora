@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="420 570 112 128" role="img" aria-labelledby="title desc">
+  <title id="title">Mora monochrome mark</title>
+  <desc id="desc">Single-color version of the eccentric Mora o and knowledge node.</desc>
+  <g fill="none" stroke="#202523" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path id="eccentric-o" d="M519 640C519 668 500 685 474 684C448 683 432 665 434 638C435 611 453 593 478 595C502 596 518 614 519 640Z"/>
+    <rect id="knowledge-node" x="497" y="581" width="14" height="14" rx="1.5" transform="rotate(45 504 588)" fill="#202523" stroke="none"/>
+  </g>
+</svg>

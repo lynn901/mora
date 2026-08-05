@@ -49,11 +49,11 @@
 3. 字标必须转换为路径，禁止依赖运行时字体。
 4. 导出前确认所有图层在 `54f` 内结束，Work Area 与合成长度一致。
 5. PAG Exporter 中保留矢量内容，目标端按单次播放并停在末帧。
-6. 无障碍降级直接展示 `design-assets/brand/mora-master.svg` 静态 Logo。
+6. 无障碍降级直接展示 `design-assets/brand/mora-primary-lockup.svg` 静态 Logo。
 
 ## 验收点
 
-- 第 `0f` 完全透明，第 `53f` 与 `mora-master.svg` 视觉一致。
+- 第 `0f` 完全透明，第 `53f` 与 `mora-primary-lockup.svg` 视觉一致。
 - 两个绿色节点只在规定位置出现，颜色无漂移。
 - 知识网络早于字标建立，因果顺序清晰。
 - 1×、2×、3× 渲染下线条端点无裁切，透明边缘无黑边。

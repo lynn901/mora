@@ -4,7 +4,7 @@
 >
 > Brand promise: **Make knowledge connected, useful, and alive.**
 
-This document defines Mora's visual language, interaction behavior, and engineering contract across `web/`. It is derived from the approved Mora mark in `design-assets/brand/mora-master.svg`. The Chinese counterpart is [`design-zh.md`](./design-zh.md). Archived v2 documents are historical references only.
+This document defines Mora's visual language, interaction behavior, and engineering contract across `web/`. It is derived from the approved Mora primary lockup in `design-assets/brand/mora-primary-lockup.svg`. The Chinese counterpart is [`design-zh.md`](./design-zh.md). Archived v2 documents are historical references only.
 
 ---
 
@@ -56,7 +56,7 @@ The logo is a brand asset, not a component library. Do not rotate cards into dia
 
 ### Master artwork
 
-- Source: `design-assets/brand/mora-master.svg`
+- Source: `design-assets/brand/mora-primary-lockup.svg`
 - Production wordmark must use outlined paths, not a runtime font.
 - Product icons and favicons are derived from the eccentric `o` and its active node, never manually redrawn.
 
@@ -429,7 +429,7 @@ Buttons begin with a clear verb. Routine feedback avoids exclamation marks. Erro
 ### Migration order
 
 1. Replace gray and blue-purple variables in `web/src/index.css` with §3 semantic tokens.
-2. Derive `web/public/logo.svg` and favicon assets from `design-assets/brand/mora-master.svg`.
+2. Derive `web/public/logo.svg` and favicon assets from the sources in `design-assets/brand/`.
 3. Mount Theme Provider and expose light / dark / system controls.
 4. Remove hard-coded colors from tree, editor, collaboration, search, and history.
 5. Standardize save, loading, empty, error, toast, and status badge patterns.

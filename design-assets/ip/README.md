@@ -28,7 +28,7 @@ Mora 的正式 IP 来自字标中的小写 `o`。它是一个完整、略微偏�
 ## 正式文件
 
 - `mora-ip-master.svg`：透明背景 IP 母版。
-- `../brand/mora-master.svg`：包含同源 `o` 与节点帽的品牌母版。
+- `../brand/mora-primary-lockup.svg`：包含同源 `o` 与节点帽的完整品牌母版。
 - `01-retrieve-from-archive.svg`：从档案柜中唤回相关知识。
 - `02-connect-at-switchboard.svg`：在旧式交换台前建立知识连接。
 - `03-organize-with-press.svg`：用装订压机整理和沉淀散页。

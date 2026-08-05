@@ -4,7 +4,7 @@
 >
 > 品牌主张：**让知识彼此连接、持续有用、保持生命力。**
 
-本文定义 Mora 在 `web/` 中的视觉语言、交互行为和工程约定，设计基础来自 `design-assets/brand/mora-master.svg`。英文基准为 [`design.md`](./design.md)。已归档的 v2 文档仅作历史参考。
+本文定义 Mora 在 `web/` 中的视觉语言、交互行为和工程约定，设计基础来自 `design-assets/brand/mora-primary-lockup.svg`。英文基准为 [`design.md`](./design.md)。已归档的 v2 文档仅作历史参考。
 
 ---
 
@@ -56,7 +56,7 @@ Logo 是品牌资产，不是组件库。不要把卡片旋转成菱形，不要
 
 ### 品牌母版
 
-- 源文件：`design-assets/brand/mora-master.svg`
+- 源文件：`design-assets/brand/mora-primary-lockup.svg`
 - 生产字标使用轮廓路径，不依赖运行时字体。
 - 产品图标和 favicon 必须从偏心 `o` 与活跃节点派生，不手工重画。
 
@@ -429,7 +429,7 @@ Mora 的表达简洁、温和、可执行。
 ### 迁移顺序
 
 1. 将 `web/src/index.css` 中的灰阶和蓝紫变量替换为 §3 的语义令牌。
-2. 从 `design-assets/brand/mora-master.svg` 派生 `web/public/logo.svg` 和 favicon。
+2. 从 `design-assets/brand/` 中的正式源文件派生 `web/public/logo.svg` 和 favicon。
 3. 挂载 Theme Provider，提供浅色 / 深色 / 跟随系统控件。
 4. 清理目录、编辑器、协作、搜索和历史中的硬编码颜色。
 5. 统一保存、加载、空、错误、Toast 和状态 Badge。
