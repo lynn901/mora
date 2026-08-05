@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Mora product icon</title>
+  <desc id="desc">The eccentric Mora o with its active green knowledge node on a warm white field.</desc>
+  <rect width="1024" height="1024" rx="224" fill="#F3F6F4"/>
+  <path d="M755 544C755 704 650 804 503 798C355 792 264 689 275 536C284 383 386 282 528 292C665 301 750 398 755 544Z" fill="#202523"/>
+  <path d="M611 538C611 614 562 661 494 658C425 655 383 607 388 535C392 463 439 416 505 420C569 424 609 469 611 538Z" fill="#F3F6F4"/>
+  <rect x="673" y="246" width="154" height="154" rx="14" transform="rotate(45 750 323)" fill="#12A77C"/>
+</svg>
