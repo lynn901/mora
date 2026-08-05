@@ -9,7 +9,7 @@
 | `mora-primary-lockup.svg` | 知识节点网络与 Mora 字标的完整组合 | 品牌展示、规范文件、大尺寸发布物料 |
 | `mora-wordmark.svg` | 横向 Mora 字标 | 产品导航、登录页和横向紧凑区域 |
 | `mora-mark.svg` | 偏心 `o` 与绿色知识节点 | 头像、独立品牌标记及平台资产母版 |
-| `mora-mark-monochrome.svg` | 单色独立标记 | 单色印刷、遮罩、雕刻和受限色环境 |
+| `mora-mark-monochrome.svg` | 灰阶独立标记 | 灰阶印刷及不能使用品牌绿的受限色环境 |
 
 ## 品牌常量
 
@@ -23,7 +23,7 @@
 ## 管理规则
 
 - `mora-primary-lockup.svg` 是完整品牌结构的母版。
-- `mora-wordmark.svg`、`mora-mark.svg` 与单色版必须保持母版中的路径比例和节点位置。
+- `mora-wordmark.svg`、`mora-mark.svg` 与灰阶版必须保持母版中的路径比例和节点位置。
 - `web/public/` 中的 Logo 与 favicon 是产品发布副本，不是品牌源文件。
 - favicon、App Icon 等平台适配资产放入 `design-assets/icons/`，不得覆盖本目录源文件。
 - IP、动效和社媒资产分别放入 `../ip/`、`../motion/` 与 `../social/`。
