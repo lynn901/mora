@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Mora IP industrial design four-view sheet</title>
+  <desc id="desc">Orthographic front, left, rear and top views of the Mora O character, with proportional construction references.</desc>
+
+  <defs>
+    <style>
+      text { font-family: Inter, "Microsoft YaHei", "Noto Sans SC", sans-serif; letter-spacing: 0; }
+      .ink { fill: #202523; }
+      .green { fill: #12A77C; }
+      .paper { fill: #F7F9F8; }
+      .rule { fill: none; stroke: #DCE2DF; stroke-width: 2; }
+      .axis { fill: none; stroke: #AEB8B3; stroke-width: 1.5; stroke-dasharray: 8 8; }
+      .dim { fill: none; stroke: #7E8A84; stroke-width: 1.5; }
+      .dimtext { fill: #626B67; font-size: 15px; }
+      .label { fill: #202523; font-size: 22px; font-weight: 650; }
+      .eyebrow { fill: #12A77C; font-size: 14px; font-weight: 700; }
+      .note { fill: #626B67; font-size: 16px; }
+      .tiny { fill: #7E8A84; font-size: 13px; }
+      .limb { fill: none; stroke: #202523; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 10 0 L 0 5 L 10 10 z" fill="#7E8A84"/>
+    </marker>
+    <filter id="none" x="0" y="0" width="1" height="1"/>
+  </defs>
+
+  <rect width="1920" height="1080" fill="#F7F9F8"/>
+
+  <g id="sheet-heading">
+    <text x="80" y="74" class="eyebrow">MORA CHARACTER SYSTEM / ID-01</text>
+    <text x="80" y="122" class="label" style="font-size:34px">Mora O · 工业设计四视图</text>
+    <text x="80" y="158" class="note">正投影比例定义 · H = 100 · 概念建模基准（NTS）</text>
+    <path d="M80 192H1840" class="rule"/>
+    <g transform="translate(1585 66)">
+      <rect x="0" y="0" width="255" height="92" fill="none" stroke="#DCE2DF" stroke-width="2"/>
+      <path d="M0 46H255M150 0V92" class="rule"/>
+      <text x="14" y="29" class="tiny">PROJECT</text><text x="14" y="78" class="tiny">REVISION</text>
+      <text x="80" y="29" class="note">MORA IP</text><text x="80" y="78" class="note">A / 2026.08</text>
+      <text x="167" y="28" class="tiny">SCALE</text><text x="167" y="76" class="note">NTS</text>
+    </g>
+  </g>
+
+  <g id="panel-grid">
+    <rect x="80" y="224" width="850" height="360" fill="#FFFFFF" stroke="#DCE2DF" stroke-width="2"/>
+    <rect x="990" y="224" width="850" height="360" fill="#FFFFFF" stroke="#DCE2DF" stroke-width="2"/>
+    <rect x="80" y="620" width="850" height="360" fill="#FFFFFF" stroke="#DCE2DF" stroke-width="2"/>
+    <rect x="990" y="620" width="850" height="360" fill="#FFFFFF" stroke="#DCE2DF" stroke-width="2"/>
+  </g>
+
+  <!-- FRONT: exact master silhouette and feature placement, normalized into the panel. -->
+  <g id="front-view">
+    <text x="112" y="264" class="eyebrow">01</text><text x="112" y="294" class="label">正面 FRONT</text>
+    <path d="M497 256V548M280 512H714" class="axis"/>
+    <g transform="translate(260 181) scale(.48)">
+      <path class="ink" fill-rule="evenodd" d="M515 256C621 255 703 321 729 420C757 527 709 640 614 692C520 744 401 715 334 637C267 559 262 440 317 352C359 284 431 252 515 256ZM507 383C557 379 596 410 608 456C622 512 597 567 550 591C503 615 447 599 417 561C387 523 388 466 416 429C438 400 469 386 507 383Z"/>
+      <circle cx="474" cy="343" r="11" class="paper"/>
+      <circle cx="524" cy="339" r="11" class="paper"/>
+      <rect x="576" y="217" width="72" height="72" rx="5" transform="rotate(45 612 253)" class="green"/>
+      <g class="limb" style="stroke-width:13px">
+        <path d="M424 698C412 732 415 760 429 784M577 698C590 731 587 760 573 786"/>
+        <path d="M411 787C424 794 437 793 450 787M556 789C569 795 583 794 596 788"/>
+      </g>
+    </g>
+    <path d="M332 548H666" class="dim" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="499" y="542" text-anchor="middle" class="dimtext">W = 84</text>
+    <path d="M732 300V558" class="dim" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="750" y="435" class="dimtext">H = 100</text>
+    <text x="112" y="554" class="tiny">主识别面 · 双眼可见 · 节点位于一点半方向</text>
+  </g>
+
+  <!-- LEFT: conceptual extrusion depth of the planar O body. -->
+  <g id="left-view">
+    <text x="1022" y="264" class="eyebrow">02</text><text x="1022" y="294" class="label">左侧 LEFT</text>
+    <path d="M1415 256V548M1245 512H1585" class="axis"/>
+    <g transform="translate(0 2)">
+      <path d="M1358 305C1384 287 1447 287 1472 309C1503 337 1515 412 1492 467C1476 507 1448 526 1409 527C1369 528 1342 509 1328 470C1309 417 1321 334 1358 305Z" class="ink"/>
+      <path d="M1434 281L1490 310L1460 340L1404 311Z" class="green"/>
+      <path d="M1385 527C1377 539 1378 548 1385 558M1429 527C1436 539 1435 548 1429 558" class="limb"/>
+      <path d="M1374 559C1382 563 1390 563 1398 559M1417 559C1425 563 1433 563 1441 559" class="limb"/>
+      <path d="M1320 550H1508" class="dim" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+      <text x="1414" y="544" text-anchor="middle" class="dimtext">D = 34</text>
+      <path d="M1554 305V558" class="dim" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+      <text x="1572" y="438" class="dimtext">H = 100</text>
+    </g>
+    <text x="1022" y="554" class="tiny">实体厚度基准 · 节点帽为独立薄体 · 眼睛不外露</text>
+  </g>
+
+  <!-- REAR: same body envelope, no face; physical right becomes drawing left. -->
+  <g id="rear-view">
+    <text x="112" y="660" class="eyebrow">03</text><text x="112" y="690" class="label">背面 REAR</text>
+    <path d="M497 652V944M280 908H714" class="axis"/>
+    <g transform="translate(742 577) scale(-.48 .48)">
+      <path class="ink" fill-rule="evenodd" d="M515 256C621 255 703 321 729 420C757 527 709 640 614 692C520 744 401 715 334 637C267 559 262 440 317 352C359 284 431 252 515 256ZM507 383C557 379 596 410 608 456C622 512 597 567 550 591C503 615 447 599 417 561C387 523 388 466 416 429C438 400 469 386 507 383Z"/>
+      <rect x="576" y="217" width="72" height="72" rx="5" transform="rotate(45 612 253)" class="green"/>
+      <g class="limb" style="stroke-width:13px">
+        <path d="M424 698C412 732 415 760 429 784M577 698C590 731 587 760 573 786"/>
+        <path d="M411 787C424 794 437 793 450 787M556 789C569 795 583 794 596 788"/>
+      </g>
+    </g>
+    <path d="M332 944H666" class="dim" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text x="499" y="938" text-anchor="middle" class="dimtext">W = 84</text>
+    <text x="112" y="950" class="tiny">背壳保持完整 · 无面部元素 · 节点投影位于左上</text>
+  </g>
+
+  <!-- TOP: footprint of body extrusion, node and leg positions. -->
+  <g id="top-view">
+    <text x="1022" y="660" class="eyebrow">04</text><text x="1022" y="690" class="label">俯视 TOP</text>
+    <path d="M1415 652V944M1195 808H1635" class="axis"/>
+    <g>
+      <path d="M1248 757C1304 735 1512 733 1575 753C1606 763 1619 782 1617 807C1615 832 1599 848 1570 858C1504 880 1300 877 1244 857C1214 846 1200 830 1201 805C1202 783 1218 768 1248 757Z" class="ink"/>
+      <path d="M1516 731L1580 753L1546 782L1483 758Z" class="green"/>
+      <path d="M1328 875V896M1503 874V896" class="limb"/>
+      <circle cx="1328" cy="901" r="7" class="ink"/><circle cx="1503" cy="901" r="7" class="ink"/>
+      <path d="M1202 916H1617" class="dim" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+      <text x="1409" y="910" text-anchor="middle" class="dimtext">W = 84</text>
+      <path d="M1652 746V871" class="dim" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+      <text x="1670" y="814" class="dimtext">D = 34</text>
+    </g>
+    <text x="1022" y="950" class="tiny">顶部轮廓连续 · 节点偏右前 · 双腿沿身体横轴分布</text>
+  </g>
+
+  <g id="sheet-footer">
+    <path d="M80 1014H1840" class="rule"/>
+    <circle cx="96" cy="1044" r="8" fill="#202523"/><text x="114" y="1050" class="tiny">BODY #202523</text>
+    <rect x="250" y="1036" width="16" height="16" rx="2" transform="rotate(45 258 1044)" fill="#12A77C"/><text x="280" y="1050" class="tiny">ACTIVE NODE #12A77C</text>
+    <text x="730" y="1050" class="tiny">结构原则：闭合偏心 O / 小内孔 / 无嘴无眉 / 节点 45° / 静止状态仅保留短腿</text>
+    <text x="1840" y="1050" text-anchor="end" class="tiny">MORA DESIGN ASSETS · 2026</text>
+  </g>
+</svg>

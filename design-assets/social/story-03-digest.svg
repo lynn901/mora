@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920" role="img" aria-label="Mora Story digest template">
+  <style>text{font-family:Inter,"Microsoft YaHei",sans-serif;letter-spacing:0}.ink{fill:#202523}.muted{fill:#626B67}.green{fill:#12A77C}.rule{stroke:#DCE2DF;stroke-width:2}.title{font-size:88px;font-weight:700}.item{font-size:42px;font-weight:650}.meta{font-size:24px;font-weight:650}.body{font-size:28px}</style>
+  <rect width="1080" height="1920" fill="#FFFFFF"/>
+  <rect x="0" y="0" width="24" height="1920" class="green"/>
+  <text x="80" y="150" class="green meta">WEEKLY DIGEST · #028</text>
+  <text x="80" y="285" class="ink title">本周知识简报</text>
+  <text x="80" y="345" class="muted body">三个值得继续连接的主题</text>
+  <path d="M80 410H1008" class="rule"/>
+  <g id="editable-item-01"><text x="80" y="540" class="green meta">01</text><text x="160" y="540" class="ink item">知识库治理的新边界</text><text x="160" y="600" class="muted body">用一句话概括核心发现或变化。</text></g>
+  <path d="M80 680H1008" class="rule"/>
+  <g id="editable-item-02"><text x="80" y="810" class="green meta">02</text><text x="160" y="810" class="ink item">团队协作中的上下文</text><text x="160" y="870" class="muted body">用一句话概括核心发现或变化。</text></g>
+  <path d="M80 950H1008" class="rule"/>
+  <g id="editable-item-03"><text x="80" y="1080" class="green meta">03</text><text x="160" y="1080" class="ink item">Agent 如何参与知识工作</text><text x="160" y="1140" class="muted body">用一句话概括核心发现或变化。</text></g>
+  <path d="M80 1220H1008" class="rule"/>
+  <g id="footer" transform="translate(80 1480)">
+    <path d="M0 0H290" stroke="#252A28" stroke-width="6"/><rect x="273" y="-17" width="34" height="34" rx="3" transform="rotate(45 290 0)" class="green"/>
+    <text x="0" y="110" class="ink item">mora</text><text x="0" y="160" class="muted body">Collaborative Knowledge Workspace</text>
+  </g>
+</svg>

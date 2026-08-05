@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920" role="img" aria-label="Mora Story quote template">
+  <style>text{font-family:Inter,"Microsoft YaHei",sans-serif;letter-spacing:0}.light{fill:#F3F6F4}.muted{fill:#AAB3AF}.green{fill:#45D1A8}.title{font-size:76px;font-weight:650}.meta{font-size:25px;font-weight:650}.body{font-size:32px}</style>
+  <rect width="1080" height="1920" fill="#121614"/>
+  <g id="brand-mark" transform="translate(72 96)">
+    <path d="M52 0 0 78H108L52 0Z" fill="none" stroke="#F3F6F4" stroke-width="3"/><rect x="39" y="-13" width="26" height="26" rx="2" transform="rotate(45 52 0)" class="light"/><rect x="-13" y="65" width="26" height="26" rx="2" transform="rotate(45 0 78)" class="light"/><rect x="95" y="65" width="26" height="26" rx="2" transform="rotate(45 108 78)" class="green"/>
+  </g>
+  <text x="72" y="300" class="green meta">MORA FIELD NOTE / 02</text>
+  <text x="72" y="520" class="light" style="font-size:148px;font-weight:500">“</text>
+  <g id="editable-quote" class="light title">
+    <text x="72" y="680">真正有用的知识，</text><text x="72" y="790">不是被保存，</text><text x="72" y="900">而是被再次连接。</text>
+  </g>
+  <rect x="72" y="982" width="230" height="12" rx="6" class="green"/>
+  <text id="editable-source" x="72" y="1080" class="muted body">来源 / 作者 / 文章标题</text>
+  <path d="M72 1590H1008" fill="none" stroke="#343C38" stroke-width="2"/>
+  <text x="72" y="1655" class="light meta">mora</text><text x="1008" y="1655" text-anchor="end" class="muted body">让知识保持生命力</text>
+</svg>
