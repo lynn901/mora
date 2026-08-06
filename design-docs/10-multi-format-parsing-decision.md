@@ -3,7 +3,7 @@
 > 文档版本：v1.0 ｜ 产出人：Mora项目架构师 ｜ 对应任务：YS-70《分析 WeKnora 功能并制定 Mora 整体规划》
 > 父决策：01-tech-selection-decision.md（自研路线 + 全组件宽松 License 基线）
 > 产品基线：YS-70 PM 初版规划 §1.1 / 阶段一 P0「多格式导入」
-> 评审状态：**部分定稿**——§1–§7 现在可定稿；§8 table/Block 模型扩展**挂起待补**，待 PM 定 P0 表格保真口径后补入
+> 评审状态：**已定稿**（v1.1）——§1–§7 选型论证 + Parser 接口 + §8 table 章节（PM 定调 (a) 最小可用 BlockTable）三项全量收敛
 
 ---
 
@@ -161,31 +161,102 @@ PDF 扫描件/图片 → 图像 → **Ollama 多模态模型**（如 llava）做
 
 ---
 
-## 8. 挂起待补：table / Block 模型扩展
+## 8. table / Block 模型扩展决策（已定稿）
 
-> **本节挂起，待 PM 定 P0 表格保真口径后补入，不自行拍板。** 触发点：PM §1.1 要求「表格转 Block JSON 不丢信息」，架构师核实 `internal/domain/block.go:9-17` 的 BlockType **无 `table` 类型**，保真需扩域模型。
+> PM 已定调 **(a) 保留表格保真，范围收成「最小可用 BlockTable」**：P0 做 `BlockTable` + `tableRow`/`tableCell`，cell **纯文本**、**无合并单元格**、**无 cell 内富文本**；converter 补 GFM pipe 表格双向；`extract.go` 补 table 分支按行结构化输出。合并单元格 / cell 内富文本 / 嵌套表 / 样式列 **P1**。本节据此出方案，不扩到 P1 项。
 
-### 8.1 待 PM 决策的二选一
+### 8.1 P0 边界（最小可用 BlockTable）
 
-- **(a) 保留表格保真** → 接受域模型扩展入 P0 scope（P0 工作量上修、周期后移）：
-  - 新增 `BlockTable` + `tableRow`/`tableCell` 子节点类型（`domain/block.go`）；
-  - `content/converter.go` 补 table ↔ GFM Markdown table 双向；
-  - `rag/pipeline/extract.go` 补 table 分支（现 `writeBlock` 把 table 落 `default` 分支，`collectText` 拍平为纯文本，**行列结构丢失**）；
-  - DOCX `w:tbl` / HTML `<table>` / XLSX 行 的 Parser 映射目标由「待定」改为 `BlockTable`。
-- **(b) P0 显式降级** → 放弃表格保真，表格降级为 paragraph + `|` 分隔文本，`table` 域模型扩展列 **P0.5 fast-follow**。
+| 维度 | P0（本决策书范围） | P1（不在 P0 内） |
+|---|---|---|
+| cell 内容 | 纯文本（单 string，无 marks） | cell 内富文本（bold/italic/link/多 run） |
+| 合并单元格 | 不支持（`rowspan`/`colspan` 丢弃或拆分为重复 cell） | 支持 `rowspan`/`colspan` |
+| 嵌套 | 表格不可嵌套于表格 | 嵌套表 |
+| 样式 | 无 cell 背景色/对齐样式 | cell 样式 |
+| 行列结构 | 保留行列（GFM 管道表格可逆） | — |
 
-### 8.2 架构师权衡提示（供 PM 决策）
+### 8.2 数据模型（`internal/domain/block.go`）
 
-降级不仅影响编辑保真，也影响 RAG 召回质量：`extract.go` 现 `default` 分支的 `collectText` 把表格所有 text leaf 拍平为单段纯文本，**行列关系与单元格边界丢失**——表格密集文档（财务/规格/对比表）的检索召回质量会下降。若 P0 范围内表格密集文档占比高，(a) 的 RAG 召回收益可能抵过周期成本；若 P0 主要是文本型文档，(b) + P0.5 更经济。
+新增三个 BlockType 常量；节点形状遵循现有 TipTap/ProseMirror `{type, attrs, content[]}`：
 
-### 8.3 补入流程
+```go
+const (
+    BlockTable    BlockType = "table"
+    BlockTableRow BlockType = "tableRow"
+    BlockTableCell BlockType = "tableCell"
+)
+```
 
-PM 在本 issue 回复选定 (a)/(b) 后，架构师据此：
-- 选 (a)：本 §8.1 升级为定稿 §8「table 域模型扩展决策」，补迁移要点与索引策略，P0 scope 上修；
-- 选 (b)：本 §8.1 落为定稿 §8「表格降级决策」，`table` 扩展单列 P0.5 issue，本决策书 §1–§7 即为完整定稿。
+- `BlockTable`：`Content []Block`（一组 `tableRow`），`Attrs` 可带 `columnCount`（可选，便于渲染）。
+- `BlockTableRow`：`Content []Block`（一组 `tableCell`）。
+- `BlockTableCell`：**P0 用 `Text string` 承载纯文本**（cell 纯文本边界）；P1 升级为 `Content []Block` 承载富文本时，新增 `inlineContent` 或复用 `Content` 字段（TipTap 约定 cell 为 block 容器，富文本 cell 走 `Content []Block{paragraph}`）。
 
-无论 (a)/(b)，§1–§7 选型结论不受影响（DOCX/HTML/XLSX Parser 选型与 table 无关），**勿因 §8 挂起阻塞其余章节落地**。
+> 选 `Text string` 而非 `Content []Block{paragraph}` 是为锁定 P0 「cell 纯文本」边界，避免 Parser 顺手把 run marks 写进 `Marks` 字段越界。现有 `Block.Text`/`Marks` 字段已支持 leaf text node，P0 cell 用 `Text` 即可。
+
+**无 DB 迁移**：`documents.content` 是 JSONB，新增 block type 不改表结构（`migrations/003_documents.up.sql` 的 `content JSONB` 天然承接）。前端 TipTap 需新增 table 节点渲染，属前端工作项，非本决策书范围。
+
+### 8.3 Converter 双向（`internal/module/mora/content/converter.go`）
+
+现状：converter 支持 heading/paragraph/codeBlock/blockquote/list/divider，**无 table**（`writeBlockMarkdown` 无 table 分支，`MarkdownToBlocks` 不识别 GFM 管道表格；注释自述「unsupported constructs degrade gracefully」）。
+
+P0 补：
+
+- **BlocksToMarkdown**：`writeBlockMarkdown` 新增 `case BlockTable` 分支，输出 GFM 管道表格：
+  ```
+  | H1 | H2 |
+  | --- | --- |
+  | a | b |
+  ```
+  首行取 `tableRow[0]` 的 cell `Text` 为表头；分隔行固定 `---`；后续行按 cell `Text` 输出。
+- **MarkdownToBlocks**：识别 GFM 管道表格行（`| ... |` 起始 + 第二行 `| --- | --- |` 分隔符），构造 `BlockTable` → `tableRow` → `tableCell(Text)`。
+- **行列保持**：GFM 表格天然保留行列，往返不丢行列（满足 PM §1.1 验收「Markdown 往返不丢行列」）。
+- **降级约束**：cell 含 `|` 字符需转义为 `\|`；非 GFM 表格（HTML `<table>` 非管道形式、合并单元格）在 P0 不保证双向，Parser 侧先转 GFM 管道表格再走 converter。
+
+### 8.4 RAG `extract.go` table 分支（`internal/module/rag/pipeline/extract.go`）
+
+现状：`writeBlock` 无 table 分支，table 落 `default`，`collectText` 把所有 text leaf 拍平为单段纯文本，**行列丢失**（`extract.go:48-83`）。
+
+P0 补 `case btype == "table"` 分支，**按行结构化输出**：
+
+- 遍历 `tableRow` → 每个 `tableCell` 取 `Text` → 行内 cell 用 ` | ` 连接，行末换行；
+- `StructuredText` 输出形如 `H1 | H2 \n a | b`（保留行列，chunker 可按行切分）；
+- `PlainText` 同样按行输出（BM25 索引时 cell 文本带行列上下文）。
+
+效果：表格密集文档的 chunk 不再把整表压成一段无结构文本，RAG 召回时行列上下文保留——满足 PM 验收「RAG 按行结构化」。
+
+### 8.5 Parser 映射（DOCX/HTML/XLSX → BlockTable）
+
+| 源 | 映射路径 | P0 保真 |
+|---|---|---|
+| DOCX `w:tbl` | `w:tr`→`tableRow`，`w:tc`→`tableCell`，cell 取 `w:p/w:r/w:t` 文本拼接为 `Text` | 行列保留；cell run marks **丢弃**（见 §8.6） |
+| HTML `<table>` | `<tr>`→`tableRow`，`<td>/<th>`→`tableCell`，cell `textContent` 为 `Text` | 行列保留；cell 内 HTML 标签降级为纯文本 |
+| XLSX | `excelize` 读 sheet，行→`tableRow`，单元格→`tableCell(Text)` | 行列保留；公式取结果值 |
+
+### 8.6 回答 PM 留的问题：DOCX `w:tbl` → 最小 BlockTable 是否丢弃 cell 内 run marks？
+
+**会丢弃。但符合 PM 既定 P0 边界，边界无需微调。** 具体如下：
+
+DOCX cell 内容结构：`w:tc` → `w:p`（段落）→ `w:r`（run）→ `w:rPr`（run properties，含 `w:b` 加粗 / `w:i` 斜体 / `w:color` 等）+ `w:t`（文本）；`w:hyperlink` 含链接 run。P0 「cell 纯文本」边界要求 cell 落为 `BlockTableCell{Text: string}`，**cell 内容是单 string，不是 `[]Block` with marks**。因此 Parser 在抽取 cell 时把所有 `w:r` 的 `w:t` 文本拼接，**`w:rPr` 的 bold/italic 与 `w:hyperlink` 的 link 均在 Parser 阶段丢弃**——这不是 converter 或 extract 的丢失，而是 P0 边界本身的规定（cell 纯文本、无 cell 内富文本）。
+
+依据：`domain.Block` 已有 `Marks []Mark` 字段（`block.go:24`），converter 的 `writeInline`/`parseInline` 已支持 `bold`/`italic`/`code` 三种 mark（`converter.go:209-259`），**模型与 converter 对 marks 的基础设施已就绪**——P0 cell 纯文本是**主动收敛**，非模型限制。故：
+
+- **P0 边界无需微调**：丢 marks 是 PM 明确收敛的项，不是越界丢失；
+- **P1 升级路径清晰**：cell 升级为 `Content []Block{paragraph}` 后，Parser 把 `w:r` 的 `w:rPr`→`Mark{Type:"bold"}`、`w:hyperlink`→`Mark{Type:"link",Attrs:{href}}` 直接写入，converter 与 extract 已有 marks 处理，无需再改域模型——P1 是 Parser + cell 节点形态的升级，不是架构重做；
+- **一个 RAG 侧 nuance 提示**：丢 marks 不影响 RAG 召回（召回基于文本，marks 不是检索维度），但若未来 P1 保留链接 `href` 作为实体线索用于知识图谱导航（PM §1.4 远期项），则 link mark 需在 P1 补回。此为远期提示，不进 P0。
+
+### 8.7 估期（架构层粗估，供 PM 排期，研发定稿为准）
+
+| 项 | 估期 | 说明 |
+|---|---|---|
+| 域模型 `BlockTable`/`tableRow`/`tableCell` 常量 | 0.5d | 仅 `block.go` 加常量，无 DB 迁移 |
+| converter GFM 双向 + 测试 | 2–3d | `writeBlockMarkdown` table 分支 + `MarkdownToBlocks` GFM 识别 + 往返测试 |
+| `extract.go` table 分支 + 测试 | 1d | 按行结构化输出 + chunk 验证 |
+| DOCX `w:tbl` Parser 映射 | 1.5d | 含 cell 文本拼接、`w:rPr` 丢弃策略、样例测试 |
+| HTML `<table>` / XLSX 映射 | 1d | 复用 table 节点构造 |
+| 合计（table 章节） | **~6d** | 与 §1–§7 选型实现并行，不阻塞其余格式 |
+
+> 此估期仅含 table 章节相关改动，不含 §1–§7 的 Parser 模块整体实现与 import/export 路由（后者由研发依选型表另行排期）。
 
 ---
 
-> 本决策书 §1–§7 现在可定稿，交付研发依选型表实现 Parser 模块与 import/export 路由。§8 待 PM 口径回复后补入。table 域模型扩展的迁移脚本要点与索引策略将在 §8 定稿时补齐。
+> 本决策书 §1–§8 现已全量定稿（选型论证 + Parser 接口 + table 章节三项收敛），交付研发依选型表与 §8 方案实现 Parser 模块、converter/extract table 扩展与 import/export 路由。合并单元格/cell 富文本/嵌套/样式列 P1，cell 升级为 `Content []Block` 后 marks 基础设施已就绪，无需再改域模型。
