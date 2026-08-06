@@ -32,13 +32,13 @@ export function LoginPage() {
               <BookOpen className="size-5" />
             </div>
           </div>
-          <CardTitle className="text-xl">Sign in to Mora</CardTitle>
-          <CardDescription>Enter your credentials to access your workspace</CardDescription>
+          <CardTitle className="text-xl">登录 Mora</CardTitle>
+          <CardDescription>输入凭据以进入你的工作空间</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <label htmlFor="email" className="text-sm font-medium">Email</label>
+              <label htmlFor="email" className="text-sm font-medium">邮箱</label>
               <Input
                 id="email"
                 type="email"
@@ -51,11 +51,11 @@ export function LoginPage() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label htmlFor="password" className="text-sm font-medium">Password</label>
+              <label htmlFor="password" className="text-sm font-medium">密码</label>
               <Input
                 id="password"
                 type="password"
-                placeholder="Enter your password"
+                placeholder="请输入密码"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -66,7 +66,7 @@ export function LoginPage() {
               <p className="text-sm text-destructive" role="alert">{error}</p>
             )}
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Signing in..." : "Sign in"}
+              {isLoading ? "正在登录…" : "登录"}
             </Button>
           </form>
         </CardContent>
