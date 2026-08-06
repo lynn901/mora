@@ -16,20 +16,20 @@ function StatusIndicator({ status }: { status: string }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+          <span className="flex items-center gap-1 text-xs text-success">
             <Wifi className="size-3" />
-            Live
+            实时
           </span>
         </TooltipTrigger>
-        <TooltipContent>Connected - editing in real-time</TooltipContent>
+        <TooltipContent>已连接 · 正在实时协作</TooltipContent>
       </Tooltip>
     )
   }
   if (status === "connecting") {
     return (
-      <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+      <span className="flex items-center gap-1 text-xs text-warning">
         <Wifi className="size-3 animate-pulse" />
-        Connecting
+        连接中
       </span>
     )
   }
@@ -37,12 +37,12 @@ function StatusIndicator({ status }: { status: string }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+          <span className="flex items-center gap-1 text-xs text-warning">
             <ShieldAlert className="size-3" />
-            Read-only
+            只读
           </span>
         </TooltipTrigger>
-        <TooltipContent>Concurrency limit reached - viewing in read-only mode</TooltipContent>
+        <TooltipContent>并发已达上限 · 当前为只读模式</TooltipContent>
       </Tooltip>
     )
   }
@@ -50,12 +50,12 @@ function StatusIndicator({ status }: { status: string }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+          <span className="flex items-center gap-1 text-xs text-info">
             <Edit3 className="size-3" />
-            Local
+            本地
           </span>
         </TooltipTrigger>
-        <TooltipContent>Local editing mode - changes save directly</TooltipContent>
+        <TooltipContent>本地编辑模式 · 改动将直接保存</TooltipContent>
       </Tooltip>
     )
   }
@@ -85,7 +85,7 @@ function PresenceAvatars({ presences }: { presences: CollaboratorPresence[] }) {
                   {p.userName.split(" ").map((n) => n[0]).join("")}
                 </AvatarFallback>
               </Avatar>
-              <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 border-2 border-background" />
+              <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-success border-2 border-background" />
             </div>
           </TooltipTrigger>
           <TooltipContent>{p.userName} - editing</TooltipContent>
@@ -107,15 +107,15 @@ function CommentItem({ comment, onResolve }: { comment: Comment; onResolve: (id:
         </Avatar>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium">{author?.name || "Unknown"}</span>
+            <span className="text-xs font-medium">{author?.name || "未知"}</span>
             <span className="text-[10px] text-muted-foreground">{new Date(comment.createdAt).toLocaleDateString()}</span>
-            {comment.resolved && <Badge variant="secondary" className="text-[10px] px-1 py-0">Resolved</Badge>}
+            {comment.resolved && <Badge variant="secondary" className="text-[10px] px-1 py-0">已解决</Badge>}
           </div>
           <p className="text-sm mt-1">{comment.content}</p>
           {comment.mentions.length > 0 && (
             <div className="flex gap-1 mt-1">
               {comment.mentions.map((m) => (
-                <span key={m} className="text-xs text-blue-500">@{users.find((u) => u.id === m)?.name || m}</span>
+                <span key={m} className="text-xs text-primary">@{users.find((u) => u.id === m)?.name || m}</span>
               ))}
             </div>
           )}
@@ -176,7 +176,7 @@ export function CollabSidebar() {
       <div className="flex items-center justify-between p-3 border-b">
         <div className="flex items-center gap-2">
           <MessageSquare className="size-4" />
-          <span className="font-medium text-sm">Comments</span>
+          <span className="font-medium text-sm">评论</span>
           <Badge variant="secondary" className="text-[10px]">{comments.filter((c) => !c.resolved).length}</Badge>
         </div>
         <div className="flex items-center gap-2">

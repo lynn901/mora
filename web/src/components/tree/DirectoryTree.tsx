@@ -51,7 +51,7 @@ function TreeNodeItem({ node, depth, onSelect, selectedId }: TreeNodeItemProps) 
           )}
         </span>
         <span className="shrink-0">
-          {isFolder ? <Folder className="size-4 text-blue-500" /> : <FileText className="size-4 text-muted-foreground" />}
+          {isFolder ? <Folder className="size-4 text-muted-foreground" /> : <FileText className="size-4 text-muted-foreground" />}
         </span>
         <span className="truncate flex-1">{node.name}</span>
         <Tooltip>

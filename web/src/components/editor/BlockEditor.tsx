@@ -94,13 +94,13 @@ export function BlockEditor() {
       TaskItem.configure({ nested: true }),
       Image,
       TextAlign.configure({ types: ["heading", "paragraph"] }),
-      Placeholder.configure({ placeholder: "Start writing..." }),
+      Placeholder.configure({ placeholder: "开始书写…" }),
       MarkdownExt,
       ...collaborationExt,
     ],
     editable: !isReadOnly,
     editorProps: {
-      attributes: { class: "prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[300px] px-8 py-6" },
+      attributes: { class: "prose prose-sm dark:prose-invert max-w-[760px] mx-auto focus:outline-none min-h-[300px] px-8 py-6 text-[16px] leading-[28px]" },
     },
   })
 
@@ -252,15 +252,15 @@ export function BlockEditor() {
             <ToggleGroupItem value="markdown">Markdown</ToggleGroupItem>
           </ToggleGroup>
           {!isReadOnly && (
-            <Button variant="default" size="sm" className="h-7 px-3" onClick={handleSave} disabled={!isDirty} aria-label="Save document">
+            <Button variant="default" size="sm" className="h-7 px-3" onClick={handleSave} disabled={!isDirty} aria-label="保存文档">
               <Save className="size-3.5 mr-1" />
               Save
             </Button>
           )}
           {isReadOnly && (
-            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Read-only</span>
+            <span className="text-xs text-warning font-medium">只读</span>
           )}
-          {isDirty && !isReadOnly && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
+          {isDirty && !isReadOnly && <span className="text-xs text-muted-foreground">有未保存的改动</span>}
         </div>
       </div>
 
@@ -272,7 +272,7 @@ export function BlockEditor() {
             className="w-full h-full min-h-[300px] p-6 font-mono text-sm bg-transparent resize-none focus:outline-none"
             value={currentDocument?.content || ""}
             onChange={(e) => updateDocument({ content: e.target.value })}
-            placeholder="Write in Markdown..."
+            placeholder="使用 Markdown 书写…"
             aria-label="Markdown editor"
             readOnly={isReadOnly}
           />

@@ -3,80 +3,136 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Mora Design Language V3.1 — semantic tokens.
+ * Source of truth: design.md §3 (Color), §4 (Typography), §5 (Shape).
+ * Components consume semantic classes (bg-background, text-foreground, bg-primary,
+ * text-warning, etc.) — never hardcoded HEX or Tailwind palette classes (§11).
+ * shadcn/ui aliases (--card, --popover, --secondary, --input, --sidebar-*) are
+ * derived from the Mora semantic palette so existing components keep working.
+ */
+
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* §3.1 Brand constants — brand assets, not component tokens */
+  --brand-ink: #202523;
+  --brand-line: #252a28;
+  --brand-green: #12a77c;
+
+  /* §3.2 Green scale */
+  --green-50: #ecf9f5;
+  --green-100: #d7f3ea;
+  --green-200: #a9e5d4;
+  --green-300: #6dd0b4;
+  --green-400: #35bb96;
+  --green-500: #12a77c;
+  --green-600: #0e8967;
+  --green-700: #0b7659;
+  --green-800: #095f49;
+  --green-900: #074c3b;
+
+  /* §3.3 Light theme — semantic tokens */
+  --background: #f7f9f8;
+  --foreground: #202523;
+  --surface: #ffffff;
+  --surface-subtle: #eff3f1;
+  --muted-foreground: #626b67;
+  --border: #dce2df;
+  --primary: #0b7659;
+  --primary-hover: #095f49;
+  --primary-active: #074c3b;
+  --primary-foreground: #ffffff;
+  --accent: #d7f3ea;
+  --accent-foreground: #07533f;
+  --ring: #0b7659;
+
+  /* §3.5 Semantic + functional color */
+  --success: #0e7a52;
+  --success-foreground: #ffffff;
+  --warning: #9a6209;
+  --warning-foreground: #ffffff;
+  --destructive: #b83b4a;
+  --destructive-foreground: #ffffff;
+  --info: #3d6872;
+  --info-foreground: #ffffff;
+
+  /* §4 Typography */
+  --font-sans: Inter, "HarmonyOS Sans", "Source Han Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
+
+  /* §5 Shape — product UI radius caps at 8px */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius: 8px;
+
+  /* shadcn/ui aliases derived from the Mora palette */
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface);
+  --popover-foreground: var(--foreground);
+  --secondary: var(--surface-subtle);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-subtle);
+  --input: var(--border);
+  --sidebar: var(--surface-subtle);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  /* §3.4 Dark theme — independently designed, warm ink neutral (not blue-grey) */
+  --background: #121614;
+  --foreground: #f3f6f4;
+  --surface: #191e1c;
+  --surface-subtle: #202624;
+  --muted-foreground: #aab3af;
+  --border: #343c38;
+  --primary: #45d1a8;
+  --primary-hover: #66dcb9;
+  --primary-active: #2bbe94;
+  --primary-foreground: #10221c;
+  --accent: #173d32;
+  --accent-foreground: #80e3c7;
+  --ring: #45d1a8;
+
+  /* §3.5 Dark semantic color */
+  --success: #56d39a;
+  --success-foreground: #10221c;
+  --warning: #f0bc62;
+  --warning-foreground: #2a1c06;
+  --destructive: #ff7d8a;
+  --destructive-foreground: #2a0d11;
+  --info: #78c0ce;
+  --info-foreground: #0c252c;
+
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface);
+  --popover-foreground: var(--foreground);
+  --secondary: var(--surface-subtle);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-subtle);
+  --input: var(--border);
+  --sidebar: var(--surface-subtle);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
@@ -89,20 +145,36 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-line: var(--brand-line);
+  --color-brand-green: var(--brand-green);
+  --color-green-50: var(--green-50);
+  --color-green-100: var(--green-100);
+  --color-green-200: var(--green-200);
+  --color-green-300: var(--green-300);
+  --color-green-400: var(--green-400);
+  --color-green-500: var(--green-500);
+  --color-green-600: var(--green-600);
+  --color-green-700: var(--green-700);
+  --color-green-800: var(--green-800);
+  --color-green-900: var(--green-900);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
   --radius-xl: calc(var(--radius) + 4px);
+
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -111,6 +183,9 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 @layer base {
@@ -119,5 +194,6 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
   }
 }

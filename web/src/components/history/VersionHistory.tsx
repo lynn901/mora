@@ -142,8 +142,8 @@ export function VersionHistory() {
             {diffData.map((line, i) => (
               <div key={i} className={cn(
                 "px-3 py-0.5",
-                line.type === "added" && "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200",
-                line.type === "removed" && "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 line-through",
+                line.type === "added" && "bg-success/10 text-success dark:text-success",
+                line.type === "removed" && "bg-destructive/10 text-destructive dark:text-destructive line-through",
               )}>
                 <span className="inline-block w-4 text-muted-foreground select-none">{line.type === "added" ? "+" : line.type === "removed" ? "-" : " "}</span>
                 {line.text}

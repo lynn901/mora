@@ -10,6 +10,7 @@ import { SearchPanel } from "@/components/search/SearchPanel"
 import { RBACPanel } from "@/components/rbac/RBACPanel"
 import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
+import { ThemeToggle } from "@/components/mora/ThemeToggle"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { useMoraStore } from "@/stores/mora"
 import { useCollabStore } from "@/stores/collab"
@@ -54,6 +55,13 @@ export function MoraLayout() {
     history: <VersionHistory />,
   }
 
+  const panelLabels: Record<SidePanel, string> = {
+    tree: "目录",
+    search: "搜索",
+    rbac: "权限",
+    history: "历史",
+  }
+
   const panelIcons: Record<SidePanel, React.ReactNode> = {
     tree: <BookOpen className="size-4" />,
     search: <Search className="size-4" />,
@@ -65,9 +73,9 @@ export function MoraLayout() {
     return (
       <div className="flex items-center justify-center h-screen" role="alert">
         <div className="text-center">
-          <p className="text-destructive font-medium">Something went wrong</p>
+          <p className="text-destructive font-medium">工作空间加载失败</p>
           <p className="text-sm text-muted-foreground mt-1">{error}</p>
-          <Button variant="outline" className="mt-4" onClick={loadWorkspaces}>Retry</Button>
+          <Button variant="outline" className="mt-4" onClick={loadWorkspaces}>重试</Button>
         </div>
       </div>
     )
@@ -93,7 +101,7 @@ export function MoraLayout() {
             <SelectTrigger className="h-8 text-sm font-medium border-0 shadow-none focus:ring-0 px-2">
               <span className="flex items-center gap-2 truncate">
                 <span>{currentWorkspace?.icon || "📚"}</span>
-                <span className="truncate">{currentWorkspace?.name || "Select workspace"}</span>
+                <span className="truncate">{currentWorkspace?.name || "选择工作空间"}</span>
               </span>
             </SelectTrigger>
             <SelectContent>
@@ -104,14 +112,17 @@ export function MoraLayout() {
               ))}
             </SelectContent>
           </Select>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-7 shrink-0 ml-auto" onClick={logout} aria-label="Sign out">
-                <LogOut className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Sign out</TooltipContent>
-          </Tooltip>
+          <div className="flex items-center gap-0.5 ml-auto">
+            <ThemeToggle />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={logout} aria-label="退出登录">
+                  <LogOut className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>退出登录</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
 
         <div className="flex border-b">
@@ -124,12 +135,12 @@ export function MoraLayout() {
                     activePanel === panel ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                   )}
                   onClick={() => setActivePanel(panel)}
-                  aria-label={panel}
+                  aria-label={panelLabels[panel]}
                 >
                   {panelIcons[panel]}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">{panel.charAt(0).toUpperCase() + panel.slice(1)}</TooltipContent>
+              <TooltipContent side="bottom">{panelLabels[panel]}</TooltipContent>
             </Tooltip>
           ))}
         </div>
@@ -154,7 +165,7 @@ export function MoraLayout() {
             <div className="flex items-center justify-center flex-1">
               <div className="text-center">
                 <div className="size-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm text-muted-foreground mt-3">Loading...</p>
+                <p className="text-sm text-muted-foreground mt-3">正在准备工作空间…</p>
               </div>
             </div>
           ) : currentDocument ? (
@@ -175,8 +186,8 @@ export function MoraLayout() {
             <div className="flex items-center justify-center flex-1">
               <div className="text-center max-w-sm">
                 <BookOpen className="size-12 text-muted-foreground/50 mx-auto" />
-                <h2 className="text-lg font-medium mt-4">Welcome to Mora</h2>
-                <p className="text-sm text-muted-foreground mt-1">Select a page from the sidebar to start editing, or create a new one.</p>
+                <h2 className="text-lg font-medium mt-4">欢迎使用 Mora</h2>
+                <p className="text-sm text-muted-foreground mt-1">从左侧目录选择一个页面开始编辑，或新建一个页面。</p>
               </div>
             </div>
           )}
