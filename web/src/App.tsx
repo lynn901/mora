@@ -3,6 +3,7 @@ import { MoraLayout } from "@/components/mora/MoraLayout"
 import { LoginPage } from "@/components/auth/LoginPage"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/components/theme-provider"
+import { LlmGatewayPanel } from "@/components/parse/LlmGatewayPanel"
 import { useAuthStore } from "@/stores/auth"
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -18,6 +19,13 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/admin/llm-gateway" element={
+              <ProtectedRoute>
+                <MoraLayout>
+                  <LlmGatewayPanel />
+                </MoraLayout>
+              </ProtectedRoute>
+            } />
             <Route path="/*" element={
               <ProtectedRoute>
                 <MoraLayout />
@@ -31,3 +39,5 @@ function App() {
 }
 
 export default App
+
+
