@@ -49,16 +49,28 @@ export function LlmGatewayPanel() {
     lastCall: null,
   })
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  // Sheet visibility is explicit state — never derived from draft emptiness,
+  // otherwise the drawer traps the user whenever the name field is blank
+  // (YS-85: auto-open + un-closeable on empty draft).
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   const openNew = () => {
     setEditing(null)
     setDraft({ name: "", baseUrl: "", modelName: "", enabled: false, desensitized: false, lastCall: null })
     setTestResult(null)
+    setSheetOpen(true)
   }
   const openEdit = (ep: GatewayEndpoint) => {
     setEditing(ep)
     setDraft({ ...ep })
     setTestResult(null)
+    setSheetOpen(true)
+  }
+
+  // Close from any source (cancel button, X, ESC): drop editing + hide sheet.
+  const closeSheet = () => {
+    setEditing(null)
+    setSheetOpen(false)
   }
 
   const save = () => {
@@ -68,7 +80,7 @@ export function LlmGatewayPanel() {
     } else {
       setEndpoints((eps) => [...eps, { ...draft, id: `ep-${Date.now()}` }])
     }
-    setEditing(null)
+    closeSheet()
   }
 
   const remove = (id: string) => setEndpoints((eps) => eps.filter((e) => e.id !== id))
@@ -163,7 +175,7 @@ export function LlmGatewayPanel() {
       </ScrollArea>
 
       {/* Create / edit drawer */}
-      <Sheet open={editing !== null || draft.name === ""} onOpenChange={(o) => { if (!o) setEditing(null) }}>
+      <Sheet open={sheetOpen} onOpenChange={(o) => { if (!o) closeSheet() }}>
         <SheetContent side="right" className="w-full sm:max-w-[420px] p-0 gap-0">
           <SheetHeader className="px-6 pt-6 pb-3 border-b">
             <SheetTitle>{editing ? "编辑端点" : "新增端点"}</SheetTitle>
