@@ -160,6 +160,12 @@ func (h *ParseHandler) ChunkPreview(c *gin.Context) {
 		response.Fail(c, badRequestErr("invalid body"))
 		return
 	}
+	// text is required (10 §2.2): distinguish a missing field from a legal
+	// empty input by rejecting empty text with 400 before chunking.
+	if strings.TrimSpace(req.Text) == "" {
+		response.Fail(c, badRequestErr("text required"))
+		return
+	}
 	opts := parser.ParseOptions{}
 	if b, err := json.Marshal(req.ParseOptions); err == nil {
 		_ = json.Unmarshal(b, &opts)
