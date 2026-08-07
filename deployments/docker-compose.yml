@@ -53,6 +53,23 @@ services:
       retries: 20
     restart: unless-stopped
 
+  minio:
+    # 对象存储：多格式文档解析上传原文件 + 解析产物（design-docs/10 §4.2.1）。
+    # S3 兼容；mora-api/rag-worker 通过 MINIO_* 环境变量访问。默认不出网。
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-mora}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-mora-secret}
+    volumes: ["minio_data:/data"]
+    ports: ["9000:9000", "9001:9001"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   tei:
     # HuggingFace Text Embeddings Inference（本地推理，默认 TEI）。
     # cpu-latest 镜像修复了 cpu-1.5 的 HF 下载 bug（relative URL without a base）。
@@ -120,6 +137,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       valkey: { condition: service_healthy }
+      minio: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
     environment:
       HTTP_ADDR: ":8080"
@@ -136,6 +154,13 @@ services:
       COLLAB_MAX_CONCURRENT: "50"
       RATE_LIMIT_DOC_PER_MIN: "300"
       RATE_LIMIT_SEARCH_PER_MIN: "200"
+      # 对象存储 + 多格式解析（design-docs/10）
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-mora}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-mora-secret}"
+      MINIO_BUCKET: "mora"
+      MINIO_SECURE: "false"
+      PARSE_MAX_FILE_MB: "${PARSE_MAX_FILE_MB:-100}"
     healthcheck:
       test: ["CMD", "/app/healthcheck", "http://localhost:8080/ready"]
       interval: 10s
@@ -154,6 +179,7 @@ services:
       postgres: { condition: service_healthy }
       valkey: { condition: service_healthy }
       qdrant: { condition: service_healthy }
+      minio: { condition: service_healthy }
       tei: { condition: service_started } # TEI 模型加载较慢；worker 自带重试，不阻塞启动
       migrate: { condition: service_completed_successfully }
     environment:
@@ -167,6 +193,15 @@ services:
       EMBEDDING_DIM: "${EMBEDDING_DIM:-384}"
       CONSUMER_NAME: "rag-worker-1"
       HEALTH_ADDR: ":8082"
+      # 对象存储 + 多格式解析（design-docs/10）：worker 消费 document.parse 事件
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-mora}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-mora-secret}"
+      MINIO_BUCKET: "mora"
+      MINIO_SECURE: "false"
+      MORA_PARSER_URL: "${MORA_PARSER_URL:-}"   # P2 多模态 sidecar；空=禁用
+      WHISPER_URL: "${WHISPER_URL:-}"           # P2 ASR；空=禁用
+      PARSE_TASK_MAX_ATTEMPT: "${PARSE_TASK_MAX_ATTEMPT:-3}"
     healthcheck:
       test: ["CMD", "/app/healthcheck", "http://localhost:8082/healthz"]
       interval: 15s
@@ -297,6 +332,7 @@ volumes:
   pg_data:
   valkey_data:
   qdrant_data:
+  minio_data:
   tei_cache:
   ollama_data:
   prometheus_data:

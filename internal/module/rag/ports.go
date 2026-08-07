@@ -33,6 +33,11 @@ type DocumentSnapshot struct {
 	VersionNo   int
 	Status      domain.DocStatus
 	Tags        []string
+	// Document-parsing (10 §4). StorageKey is the object-storage key of the
+	// uploaded source file; SourceFormat is its canonical format key. The parse
+	// worker reads these to know which file to parse.
+	StorageKey   string
+	SourceFormat string
 }
 
 // DocumentStore loads document snapshots for indexing. Owned by YS-6.
@@ -203,6 +208,50 @@ type EventQueue interface {
 type IdempotencyStore interface {
 	// MarkSeen returns true if the event was already seen (and is now marked).
 	MarkSeen(ctx context.Context, eventID string, ttl time.Duration) (bool, error)
+}
+
+// ParseTaskStore persists the parse_tasks state machine, the staged progress
+// timeline, and the documents.parse_status badge (10 §4.2.2, §6). It is the
+// parse-side analogue of IndexStatusStore: the worker owns idempotency +
+// retry, the pipeline.ParseStage does the actual parsing.
+type ParseTaskStore interface {
+	// UpsertParseTask creates the task if absent (idempotent on
+	// document_id+event_id) and returns the current row.
+	UpsertParseTask(ctx context.Context, task domain.ParseTask) (domain.ParseTask, error)
+	UpdateParseTaskStatus(ctx context.Context, taskID string, status domain.ParseTaskStatus, attempt int, errMsg string) error
+	// AppendProgress adds a staged progress entry to the timeline (10 §6.1).
+	AppendProgress(ctx context.Context, taskID string, stage domain.ProgressStage) error
+	GetParseTask(ctx context.Context, taskID string) (domain.ParseTask, error)
+	// SetDocumentParseStatus writes the documents.parse_status badge.
+	SetDocumentParseStatus(ctx context.Context, documentID string, status domain.ParseStatus, taskID string) error
+	// SetDocumentContent writes parsed content (Block JSONB) + content_text +
+	// the parser_name metadata back to the document row (10 §4.1 step 3).
+	SetDocumentContent(ctx context.Context, documentID string, blocks []byte, contentText, parserName, sourceFormat string) error
+	// GetParseProgress returns the staged timeline + statuses for the
+	// parse-progress query API (10 §6.3). Existence-non-leak is the caller's
+	// responsibility (RBAC read check first).
+	GetParseProgress(ctx context.Context, documentID string) (ParseProgressInfo, error)
+	// RecordChunkRelations persists parent-child links for a version (10 §2.3).
+	// child/parent ids are the chunks table PKs; the caller resolves them from
+	// the chunk metadata rows recorded by IndexStatusStore.RecordChunks.
+	RecordChunkRelations(ctx context.Context, documentID string, relations []domain.ChunkRelation) error
+}
+
+// ParseProgressInfo is the parse-status read model for the parse-progress API
+// (10 §6.3). Carries both the parse and index badges so the UI can show the
+// full two-stage status.
+type ParseProgressInfo struct {
+	ParseStatus domain.ParseStatus
+	IndexStatus domain.IndexStatus
+	Progress    []domain.ProgressStage
+	UpdatedAt   *time.Time
+}
+
+// ChunkRelation is one parent-child link (10 §2.3); stored in chunk_relations.
+type ChunkRelation struct {
+	ChildChunkID  string
+	ParentChunkID string
+	DocumentID    string
 }
 
 // Clock abstracts time for deterministic tests.

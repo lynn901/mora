@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/infra/pg"
 	"github.com/lynn901/mora/internal/infra/postgres"
 	"github.com/lynn901/mora/internal/module/mora/event"
 	"github.com/lynn901/mora/internal/module/mora/service"
@@ -74,7 +75,8 @@ func (s *Suite) TearDownSuite() { s.pool.Close() }
 func (s *Suite) SetupTest() {
 	// clean tables in dependency order; preserve system roles (migration 005 seed)
 	ctx := context.Background()
-	for _, t := range []string{"comments", "document_tags", "document_versions", "documents",
+	for _, t := range []string{"chunk_relations", "parse_tasks", "parse_configs",
+		"comments", "document_tags", "document_versions", "documents",
 		"directories", "tags", "permissions", "workspaces", "group_members", "groups", "users"} {
 		_, _ = s.pool.Exec(ctx, "DELETE FROM "+t)
 	}
@@ -311,6 +313,75 @@ func (s *Suite) TestUsersAndRoles_Query() {
 	for _, n := range []string{"super_admin", "workspace_admin", "editor", "viewer"} {
 		assert.True(s.T(), names[n], "system role %q should be present", n)
 	}
+}
+
+func (s *Suite) TestParse_DocumentParsingMigrationAndStore() {
+	// Verifies migration 011 landed (documents new columns + parse_tasks /
+	// parse_configs / chunk_relations tables) and the ParseTaskStore round-trips
+	// the parse state machine + progress timeline (design-docs/10 §4.2.2, §4.3).
+	ctx := context.Background()
+	t := s.T()
+
+	// migration 011 columns exist on documents
+	uid := s.seedUser("parse@mora.dev", "Parse User")
+	ws := s.seedWorkspace(uid, "parse-ws")
+	doc := &domain.Document{
+		ID: domain.NewUUID(), WorkspaceID: ws.ID, Title: "parse doc",
+		Format: domain.FormatBlocks, Status: domain.StatusDraft, IndexStatus: domain.IndexPending,
+		VersionNo: 1, CreatedBy: uid, StorageKey: "mora/source/file.pdf",
+		SourceFormat: "pdf", ParseStatus: domain.ParsePending,
+	}
+	require.NoError(t, s.docs.Create(ctx, doc))
+
+	got, err := s.docs.Get(ctx, doc.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "mora/source/file.pdf", got.StorageKey)
+	assert.Equal(t, "pdf", got.SourceFormat)
+	assert.Equal(t, domain.ParsePending, got.ParseStatus)
+
+	// ParseTaskStore: upsert idempotent, status transitions, progress timeline
+	store := pg.NewParseTaskStore(s.pool)
+	task, err := store.UpsertParseTask(ctx, domain.ParseTask{
+		DocumentID: doc.ID.String(), EventID: domain.NewUUID().String(),
+		Status: domain.ParseTaskPending, MaxAttempt: 3,
+		ParseOpts: map[string]any{"chunking_strategy": "adaptive_3tier"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, domain.ParseTaskPending, task.Status)
+
+	// idempotent re-upsert returns the same task (no duplicate)
+	task2, err := store.UpsertParseTask(ctx, domain.ParseTask{
+		DocumentID: doc.ID.String(), EventID: task.EventID, Status: domain.ParseTaskPending,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, task.ID, task2.ID)
+
+	// progress timeline: append two stages
+	require.NoError(t, store.AppendProgress(ctx, task.ID, domain.ProgressStage{Stage: "parsing", Status: "started", At: time.Now().UTC().Format(time.RFC3339)}))
+	require.NoError(t, store.AppendProgress(ctx, task.ID, domain.ProgressStage{Stage: "parsing", Status: "done", At: time.Now().UTC().Format(time.RFC3339)}))
+
+	// mark parsed + write content
+	require.NoError(t, store.SetDocumentParseStatus(ctx, doc.ID.String(), domain.ParseParsing, task.ID))
+	require.NoError(t, store.SetDocumentContent(ctx, doc.ID.String(), []byte(`[{"type":"paragraph","content":[{"type":"text","text":"parsed body"}]}]`), "parsed body", "ledongthuc/pdf", "pdf"))
+	require.NoError(t, store.SetDocumentParseStatus(ctx, doc.ID.String(), domain.ParseParsed, task.ID))
+
+	// read model carries both badges + the timeline
+	info, err := store.GetParseProgress(ctx, doc.ID.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ParseParsed, info.ParseStatus)
+	assert.Len(t, info.Progress, 2)
+
+	// ParseConfigStore: create + list a workspace template
+	cfgStore := pg.NewParseConfigStore(s.pool)
+	wsID := ws.ID.String()
+	cfg, err := cfgStore.Create(ctx, pg.ParseConfig{
+		WorkspaceID: &wsID, Name: "adaptive-default",
+		Config: map[string]any{"chunking_strategy": "adaptive_3tier"}, IsDefault: true,
+	})
+	require.NoError(t, err)
+	listed, err := cfgStore.List(ctx, ws.ID.String())
+	require.NoError(t, err)
+	assert.NotEmpty(t, listed)
 }
 
 func (s *Suite) assertUserIDs(t *testing.T, got []domain.User, want ...domain.UUID) {

@@ -82,6 +82,10 @@ type Chunk struct {
 
 // ChunkMetadata is stored in both the chunks.metadata JSONB column and the
 // Qdrant point payload (03-data-model.md §3.2). visible_to is the RBAC core.
+//
+// The optional parent-child fields (10 §2.3) are omitted for standalone chunks
+// so existing payloads stay backward-compatible; their absence reads as
+// "standalone" at search time.
 type ChunkMetadata struct {
 	WorkspaceID string   `json:"workspace_id"`
 	DirectoryID string   `json:"directory_id,omitempty"`
@@ -95,6 +99,10 @@ type ChunkMetadata struct {
 	Status      string   `json:"status"`     // document status snapshot
 	DocumentID  string   `json:"document_id"`
 	CreatedAt   string   `json:"created_at"`
+	// parent-child (10 §2.3). Omitted for standalone/parent-less chunks.
+	ChunkRole        string `json:"chunk_role,omitempty"`         // parent / child / standalone
+	ParentChunkID    string `json:"parent_chunk_id,omitempty"`    // child → parent point id
+	ParentChunkIndex int    `json:"parent_chunk_index,omitempty"` // child → parent chunk_index
 }
 
 // IndexingTask mirrors the indexing_tasks table (state machine).
@@ -121,3 +129,60 @@ const (
 	TaskIndexed    IndexingTaskStatus = "indexed"
 	TaskFailed     IndexingTaskStatus = "failed"
 )
+
+// ParseStatus mirrors documents.parse_status (10 §4.2.2). The default
+// ParseParsed keeps existing Block-authored documents from being re-parsed.
+type ParseStatus string
+
+const (
+	ParsePending ParseStatus = "pending"
+	ParseParsing ParseStatus = "parsing"
+	ParseParsed  ParseStatus = "parsed"
+	ParseFailed  ParseStatus = "failed"
+	ParseSkipped ParseStatus = "skipped"
+)
+
+// ParseTask mirrors the parse_tasks table (state machine, 10 §4.3). It is
+// symmetric with IndexingTask: the rag-worker owns idempotency + retry; the
+// pipeline.ParseStage does the actual parsing.
+type ParseTask struct {
+	ID           string
+	DocumentID   string
+	EventID      string // idempotency key
+	Status       ParseTaskStatus
+	Attempt      int
+	MaxAttempt   int
+	ParseOpts    map[string]any // per-upload config overrides (10 §7)
+	ParserName   string
+	Progress     []ProgressStage // staged progress timeline (10 §6)
+	ErrorMessage string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type ParseTaskStatus string
+
+const (
+	ParseTaskPending ParseTaskStatus = "pending"
+	ParseTaskParsing ParseTaskStatus = "parsing"
+	ParseTaskParsed  ParseTaskStatus = "parsed"
+	ParseTaskFailed  ParseTaskStatus = "failed"
+)
+
+// ProgressStage is one entry in the staged parse-progress timeline (10 §6.1).
+// Stage flow: queued → fetching → parsing → (ocr|vlm|asr) → chunking → persisting → done.
+type ProgressStage struct {
+	Stage      string `json:"stage"`
+	Status     string `json:"status"` // started | done | failed
+	At         string `json:"at"`     // RFC3339
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+}
+
+// ChunkRelation is one parent-child link between chunks (10 §2.3), stored in
+// the chunk_relations table. Used only by the parent_child strategy.
+type ChunkRelation struct {
+	ChildChunkID  string
+	ParentChunkID string
+	DocumentID    string
+}

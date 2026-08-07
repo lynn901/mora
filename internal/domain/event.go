@@ -11,12 +11,14 @@ import (
 type EventType string
 
 const (
-	EventDocumentCreate     EventType = "document.create"
-	EventDocumentUpdate     EventType = "document.update"
-	EventDocumentDelete     EventType = "document.delete"
-	EventAttachmentChange   EventType = "attachment.change"
-	EventPermissionChange   EventType = "permission.change"
-	EventModelRebuild       EventType = "model.rebuild"
+	EventDocumentCreate   EventType = "document.create"
+	EventDocumentUpdate   EventType = "document.update"
+	EventDocumentDelete   EventType = "document.delete"
+	EventAttachmentChange EventType = "attachment.change"
+	EventPermissionChange EventType = "permission.change"
+	EventModelRebuild     EventType = "model.rebuild"
+	EventDocumentParse    EventType = "document.parse"   // 10 §4.1: uploaded file → parse
+	EventDocumentReparse  EventType = "document.reparse" // 10 §5.2: re-parse with new opts
 )
 
 // DocEvent is the message published to the Valkey Stream `doc_events`
