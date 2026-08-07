@@ -117,7 +117,7 @@ services:
       minio: { condition: service_healthy }   # sidecar 从对象存储读 storage_key
     environment:
       # 指向同网 MinIO，复用 rag-worker 的对象存储凭据
-      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ENDPOINT: "http://minio:9000"
       MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-mora}"
       MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-mora-secret}"
       MINIO_BUCKET: "mora"
@@ -202,7 +202,7 @@ services:
       RATE_LIMIT_DOC_PER_MIN: "300"
       RATE_LIMIT_SEARCH_PER_MIN: "200"
       # 对象存储 + 多格式解析（design-docs/10）
-      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ENDPOINT: "http://minio:9000"
       MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-mora}"
       MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-mora-secret}"
       MINIO_BUCKET: "mora"
@@ -241,7 +241,7 @@ services:
       CONSUMER_NAME: "rag-worker-1"
       HEALTH_ADDR: ":8082"
       # 对象存储 + 多格式解析（design-docs/10）：worker 消费 document.parse 事件
-      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ENDPOINT: "http://minio:9000"
       MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-mora}"
       MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-mora-secret}"
       MINIO_BUCKET: "mora"
