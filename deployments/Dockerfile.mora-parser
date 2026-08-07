@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1
+# mora-parser — P2 多模态/复杂版式解析 sidecar（design-docs/10 §1.4）
+#
+# 单一可插拔 Python sidecar，承载纯 Go 生态薄弱的能力：版式 PDF 表格抽取、
+# OCR（PaddleOCR CPU 默认 / surya GPU）、VLM 图像描述（复用 Ollama）、ASR（whisper.cpp）。
+# rag-worker 通过 MORA_PARSER_URL 路由；URL 为空则禁用，纯 Go 库覆盖 P0/P1。
+#
+# 默认不出网：启动时从挂载的 models/ 卷加载预置权重，运行期不拉网。
+# License：PaddleOCR Apache-2.0、markitdown MIT、whisper.cpp MIT；AGPL 库若纳入仅本
+# 独立进程受约束，不传染 Go 主程序（§1.5）。
+#
+# 镜像分层：deps（重且少变）→ app（多变）。CPU 默认；GPU 走单独 tag 或 --profile gpu-parser。
+# 该 Dockerfile 在 P2 app 代码就位后即可用；当前为部署脚手架，确保一键拉起形态已固化。
+
+FROM python:3.11-slim AS deps
+
+# 构建参数：固定版本，可复现。
+ARG PADDLEOCR_REF=2.7.3
+ARG MARKITDOWN_VERSION=0.0.2
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /srv
+
+# 系统依赖：libgomp1（PaddleOCR C++ 后端）、curl（healthcheck）、tini（信号转发）。
+# 不装 git/编译器以缩小攻击面；如需编译型依赖改 wheel 或 builder 阶段。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 curl tini ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 依赖：先装重且少变的（PaddleOCR CPU + markitdown），利用层缓存。
+# paddlepaddle CPU 包体积大，单独一层。
+RUN pip install --no-cache-dir \
+        "paddlepaddle==2.6.1" \
+        "paddleocr==${PADDLEOCR_REF}" \
+    && pip install --no-cache-dir \
+        "markitdown==${MARKITDOWN_VERSION}" \
+        "fastapi==0.115.6" \
+        "uvicorn[standard]==0.34.0" \
+        "httpx==0.28.1"
+
+# --- app 层（多变，待 P2 app 代码就位后 COPY） ---
+FROM deps AS app
+WORKDIR /srv
+# P2 app 代码（server.py 等）就位后取消下行注释：
+# COPY deployments/mora-parser/ /srv/
+# EXPOSE 8000
+# 健康检查：FastAPI /health；sidecar 就绪且权重加载完成后返回 200。
+# 启用前 app 代码需实现 /health 路由。
+# HEALTHCHECK --start-period=180s --interval=30s --timeout=5s --retries=5 \
+#   CMD ["curl","-fsS","http://localhost:8000/health"]
+# ENTRYPOINT ["/usr/bin/tini","--"]
+# CMD ["uvicorn","server:app","--host","0.0.0.0","--port","8000"]
+#
+# 部署占位说明：当前 app 代码未提交（P2 范围）。compose profile 已就位，
+# MORA_PARSER_URL 为空时 rag-worker 自动禁用 sidecar，主线不受影响。
+# 待 P2 app 代码合入，取消上述注释并 `docker compose --profile parser up -d`。
+LABEL org.opencontainers.image.title="mora-parser" \
+      org.opencontainers.image.description="Mora P2 multimodal/complex-layout parse sidecar" \
+      mora.p2="parser-sidecar" \
+      mora.egress="none-runtime"
+CMD ["echo","mora-parser: P2 sidecar scaffold — app code pending (see deployments/Dockerfile.mora-parser)"]
