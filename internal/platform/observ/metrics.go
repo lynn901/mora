@@ -54,4 +54,35 @@ var (
 			Help: "Number of active MCP sessions.",
 		},
 	)
+
+	// Multi-format document parsing (design-docs/10 §9.3).
+	RagParseDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "rag_parse_duration_seconds",
+			Help:    "Document parse duration by source format and parser.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"format", "parser"},
+	)
+	RagParseTasks = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "rag_parse_tasks",
+			Help: "Active parse tasks by status.",
+		},
+		[]string{"status"},
+	)
+	RagParseDeadLetterTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "rag_parse_dead_letter_total",
+			Help: "Total parse events moved to the dead-letter stream.",
+		},
+	)
+	MoraParserCallDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mora_parser_call_duration_seconds",
+			Help:    "mora-parser sidecar call duration by route.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"route"},
+	)
 )

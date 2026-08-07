@@ -20,12 +20,12 @@ const (
 // Block is the unit of structured content stored in documents.content (JSONB).
 // It follows the TipTap/ProseMirror node shape: {type, attrs, content[]}.
 type Block struct {
-	ID      string          `json:"id,omitempty"`
-	Type    BlockType       `json:"type"`
-	Attrs   map[string]any  `json:"attrs,omitempty"`
-	Content []Block         `json:"content,omitempty"`
-	Text    string          `json:"text,omitempty"`
-	Marks   []Mark          `json:"marks,omitempty"`
+	ID      string         `json:"id,omitempty"`
+	Type    BlockType      `json:"type"`
+	Attrs   map[string]any `json:"attrs,omitempty"`
+	Content []Block        `json:"content,omitempty"`
+	Text    string         `json:"text,omitempty"`
+	Marks   []Mark         `json:"marks,omitempty"`
 }
 
 type Mark struct {

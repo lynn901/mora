@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/infra/mq"
+	"github.com/lynn901/mora/internal/infra/objstore"
 	"github.com/lynn901/mora/internal/infra/pg"
 	"github.com/lynn901/mora/internal/infra/postgres"
 	"github.com/lynn901/mora/internal/infra/qdrant"
@@ -26,6 +27,7 @@ import (
 	"github.com/lynn901/mora/internal/module/mora/collab"
 	"github.com/lynn901/mora/internal/module/mora/event"
 	wh "github.com/lynn901/mora/internal/module/mora/handler"
+	"github.com/lynn901/mora/internal/module/mora/parsewiring"
 	"github.com/lynn901/mora/internal/module/mora/service"
 	ragsearch "github.com/lynn901/mora/internal/module/rag/search"
 	"github.com/lynn901/mora/internal/pkg/response"
@@ -89,6 +91,38 @@ func main() {
 	indexStatus := pg.NewIndexStatusStore(pool)
 	modelStore := pg.NewModelStore(pool)
 	providerFactory := &ragwiring.DefaultProviderFactory{TEIURL: cfg.TEIURL, OllamaURL: cfg.OllamaURL, RerankModel: cfg.RerankerModel}
+
+	// Multi-format parsing (10 §4, §7): object storage + parse stores + the
+	// parse service + handler. The handler routes are registered below; the
+	// rag-worker owns the actual parse execution (it consumes document.parse).
+	objStore := objstore.New(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucket, cfg.MinioRegion)
+	objStore.Secure = cfg.MinioSecure
+	// Ensure the bucket exists so uploads don't fail on a fresh MinIO. Best-effort:
+	// if MinIO is unreachable (e.g. dev without object storage), the API still
+	// serves non-parse routes; uploads will surface a clear error.
+	if cfg.MinioAccessKey != "" {
+		if err := objStore.EnsureBucket(context.Background()); err != nil {
+			log.Printf("warn: ensure minio bucket %s: %v (parse uploads will fail until fixed)", cfg.MinioBucket, err)
+		}
+	}
+	parseTaskStore := pg.NewParseTaskStore(pool)
+	parseConfigStore := pg.NewParseConfigStore(pool)
+	// parse queue: reuse the ValkeyQueue (same stream the rag-worker consumes).
+	var parseQueue service.ParseTaskQueue
+	if rdb != nil {
+		parseQueue = parsewiring.QueueAdapter{Queue: mq.New(rdb)}
+	} else {
+		parseQueue = &noopParseQueue{}
+	}
+	parseSvc := service.NewParseService(
+		docRepo, engine, parseQueue,
+		parsewiring.ObjectStoreAdapter{Store: objStore},
+		parsewiring.ProgressAdapter{Store: parseTaskStore},
+		parsewiring.ChunkPreviewerImpl{},
+		parseConfigStoreAdapter{store: parseConfigStore},
+		cfg.ParseMaxFileMB,
+	)
+	parseH := wh.NewParseHandler(parseSvc)
 
 	tm := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
 	userLookup := &pgUserLookup{db: db}
@@ -157,6 +191,20 @@ func main() {
 	docGroup.GET("/documents/:id/versions/diff", docH.DiffVersions)
 	docGroup.POST("/documents/:id/versions/:version_no/rollback", docH.Rollback)
 	docGroup.GET("/documents/:id/index-status", indexStatusH.Get)
+
+	// Multi-format document parsing (10 §7.2). Upload/reparse use the doc rate
+	// limit; chunk-preview a lighter one; parse-progress + configs are reads.
+	docGroup.POST("/workspaces/:workspace_id/documents/upload", parseH.Upload)
+	docGroup.POST("/workspaces/:workspace_id/documents/reparse", parseH.Reparse)
+	docGroup.GET("/documents/:id/parse-progress", parseH.ParseProgress)
+	docGroup.GET("/workspaces/:workspace_id/parse-configs", parseH.ListConfigs)
+	docGroup.POST("/workspaces/:workspace_id/parse-configs", parseH.CreateConfig)
+	docGroup.PUT("/workspaces/:workspace_id/parse-configs/:cid", parseH.UpdateConfig)
+	docGroup.DELETE("/workspaces/:workspace_id/parse-configs/:cid", parseH.DeleteConfig)
+	previewLimit := ratelimit.New(120)
+	previewGroup := authed.Group("")
+	previewGroup.Use(wh.RateLimitMiddleware(previewLimit))
+	previewGroup.POST("/rag/chunk-preview", parseH.ChunkPreview)
 
 	searchGroup := authed.Group("")
 	searchGroup.Use(wh.RateLimitMiddleware(searchLimit))
@@ -308,4 +356,55 @@ func newRedisClient(url string) *redis.Client {
 		return redis.NewClient(opts)
 	}
 	return redis.NewClient(&redis.Options{Addr: url})
+}
+
+// parseConfigStoreAdapter bridges *pg.ParseConfigStore (concrete infra) to the
+// service.ParseConfigStore port. The mora-api main owns this glue so the
+// service layer never imports infra/pg directly (avoids a layering cycle).
+type parseConfigStoreAdapter struct{ store *pg.ParseConfigStore }
+
+func (a parseConfigStoreAdapter) List(ctx context.Context, workspaceID string) ([]service.ParseConfig, error) {
+	cfgs, err := a.store.List(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.ParseConfig, len(cfgs))
+	for i, c := range cfgs {
+		out[i] = service.ParseConfig{ID: c.ID, WorkspaceID: c.WorkspaceID, Name: c.Name, Config: c.Config, IsDefault: c.IsDefault}
+	}
+	return out, nil
+}
+func (a parseConfigStoreAdapter) Get(ctx context.Context, id string) (service.ParseConfig, error) {
+	c, err := a.store.Get(ctx, id)
+	if err != nil {
+		return service.ParseConfig{}, err
+	}
+	return service.ParseConfig{ID: c.ID, WorkspaceID: c.WorkspaceID, Name: c.Name, Config: c.Config, IsDefault: c.IsDefault}, nil
+}
+func (a parseConfigStoreAdapter) Create(ctx context.Context, c service.ParseConfig) (service.ParseConfig, error) {
+	out, err := a.store.Create(ctx, pg.ParseConfig{Name: c.Name, Config: c.Config, IsDefault: c.IsDefault, WorkspaceID: c.WorkspaceID})
+	if err != nil {
+		return service.ParseConfig{}, err
+	}
+	return service.ParseConfig{ID: out.ID, WorkspaceID: out.WorkspaceID, Name: out.Name, Config: out.Config, IsDefault: out.IsDefault}, nil
+}
+func (a parseConfigStoreAdapter) Update(ctx context.Context, id string, c service.ParseConfig) (service.ParseConfig, error) {
+	out, err := a.store.Update(ctx, id, pg.ParseConfig{Name: c.Name, Config: c.Config, IsDefault: c.IsDefault})
+	if err != nil {
+		return service.ParseConfig{}, err
+	}
+	return service.ParseConfig{ID: out.ID, WorkspaceID: out.WorkspaceID, Name: out.Name, Config: out.Config, IsDefault: out.IsDefault}, nil
+}
+func (a parseConfigStoreAdapter) Delete(ctx context.Context, id string) error {
+	return a.store.Delete(ctx, id)
+}
+
+// noopParseQueue is the fallback parse queue when no Valkey is configured
+// (unit tests, single-node without RAG). It records events in-memory so the
+// upload path still returns 202 without crashing.
+type noopParseQueue struct{ events []service.ParseEvent }
+
+func (q *noopParseQueue) PublishParse(ctx context.Context, ev service.ParseEvent) error {
+	q.events = append(q.events, ev)
+	return nil
 }
