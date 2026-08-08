@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react"
-import { BookOpen, Search, Shield, Clock, PanelLeftClose, PanelLeft, Menu, LogOut } from "lucide-react"
+import { BookOpen, Search, Shield, Clock, PanelLeftClose, Menu, LogOut, Upload, Gauge, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { DirectoryTree } from "@/components/tree/DirectoryTree"
 import { BlockEditor } from "@/components/editor/BlockEditor"
 import { SearchPanel } from "@/components/search/SearchPanel"
@@ -12,17 +12,21 @@ import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
 import { ThemeToggle } from "@/components/mora/ThemeToggle"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
+import { ParseHost } from "@/components/parse/ParseHost"
+import { ParseMonitoringPanel } from "@/components/parse/ParseMonitoringPanel"
 import { useMoraStore } from "@/stores/mora"
+import { useParseStore } from "@/stores/parse"
 import { useCollabStore } from "@/stores/collab"
 import { useAuthStore } from "@/stores/auth"
 
 type SidePanel = "tree" | "search" | "rbac" | "history"
 
-export function MoraLayout() {
+export function MoraLayout({ children }: { children?: React.ReactNode }) {
   const {
     currentWorkspace, workspaces, currentDocument, isLoading, error,
     loadWorkspaces, setWorkspace, selectNode,
   } = useMoraStore()
+  const { setUploadOpen, setMonitoringOpen, monitoringOpen } = useParseStore()
   const [activePanel, setActivePanel] = useState<SidePanel>("tree")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
@@ -145,6 +149,28 @@ export function MoraLayout() {
           ))}
         </div>
 
+        {/* Parse entry points — upload + monitoring, aligned with the tree panel (UI spec §2.1). */}
+        {activePanel === "tree" && (
+          <div className="flex items-center gap-1 border-b px-2 py-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => setUploadOpen(true)}>
+                  <Upload className="size-3.5" /> 上传并解析
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>上传文档并解析</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-7" onClick={() => setMonitoringOpen(true)} aria-label="解析监控">
+                  <Gauge className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>解析监控</TooltipContent>
+            </Tooltip>
+          </div>
+        )}
+
         <div className="flex-1 overflow-hidden">
           {panelContent[activePanel]}
         </div>
@@ -161,7 +187,22 @@ export function MoraLayout() {
             </div>
           )}
 
-          {isLoading && !currentDocument ? (
+          {children ? (
+            <div className="flex-1 overflow-hidden">{children}</div>
+          ) : monitoringOpen ? (
+            <div className="relative flex-1 overflow-hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-3 top-3 z-10 size-7"
+                onClick={() => setMonitoringOpen(false)}
+                aria-label="关闭监控"
+              >
+                <X className="size-4" />
+              </Button>
+              <ParseMonitoringPanel />
+            </div>
+          ) : isLoading && !currentDocument ? (
             <div className="flex items-center justify-center flex-1">
               <div className="text-center">
                 <div className="size-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
@@ -193,6 +234,10 @@ export function MoraLayout() {
           )}
         </div>
       </main>
+
+      {/* Parse overlays — upload dialog, progress drawer, batch reparse dialog. */}
+      <ParseHost />
     </div>
   )
 }
+
