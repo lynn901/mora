@@ -21,21 +21,21 @@ func NewDocumentStore(pool *pgxpool.Pool) *DocumentStore { return &DocumentStore
 func (s *DocumentStore) GetSnapshot(ctx context.Context, docID string, version int) (rag.DocumentSnapshot, error) {
 	var snap rag.DocumentSnapshot
 	var content []byte
-	var contentText, directoryID *string
+	var contentText, directoryID, storageKey, sourceFormat *string
 	if version > 0 {
 		err := s.Pool.QueryRow(ctx, `
-            SELECT d.id, d.workspace_id, d.directory_id, d.title, v.content, v.content_text, d.format, v.version_no, d.status
+            SELECT d.id, d.workspace_id, d.directory_id, d.title, v.content, v.content_text, d.format, v.version_no, d.status, d.storage_key, d.source_format
             FROM documents d JOIN document_versions v ON v.document_id = d.id
             WHERE d.id=$1 AND v.version_no=$2`, docID, version).
-			Scan(&snap.DocumentID, &snap.WorkspaceID, &directoryID, &snap.Title, &content, &contentText, &snap.Format, &snap.VersionNo, &snap.Status)
+			Scan(&snap.DocumentID, &snap.WorkspaceID, &directoryID, &snap.Title, &content, &contentText, &snap.Format, &snap.VersionNo, &snap.Status, &storageKey, &sourceFormat)
 		if err != nil {
 			return snap, fmt.Errorf("get snapshot v%d: %w", version, err)
 		}
 	} else {
 		err := s.Pool.QueryRow(ctx, `
-            SELECT id, workspace_id, directory_id, title, content, content_text, format, 1, status
+            SELECT id, workspace_id, directory_id, title, content, content_text, format, 1, status, storage_key, source_format
             FROM documents WHERE id=$1`, docID).
-			Scan(&snap.DocumentID, &snap.WorkspaceID, &directoryID, &snap.Title, &content, &contentText, &snap.Format, &snap.VersionNo, &snap.Status)
+			Scan(&snap.DocumentID, &snap.WorkspaceID, &directoryID, &snap.Title, &content, &contentText, &snap.Format, &snap.VersionNo, &snap.Status, &storageKey, &sourceFormat)
 		if err != nil {
 			return snap, fmt.Errorf("get snapshot: %w", err)
 		}
@@ -46,6 +46,12 @@ func (s *DocumentStore) GetSnapshot(ctx context.Context, docID string, version i
 	}
 	if directoryID != nil {
 		snap.DirectoryID = *directoryID
+	}
+	if storageKey != nil {
+		snap.StorageKey = *storageKey
+	}
+	if sourceFormat != nil {
+		snap.SourceFormat = *sourceFormat
 	}
 	// tags
 	rows, _ := s.Pool.Query(ctx, `SELECT t.name FROM document_tags dt JOIN tags t ON t.id=dt.tag_id WHERE dt.document_id=$1`, docID)

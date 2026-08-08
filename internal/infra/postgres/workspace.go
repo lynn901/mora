@@ -208,20 +208,25 @@ func scanDocument(row pgx.Row) (*domain.Document, error) {
 	var content []byte
 	var dirID *domain.UUID
 	var updatedBy *domain.UUID
+	var storageKey *string
 	err := row.Scan(&d.ID, &d.WorkspaceID, &dirID, &d.Title, &content, &d.ContentText, &d.Format,
-		&d.Status, &d.IndexStatus, &d.VersionNo, &d.CreatedBy, &updatedBy, &d.CreatedAt, &d.UpdatedAt)
+		&d.Status, &d.IndexStatus, &d.VersionNo, &d.CreatedBy, &updatedBy, &d.CreatedAt, &d.UpdatedAt,
+		&storageKey, &d.SourceFormat, &d.ParseStatus)
 	if err != nil {
 		return nil, err
 	}
 	d.DirectoryID = dirID
 	d.UpdatedBy = updatedBy
+	if storageKey != nil {
+		d.StorageKey = *storageKey
+	}
 	if len(content) > 0 {
 		_ = json.Unmarshal(content, &d.Content)
 	}
 	return d, nil
 }
 
-const docCols = `id, workspace_id, directory_id, title, content, content_text, format, status, index_status, version_no, created_by, updated_by, created_at, updated_at`
+const docCols = `id, workspace_id, directory_id, title, content, content_text, format, status, index_status, version_no, created_by, updated_by, created_at, updated_at, storage_key, source_format, parse_status`
 
 var _ pagination.Params
 

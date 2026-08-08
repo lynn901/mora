@@ -47,14 +47,14 @@ type Workspace struct {
 }
 
 type Directory struct {
-	ID          UUID      `json:"id"`
-	WorkspaceID UUID      `json:"workspace_id"`
-	ParentID    *UUID     `json:"parent_id,omitempty"`
-	Name        string    `json:"name"`
-	Path        string    `json:"path"`
-	SortOrder   int       `json:"sort_order"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          UUID         `json:"id"`
+	WorkspaceID UUID         `json:"workspace_id"`
+	ParentID    *UUID        `json:"parent_id,omitempty"`
+	Name        string       `json:"name"`
+	Path        string       `json:"path"`
+	SortOrder   int          `json:"sort_order"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
 	Children    []*Directory `json:"children,omitempty"`
 }
 
@@ -84,21 +84,26 @@ const (
 )
 
 type Document struct {
-	ID           UUID            `json:"id"`
-	WorkspaceID  UUID            `json:"workspace_id"`
-	DirectoryID  *UUID           `json:"directory_id,omitempty"`
-	Title        string          `json:"title"`
-	Content      []Block         `json:"content"`
-	ContentText  string          `json:"-"`
-	Format       DocumentFormat  `json:"format"`
-	Status       DocumentStatus  `json:"status"`
-	IndexStatus  IndexStatus     `json:"index_status"`
-	VersionNo    int             `json:"version_no"`
-	Tags         []UUID          `json:"tags,omitempty"`
-	CreatedBy    UUID            `json:"created_by"`
-	UpdatedBy    *UUID           `json:"updated_by,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	ID          UUID           `json:"id"`
+	WorkspaceID UUID           `json:"workspace_id"`
+	DirectoryID *UUID          `json:"directory_id,omitempty"`
+	Title       string         `json:"title"`
+	Content     []Block        `json:"content"`
+	ContentText string         `json:"-"`
+	Format      DocumentFormat `json:"format"`
+	Status      DocumentStatus `json:"status"`
+	IndexStatus IndexStatus    `json:"index_status"`
+	VersionNo   int            `json:"version_no"`
+	Tags        []UUID         `json:"tags,omitempty"`
+	CreatedBy   UUID           `json:"created_by"`
+	UpdatedBy   *UUID          `json:"updated_by,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	// Document-parsing domain (10 §4.2.2). Populated by the upload path; the
+	// parse worker fills content/content_text from a parsed file.
+	StorageKey   string      `json:"storage_key,omitempty"`   // 上传原文件对象存储 key
+	SourceFormat string      `json:"source_format,omitempty"` // txt/md/html/pdf/docx/...
+	ParseStatus  ParseStatus `json:"parse_status,omitempty"`  // pending/parsing/parsed/failed/skipped
 }
 
 type DocumentVersion struct {
