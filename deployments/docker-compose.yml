@@ -274,7 +274,6 @@ services:
       DATABASE_URL: "postgres://mora:${POSTGRES_PASSWORD:-mora}@postgres:5432/mora?sslmode=disable"
       VALKEY_URL: "valkey:6379"
       MORA_API_URL: "http://mora-api:8080"
-      WIKI_API_URL: "http://mora-api:8080"   # 别名：config.go 读取 WIKI_API_URL（YS-48 迁移遗留），与 MORA_API_URL 同值
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-mora-internal-token}"
       MCP_RATE_LIMIT_READ: "100"
       MCP_RATE_LIMIT_WRITE: "20"
