@@ -59,6 +59,31 @@ func TestChunk_DoesNotCutSentencesAndRespectsMaxSize(t *testing.T) {
 	}
 }
 
+func TestChunk_LongSentenceBetweenChunkSizeAndMaxIsSplit(t *testing.T) {
+	// Regression (YS-82): a single terminator-less sentence that is longer
+	// than chunk_size but shorter than max_chunk_size must still be hard-split.
+	// Previously the threshold was `>= maxSize`, so such a sentence slipped
+	// through and collapsed the whole body into one oversized chunk — the
+	// chunk-preview API then ignored chunk_size for long inputs.
+	long := strings.Repeat("word ", 500) // 500 tokens, no sentence terminators
+	cfg := Config{ChunkSize: 64, ChunkOverlap: 8, MaxChunkSize: 1024}
+	chunks := Chunk(long, cfg, NewWordTokenizer())
+	if len(chunks) <= 1 {
+		t.Fatalf("expected multiple chunks for 500-token text at chunk_size=64, got %d", len(chunks))
+	}
+	for _, c := range chunks {
+		// every chunk must respect chunk_size (overlap can carry a little, but
+		// hardSplitWords emits groups of exactly chunk_size words; allow +1
+		// for the tokenizer rounding a trailing space).
+		if c.TokenCount > cfg.ChunkSize+1 {
+			t.Errorf("chunk %d tokens %d exceeds chunk_size %d", c.ChunkIndex, c.TokenCount, cfg.ChunkSize)
+		}
+		if c.TokenCount > cfg.MaxChunkSize {
+			t.Errorf("chunk %d tokens %d exceeds max %d", c.ChunkIndex, c.TokenCount, cfg.MaxChunkSize)
+		}
+	}
+}
+
 func TestChunk_OverlapKeepsContext(t *testing.T) {
 	// sentences separated by periods, total > chunkSize → overlap carries tail
 	var parts []string
