@@ -384,7 +384,10 @@ func headingLevel(line string) (int, string) {
 }
 
 // chunkSection splits one section body into chunk-sized pieces with overlap,
-// never cutting inside a sentence.
+// never cutting inside a sentence. maxSize is the absolute chunk ceiling
+// (Config.MaxChunkSize); it is honored because every emitted chunk is bounded
+// by chunkSize (accumulated sentences flush at chunkSize; hardSplitWords emits
+// chunkSize-sized groups) and callers guarantee maxSize >= chunkSize.
 func chunkSection(body string, chunkSize, overlap, maxSize int, _ bool, tok Tokenizer) []string {
 	body = strings.TrimSpace(body)
 	if body == "" {
@@ -400,8 +403,15 @@ func chunkSection(body string, chunkSize, overlap, maxSize int, _ bool, tok Toke
 	for i := 0; i < len(sents); i++ {
 		s := sents[i]
 		st := tok.Count(s)
-		if st >= maxSize {
-			// single sentence longer than max: hard-split by words
+		// A single sentence that on its own reaches or exceeds chunk_size can
+		// never fit inside a chunk (05 §3.3: a section over chunk_size is split
+		// in-place). Flush any accumulated sentences first so the long one
+		// doesn't bleed across the boundary, then hard-split it into
+		// chunk_size-sized word groups with overlap. The earlier `>= maxSize`
+		// guard fired only when a sentence exceeded MaxChunkSize (default 1024),
+		// so a 500-word, terminator-less sentence with chunk_size=64 slipped
+		// through and collapsed the whole body into one oversized chunk (YS-82).
+		if st >= chunkSize {
 			if curTokens > 0 {
 				chunks = append(chunks, strings.Join(cur, " "))
 				cur, curTokens = cur[:0], 0
