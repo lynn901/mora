@@ -86,9 +86,9 @@ migrations/008_mcp.*.sql # api_tokens, mcp_sessions, mcp_tool_calls
 MCP_USE_MOCK=1 ./mcp-server
 # → listens on :8081, prints a dev token to stderr
 
-# Production (real Wiki API + Postgres + Valkey)
+# Production (real Mora API + Postgres + Valkey)
 DATABASE_URL=postgres://... VALKEY_URL=valkey:6379 \
-  WIKI_API_URL=http://wiki-api:8080 INTERNAL_SERVICE_TOKEN=... \
+  MORA_API_URL=http://mora-api:8080 INTERNAL_SERVICE_TOKEN=... \
   ./mcp-server
 
 # stdio transport (local CLI/IDE Agent)

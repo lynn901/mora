@@ -218,9 +218,9 @@ services:
   mcp-server:
     image: mcp-server:latest
     ports: ["8081:8081"]
-    depends_on: [wiki-api]
+    depends_on: [mora-api]
     environment:
-      - WIKI_API_URL=http://wiki-api:8080
+      - MORA_API_URL=http://mora-api:8080
 
   rag-worker:
     image: rag-worker:latest
@@ -534,7 +534,7 @@ EMBEDDING_DIM=1024
 # MCP
 MCP_TRANSPORT=http_sse
 MCP_PORT=8081
-WIKI_API_URL=http://wiki-api:8080
+MORA_API_URL=http://mora-api:8080
 INTERNAL_SERVICE_TOKEN=***
 
 # 安全
