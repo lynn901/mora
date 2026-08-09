@@ -432,6 +432,8 @@ docker compose -f deployments/docker-compose.yml -p mora down -v
 6. `06-mcp-server-design.md` — MCP Server 设计
 7. `07-security-observability.md` — 安全与可观测设计
 8. `09-design-system.md` — 设计系统
+9. `10-document-parsing-design.md` — 多格式文档解析设计
+10. `11-human-agent-knowledge-blueprint.md` — 人与 Agent 统一知识蓝图
 
 ## 安全
 
