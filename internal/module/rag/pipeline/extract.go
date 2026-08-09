@@ -21,7 +21,7 @@ type ExtractResult struct {
 //
 // Block types handled (per 05 §3.2): heading/paragraph → text; codeBlock → code
 // (marked `code:`); chart/canvas → mermaid source / description; decorative
-// blocks are skipped. Attachments (PDF/Docx) are extracted upstream by YS-6 and
+// blocks are skipped. Attachments are extracted upstream and
 // passed in via DocumentSnapshot.ContentText; this function only parses blocks.
 func ExtractText(blockJSON []byte) ExtractResult {
 	if len(blockJSON) == 0 {

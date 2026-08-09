@@ -1,7 +1,6 @@
 // Package ragtest provides in-memory fakes for every RAG port, so the pipeline,
 // search engine, worker and handlers can be fully exercised without Qdrant,
-// Valkey, PostgreSQL or TEI. These are the "mock-first" stand-ins until YS-6
-// supplies concrete repositories and infra supplies real clients.
+// Valkey, PostgreSQL, or TEI.
 package ragtest
 
 import (

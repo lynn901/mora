@@ -4,7 +4,7 @@
 --
 -- PUT /collections/{collection_name}
 -- collection_name = mora_chunks_{provider}_{model_slug}_{dim}   例: mora_chunks_tei_qwen3_embedding_1024
--- 前缀默认 mora_chunks_，可通过环境变量 RAG_COLLECTION_PREFIX 覆盖（brand-naming-spec §4-F / YS-49）。
+-- 前缀默认 mora_chunks_，可通过环境变量 RAG_COLLECTION_PREFIX 覆盖。
 --
 -- 维度变更必须新建 Collection，禁止混维度查询（一模型一 Collection）。
 -- 模型切换：新模型建新 Collection → 存量重建双写 → 灰度切换查询指向 → 下线旧 Collection。

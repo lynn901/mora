@@ -37,15 +37,15 @@ func TestParseURI(t *testing.T) {
 		id    string
 		valid bool
 	}{
-		{"wiki://workspaces", "workspaces", "", true},
-		{"wiki://workspaces/ws-1/tree", "tree", "ws-1", true},
-		{"wiki://workspaces/ws-1/tags", "tags", "ws-1", true},
-		{"wiki://documents/doc-1/meta", "meta", "doc-1", true},
-		{"wiki://documents/doc-1/versions", "versions", "doc-1", true},
-		{"wiki://unknown", "", "", false},
+		{"mora://workspaces", "workspaces", "", true},
+		{"mora://workspaces/ws-1/tree", "tree", "ws-1", true},
+		{"mora://workspaces/ws-1/tags", "tags", "ws-1", true},
+		{"mora://documents/doc-1/meta", "meta", "doc-1", true},
+		{"mora://documents/doc-1/versions", "versions", "doc-1", true},
+		{"mora://unknown", "", "", false},
 		{"http://nope", "", "", false},
-		{"wiki://workspaces/ws-1", "", "", false},
-		{"wiki://documents/doc-1", "", "", false},
+		{"mora://workspaces/ws-1", "", "", false},
+		{"mora://documents/doc-1", "", "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.uri, func(t *testing.T) {
@@ -69,14 +69,14 @@ func TestListResources(t *testing.T) {
 	for i, d := range defs {
 		uris[i] = d.URI
 	}
-	assert.Contains(t, uris, "wiki://workspaces")
-	assert.Contains(t, uris, "wiki://workspaces/"+rwsEng+"/tree")
-	assert.Contains(t, uris, "wiki://workspaces/"+rwsEng+"/tags")
+	assert.Contains(t, uris, "mora://workspaces")
+	assert.Contains(t, uris, "mora://workspaces/"+rwsEng+"/tree")
+	assert.Contains(t, uris, "mora://workspaces/"+rwsEng+"/tags")
 }
 
 func TestReadWorkspaces(t *testing.T) {
 	reg, ac := newResRegistry(t)
-	res, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "wiki://workspaces")
+	res, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "mora://workspaces")
 	require.NoError(t, err)
 	require.Len(t, res.Contents, 1)
 	assert.Contains(t, res.Contents[0].Text, rwsEng)
@@ -84,7 +84,7 @@ func TestReadWorkspaces(t *testing.T) {
 
 func TestReadDocumentMeta(t *testing.T) {
 	reg, ac := newResRegistry(t)
-	res, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "wiki://documents/"+rdocAPI+"/meta")
+	res, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "mora://documents/"+rdocAPI+"/meta")
 	require.NoError(t, err)
 	require.Len(t, res.Contents, 1)
 	assert.Contains(t, res.Contents[0].Text, rdocAPI)
@@ -92,7 +92,7 @@ func TestReadDocumentMeta(t *testing.T) {
 
 func TestReadVersions(t *testing.T) {
 	reg, ac := newResRegistry(t)
-	res, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "wiki://documents/"+rdocAPI+"/versions")
+	res, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "mora://documents/"+rdocAPI+"/versions")
 	require.NoError(t, err)
 	require.Len(t, res.Contents, 1)
 	assert.Contains(t, res.Contents[0].Text, "version_no")
@@ -100,7 +100,7 @@ func TestReadVersions(t *testing.T) {
 
 func TestReadTree(t *testing.T) {
 	reg, ac := newResRegistry(t)
-	res, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "wiki://workspaces/"+rwsEng+"/tree")
+	res, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "mora://workspaces/"+rwsEng+"/tree")
 	require.NoError(t, err)
 	require.Len(t, res.Contents, 1)
 }
@@ -112,13 +112,13 @@ func TestReadNoPermissionReturnsNotFound(t *testing.T) {
 		TokenID: "tok-x", IdentityType: rbac.IdentityUser, IdentityID: "user-nobody",
 		Scope: rbac.ScopeReadOnly,
 	}
-	_, err := reg.Read(auth.WithAuthContext(context.Background(), other), "wiki://documents/"+rdocAPI+"/meta")
+	_, err := reg.Read(auth.WithAuthContext(context.Background(), other), "mora://documents/"+rdocAPI+"/meta")
 	assert.ErrorIs(t, err, domainerr.ErrNotFound, "no-permission read must surface as not-found (server collapses to empty)")
 }
 
 func TestReadUnknownURI(t *testing.T) {
 	reg, ac := newResRegistry(t)
-	_, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "wiki://bogus/thing")
+	_, err := reg.Read(auth.WithAuthContext(context.Background(), ac), "mora://bogus/thing")
 	assert.ErrorIs(t, err, domainerr.ErrNotFound)
 }
 

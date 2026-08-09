@@ -15,9 +15,25 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle"
 import {
-  Bold, Italic, Underline as UnderlineIcon, Strikethrough, Code, CodeSquare,
-  Heading1, Heading2, Heading3, List, ListOrdered, ListChecks,
-  Quote, AlignLeft, AlignCenter, AlignRight, Undo, Redo, Save
+  Bold,
+  Italic,
+  Underline as UnderlineIcon,
+  Strikethrough,
+  Code,
+  CodeSquare,
+  Heading1,
+  Heading2,
+  Heading3,
+  List,
+  ListOrdered,
+  ListChecks,
+  Quote,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Undo,
+  Redo,
+  Save,
 } from "lucide-react"
 import { useMoraStore } from "@/stores/mora"
 import { useCollabStore } from "@/stores/collab"
@@ -54,7 +70,14 @@ function renderSelection(user: Record<string, unknown>) {
 }
 
 export function BlockEditor() {
-  const { currentDocument, editorMode, setEditorMode, updateDocument, isDirty, saveDocument } = useMoraStore()
+  const {
+    currentDocument,
+    editorMode,
+    setEditorMode,
+    updateDocument,
+    isDirty,
+    saveDocument,
+  } = useMoraStore()
   const { provider, localMode, isReadOnly } = useCollabStore()
   const initRef = useRef<string | null>(null)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -100,7 +123,10 @@ export function BlockEditor() {
     ],
     editable: !isReadOnly,
     editorProps: {
-      attributes: { class: "prose prose-sm dark:prose-invert max-w-[760px] mx-auto focus:outline-none min-h-[300px] px-8 py-6 text-[16px] leading-[28px]" },
+      attributes: {
+        class:
+          "prose prose-sm dark:prose-invert max-w-[760px] mx-auto focus:outline-none min-h-[300px] px-8 py-6 text-[16px] leading-[28px]",
+      },
     },
   })
 
@@ -110,14 +136,17 @@ export function BlockEditor() {
     }
   }, [editor, isReadOnly])
 
+  const currentDocumentId = currentDocument?.id
+  const currentDocumentContent = currentDocument?.content
+
   useEffect(() => {
-    if (editor && currentDocument && !useCollab) {
-      if (initRef.current !== currentDocument.id) {
-        initRef.current = currentDocument.id
-        editor.commands.setContent(currentDocument.content || "")
+    if (editor && currentDocumentId && !useCollab) {
+      if (initRef.current !== currentDocumentId) {
+        initRef.current = currentDocumentId
+        editor.commands.setContent(currentDocumentContent || "")
       }
     }
-  }, [editor, currentDocument?.id, currentDocument?.content, useCollab])
+  }, [editor, currentDocumentId, currentDocumentContent, useCollab])
 
   useEffect(() => {
     return () => {
@@ -137,7 +166,7 @@ export function BlockEditor() {
     return () => {
       editor.off("update", handler)
     }
-  }, [editor, editorMode, isReadOnly])
+  }, [editor, editorMode, isReadOnly, updateDocument])
 
   const scheduleAutoSave = useCallback(() => {
     if (autoSaveTimerRef.current) {
@@ -169,22 +198,47 @@ export function BlockEditor() {
   if (!editor) return null
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 px-4 py-2 border-b overflow-x-auto">
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-1 overflow-x-auto border-b px-4 py-2">
         <ToggleGroup type="multiple" className="gap-0">
-          <ToggleGroupItem value="bold" aria-label="Bold" onClick={() => editor.chain().focus().toggleBold().run()} data-state={editor.isActive("bold") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="bold"
+            aria-label="Bold"
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            data-state={editor.isActive("bold") ? "on" : "off"}
+          >
             <Bold className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="italic" aria-label="Italic" onClick={() => editor.chain().focus().toggleItalic().run()} data-state={editor.isActive("italic") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="italic"
+            aria-label="Italic"
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            data-state={editor.isActive("italic") ? "on" : "off"}
+          >
             <Italic className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="underline" aria-label="Underline" onClick={() => editor.chain().focus().toggleUnderline().run()} data-state={editor.isActive("underline") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="underline"
+            aria-label="Underline"
+            onClick={() => editor.chain().focus().toggleUnderline().run()}
+            data-state={editor.isActive("underline") ? "on" : "off"}
+          >
             <UnderlineIcon className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="strike" aria-label="Strikethrough" onClick={() => editor.chain().focus().toggleStrike().run()} data-state={editor.isActive("strike") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="strike"
+            aria-label="Strikethrough"
+            onClick={() => editor.chain().focus().toggleStrike().run()}
+            data-state={editor.isActive("strike") ? "on" : "off"}
+          >
             <Strikethrough className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="code" aria-label="Inline code" onClick={() => editor.chain().focus().toggleCode().run()} data-state={editor.isActive("code") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="code"
+            aria-label="Inline code"
+            onClick={() => editor.chain().focus().toggleCode().run()}
+            data-state={editor.isActive("code") ? "on" : "off"}
+          >
             <Code className="size-4" />
           </ToggleGroupItem>
         </ToggleGroup>
@@ -192,13 +246,34 @@ export function BlockEditor() {
         <Separator orientation="vertical" className="mx-1 h-6" />
 
         <ToggleGroup type="single" className="gap-0">
-          <ToggleGroupItem value="h1" aria-label="Heading 1" onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} data-state={editor.isActive("heading", { level: 1 }) ? "on" : "off"}>
+          <ToggleGroupItem
+            value="h1"
+            aria-label="Heading 1"
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 1 }).run()
+            }
+            data-state={editor.isActive("heading", { level: 1 }) ? "on" : "off"}
+          >
             <Heading1 className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="h2" aria-label="Heading 2" onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} data-state={editor.isActive("heading", { level: 2 }) ? "on" : "off"}>
+          <ToggleGroupItem
+            value="h2"
+            aria-label="Heading 2"
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 2 }).run()
+            }
+            data-state={editor.isActive("heading", { level: 2 }) ? "on" : "off"}
+          >
             <Heading2 className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="h3" aria-label="Heading 3" onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} data-state={editor.isActive("heading", { level: 3 }) ? "on" : "off"}>
+          <ToggleGroupItem
+            value="h3"
+            aria-label="Heading 3"
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 3 }).run()
+            }
+            data-state={editor.isActive("heading", { level: 3 }) ? "on" : "off"}
+          >
             <Heading3 className="size-4" />
           </ToggleGroupItem>
         </ToggleGroup>
@@ -206,19 +281,44 @@ export function BlockEditor() {
         <Separator orientation="vertical" className="mx-1 h-6" />
 
         <ToggleGroup type="multiple" className="gap-0">
-          <ToggleGroupItem value="bullet" aria-label="Bullet list" onClick={() => editor.chain().focus().toggleBulletList().run()} data-state={editor.isActive("bulletList") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="bullet"
+            aria-label="Bullet list"
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            data-state={editor.isActive("bulletList") ? "on" : "off"}
+          >
             <List className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="ordered" aria-label="Ordered list" onClick={() => editor.chain().focus().toggleOrderedList().run()} data-state={editor.isActive("orderedList") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="ordered"
+            aria-label="Ordered list"
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            data-state={editor.isActive("orderedList") ? "on" : "off"}
+          >
             <ListOrdered className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="task" aria-label="Task list" onClick={() => editor.chain().focus().toggleTaskList().run()} data-state={editor.isActive("taskList") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="task"
+            aria-label="Task list"
+            onClick={() => editor.chain().focus().toggleTaskList().run()}
+            data-state={editor.isActive("taskList") ? "on" : "off"}
+          >
             <ListChecks className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="codeblock" aria-label="Code block" onClick={() => editor.chain().focus().toggleCodeBlock().run()} data-state={editor.isActive("codeBlock") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="codeblock"
+            aria-label="Code block"
+            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+            data-state={editor.isActive("codeBlock") ? "on" : "off"}
+          >
             <CodeSquare className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="quote" aria-label="Blockquote" onClick={() => editor.chain().focus().toggleBlockquote().run()} data-state={editor.isActive("blockquote") ? "on" : "off"}>
+          <ToggleGroupItem
+            value="quote"
+            aria-label="Blockquote"
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            data-state={editor.isActive("blockquote") ? "on" : "off"}
+          >
             <Quote className="size-4" />
           </ToggleGroupItem>
         </ToggleGroup>
@@ -226,41 +326,87 @@ export function BlockEditor() {
         <Separator orientation="vertical" className="mx-1 h-6" />
 
         <ToggleGroup type="single" className="gap-0">
-          <ToggleGroupItem value="left" aria-label="Align left" onClick={() => editor.chain().focus().setTextAlign("left").run()} data-state={editor.isActive({ textAlign: "left" }) ? "on" : "off"}>
+          <ToggleGroupItem
+            value="left"
+            aria-label="Align left"
+            onClick={() => editor.chain().focus().setTextAlign("left").run()}
+            data-state={editor.isActive({ textAlign: "left" }) ? "on" : "off"}
+          >
             <AlignLeft className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="center" aria-label="Align center" onClick={() => editor.chain().focus().setTextAlign("center").run()} data-state={editor.isActive({ textAlign: "center" }) ? "on" : "off"}>
+          <ToggleGroupItem
+            value="center"
+            aria-label="Align center"
+            onClick={() => editor.chain().focus().setTextAlign("center").run()}
+            data-state={editor.isActive({ textAlign: "center" }) ? "on" : "off"}
+          >
             <AlignCenter className="size-4" />
           </ToggleGroupItem>
-          <ToggleGroupItem value="right" aria-label="Align right" onClick={() => editor.chain().focus().setTextAlign("right").run()} data-state={editor.isActive({ textAlign: "right" }) ? "on" : "off"}>
+          <ToggleGroupItem
+            value="right"
+            aria-label="Align right"
+            onClick={() => editor.chain().focus().setTextAlign("right").run()}
+            data-state={editor.isActive({ textAlign: "right" }) ? "on" : "off"}
+          >
             <AlignRight className="size-4" />
           </ToggleGroupItem>
         </ToggleGroup>
 
         <Separator orientation="vertical" className="mx-1 h-6" />
 
-        <Button variant="ghost" size="icon" className="size-8" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} aria-label="Undo">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          onClick={() => editor.chain().focus().undo().run()}
+          disabled={!editor.can().undo()}
+          aria-label="Undo"
+        >
           <Undo className="size-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-8" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} aria-label="Redo">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          onClick={() => editor.chain().focus().redo().run()}
+          disabled={!editor.can().redo()}
+          aria-label="Redo"
+        >
           <Redo className="size-4" />
         </Button>
 
         <div className="ml-auto flex items-center gap-2">
-          <ToggleGroup type="single" value={editorMode} onValueChange={(v: string) => v && setEditorMode(v as "wysiwyg" | "markdown")}>
+          <ToggleGroup
+            type="single"
+            value={editorMode}
+            onValueChange={(v: string) =>
+              v && setEditorMode(v as "wysiwyg" | "markdown")
+            }
+          >
             <ToggleGroupItem value="wysiwyg">WYSIWYG</ToggleGroupItem>
             <ToggleGroupItem value="markdown">Markdown</ToggleGroupItem>
           </ToggleGroup>
           {!isReadOnly && (
-            <Button variant="default" size="sm" className="h-7 px-3" onClick={handleSave} disabled={!isDirty} aria-label="保存文档">
-              <Save className="size-3.5 mr-1" />
+            <Button
+              variant="default"
+              size="sm"
+              className="h-7 px-3"
+              onClick={handleSave}
+              disabled={!isDirty}
+              aria-label="保存文档"
+            >
+              <Save className="mr-1 size-3.5" />
               Save
             </Button>
           )}
           {isReadOnly && (
-            <span className="text-xs text-warning font-medium">只读</span>
+            <span className="text-xs font-medium text-warning">只读</span>
           )}
-          {isDirty && !isReadOnly && <span className="text-xs text-muted-foreground">有未保存的改动</span>}
+          {isDirty && !isReadOnly && (
+            <span className="text-xs text-muted-foreground">
+              有未保存的改动
+            </span>
+          )}
         </div>
       </div>
 
@@ -269,7 +415,7 @@ export function BlockEditor() {
           <EditorContent editor={editor} />
         ) : (
           <textarea
-            className="w-full h-full min-h-[300px] p-6 font-mono text-sm bg-transparent resize-none focus:outline-none"
+            className="h-full min-h-[300px] w-full resize-none bg-transparent p-6 font-mono text-sm focus:outline-none"
             value={currentDocument?.content || ""}
             onChange={(e) => updateDocument({ content: e.target.value })}
             placeholder="使用 Markdown 书写…"

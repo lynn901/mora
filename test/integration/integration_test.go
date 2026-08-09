@@ -159,7 +159,7 @@ func (s *Suite) TestAC7_RBACInheritanceAndOverride() {
 		TargetType: domain.TargetDirectory, TargetID: root.ID, Effect: domain.EffectAllow,
 	}))
 
-	engine := rbac.NewEngine(postgres.NewRBACAdapter(s.perms, s.dirs))
+	engine := rbac.NewEngine(postgres.NewRBACAdapter(s.perms, s.dirs, s.docs))
 	dec, err := engine.Check(ctx, alice, nil, domain.TargetDocument, doc.ID, domain.ActionRead)
 	require.NoError(s.T(), err)
 	assert.True(s.T(), dec.Allowed, "alice should read doc via inherited root allow")
@@ -187,7 +187,7 @@ func (s *Suite) TestAC6_VersionDiffAndRollback() {
 	ws := s.seedWorkspace(owner, "ws-ver")
 
 	pub := event.NewNoopPublisher()
-	engine := rbac.NewEngine(postgres.NewRBACAdapter(s.perms, s.dirs))
+	engine := rbac.NewEngine(postgres.NewRBACAdapter(s.perms, s.dirs, s.docs))
 	docSvc := service.NewDocumentService(s.docs, s.vers, engine, pub)
 
 	auth := service.AuthContext{UserID: owner, IsAdmin: true}
@@ -242,7 +242,7 @@ func (s *Suite) TestAC8_SearchRBACFiltering() {
 		TargetType: domain.TargetDocument, TargetID: visibleDoc.ID, Effect: domain.EffectAllow,
 	}))
 
-	engine := rbac.NewEngine(postgres.NewRBACAdapter(s.perms, s.dirs))
+	engine := rbac.NewEngine(postgres.NewRBACAdapter(s.perms, s.dirs, s.docs))
 	vis, err := engine.VisibleDocuments(ctx, alice, nil, ws.ID)
 	require.NoError(s.T(), err)
 	assert.Contains(s.T(), vis, visibleDoc.ID)
@@ -379,6 +379,8 @@ func (s *Suite) TestParse_DocumentParsingMigrationAndStore() {
 		Config: map[string]any{"chunking_strategy": "adaptive_3tier"}, IsDefault: true,
 	})
 	require.NoError(t, err)
+	assert.Equal(t, "adaptive-default", cfg.Name)
+	assert.True(t, cfg.IsDefault)
 	listed, err := cfgStore.List(ctx, ws.ID.String())
 	require.NoError(t, err)
 	assert.NotEmpty(t, listed)

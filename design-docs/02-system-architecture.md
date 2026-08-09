@@ -112,9 +112,9 @@
 MVP 阶段采用**模块化单体**（Modular Monolith），而非微服务——降低私有化部署运维复杂度，同时保持模块边界清晰，未来可拆分为微服务。
 
 ```
-wiki-backend/
+mora-backend/
 ├── cmd/
-│   ├── wiki-api/          # Mora API 服务入口
+│   ├── mora-api/          # Mora API 服务入口
 │   ├── mcp-server/        # MCP Server 入口
 │   └── rag-worker/        # RAG Worker 入口
 ├── internal/
@@ -127,7 +127,7 @@ wiki-backend/
 │   │   ├── chunk.go
 │   │   └── ...
 │   ├── module/            # 业务模块（按 PRD 四大模块划分）
-│   │   ├── wiki/          # 模块一：协同 Mora
+│   │   ├── mora/          # 模块一：协同 Mora
 │   │   │   ├── handler/   # HTTP handler
 │   │   │   ├── service/   # 业务逻辑
 │   │   │   ├── repository/# 数据访问
@@ -175,7 +175,7 @@ wiki-backend/
          ┌───────────────┼───────────────┐
          │               │               │
     ┌────▼────┐    ┌─────▼─────┐   ┌────▼────┐
-    │  wiki   │    │   rag     │   │   mcp   │
+    │  mora   │    │   rag     │   │   mcp   │
     │ (模块一) │    │ (模块二)  │   │ (模块三) │
     └────┬────┘    └─────┬─────┘   └────┬────┘
          │               │               │
@@ -185,15 +185,15 @@ wiki-backend/
                 ▼                         │
            rag-worker                     │
                                         调用
-         mcp ─────────────────────────► wiki (REST)
+         mcp ─────────────────────────► mora (REST)
          mcp ─────────────────────────► rag/search (REST)
 ```
 
 **依赖规则**：
 - `platform` 模块为公共基础，被所有业务模块依赖，不反向依赖业务模块。
-- `wiki` 模块发布事件到 MQ，不直接调用 `rag`；`rag` 消费事件，单向依赖。
-- `mcp` 模块通过内部 REST 调用 `wiki` 与 `rag/search`，复用其能力，不重复实现业务逻辑。
-- RBAC 引擎位于 `platform/rbac`，`wiki`/`mcp`/`rag`（payload 过滤时）均调用同一权限决策接口。
+- `mora` 模块发布事件到 MQ，不直接调用 `rag`；`rag` 消费事件，单向依赖。
+- `mcp` 模块通过内部 REST 调用 `mora` 与 `rag/search`，复用其能力，不重复实现业务逻辑。
+- RBAC 引擎位于 `platform/rbac`，`mora`/`mcp`/`rag`（payload 过滤时）均调用同一权限决策接口。
 
 ---
 
@@ -204,8 +204,8 @@ wiki-backend/
 ```yaml
 # deployments/docker-compose.yml （结构示意，完整版在实现阶段产出）
 services:
-  wiki-api:        # Mora API + 协同 Hub（单容器）
-    image: wiki-api:latest
+  mora-api:        # Mora API + 协同 Hub（单容器）
+    image: mora-api:latest
     ports: ["8080:8080"]
     depends_on: [postgres, valkey, minio, qdrant]
     environment:
@@ -242,7 +242,7 @@ services:
   postgres:
     image: postgres:16
     volumes: ["pg_data:/var/lib/postgresql/data"]
-    environment: ["POSTGRES_DB=wiki", "POSTGRES_PASSWORD=..."]
+    environment: ["POSTGRES_DB=mora", "POSTGRES_PASSWORD=..."]
 
   qdrant:
     image: qdrant/qdrant:1.8
@@ -290,12 +290,12 @@ volumes:
 ┌─────────────────── K8s Cluster ───────────────────┐
 │                                                    │
 │  ┌─── Ingress (TLS 终止) ──────────────────────┐  │
-│  │  wiki.example.com → wiki-api Service         │  │
+│  │  mora.example.com → mora-api Service         │  │
 │  │  mcp.example.com  → mcp-server Service       │  │
 │  └──────────────────────────────────────────────┘  │
 │                                                    │
 │  ┌─── 应用层 (Deployment + HPA) ────────────────┐  │
-│  │  wiki-api    (replicas: 2-10, HPA on CPU)    │  │
+│  │  mora-api    (replicas: 2-10, HPA on CPU)    │  │
 │  │  mcp-server  (replicas: 2-6, HPA on CPU)    │  │
 │  │  rag-worker  (replicas: 2-8, HPA on 队列深度)│  │
 │  │  yjs-server  (replicas: 2, 粘性路由)         │  │
@@ -323,7 +323,7 @@ volumes:
 ```
 
 **K8s 部署要点**：
-- **Helm Chart**：`deployments/helm/wiki-platform/`，values.yaml 定制各环境配置。
+- **Helm Chart**：`deployments/helm/mora-platform/`，values.yaml 定制各环境配置。
 - **健康检查**：每个 Deployment 配置 livenessProbe（`/healthz`）+ readinessProbe（`/ready`）。
 - **优雅停机**：`terminationGracePeriodSeconds: 30`，Mora API 优雅关闭连接，RAG Worker 处理完当前消息后退出。
 - **滚动升级**：`strategy: RollingUpdate`，`maxSurge: 1`，`maxUnavailable: 0`。
@@ -541,7 +541,7 @@ INTERNAL_SERVICE_TOKEN=***
 JWT_SECRET=***
 TLS_CERT=/etc/tls/tls.crt
 TLS_KEY=/etc/tls/tls.key
-AUDIT_LOG_PATH=/var/log/wiki/audit.log
+AUDIT_LOG_PATH=/var/log/mora/audit.log
 
 # 可观测
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317

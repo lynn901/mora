@@ -10,8 +10,8 @@
 # 可选 P2 多模态解析 sidecar：`docker compose --profile parser up -d`
 #   （版式 PDF/OCR/VLM/ASR；启用后设 MORA_PARSER_URL=http://mora-parser:8000）。
 #
-# 联调种子（迁移 010）注入：管理员 admin@wiki.local/admin123、演示工作区、
-# 激活的 embedding 模型、MCP dev token(wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4)。
+# 联调迁移注入：管理员 admin@mora.local/admin123、演示工作区、
+# 激活的 embedding 模型、MCP dev token(mora_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4)。
 #
 # 宿主端口冲突时用环境变量覆盖（无需改文件）：
 #   MORA_API_PORT=9000 MCP_SERVER_PORT=9001 docker compose up -d
@@ -277,7 +277,7 @@ services:
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-mora-internal-token}"
       MCP_RATE_LIMIT_READ: "100"
       MCP_RATE_LIMIT_WRITE: "20"
-      # 不设 MCP_USE_MOCK → prod 模式（PG token/session/audit + Valkey 限流 + HTTP WikiClient）
+      # 不设 MCP_USE_MOCK → prod 模式（PG token/session/audit + Valkey 限流 + HTTP MoraClient）
     healthcheck:
       test: ["CMD", "/app/healthcheck", "http://localhost:8081/mcp/health"]
       interval: 10s

@@ -347,7 +347,7 @@ CREATE TABLE api_tokens (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name          VARCHAR(255) NOT NULL,
     token_hash    VARCHAR(255) NOT NULL UNIQUE,     -- 存哈希，不存明文
-    prefix        VARCHAR(20) NOT NULL,             -- 明文前缀（展示用，如 wki_xxxx）
+    prefix        VARCHAR(20) NOT NULL,             -- 明文前缀（展示用，如 mora_xxxx）
     identity_type VARCHAR(20) NOT NULL,             -- user/service_account
     identity_id   UUID NOT NULL,                    -- users.id 或 service_accounts.id
     scope         VARCHAR(20) NOT NULL DEFAULT 'readonly',  -- readonly/readwrite/admin

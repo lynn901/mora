@@ -4,10 +4,8 @@
 //
 // Two implementations ship:
 //   - Mock: an in-memory Mora + RAG with embedded RBAC, used for tests and
-//     standalone development ("mock 先行" per YS-4 dependency plan — YS-6/8
-//     are built in parallel and integrated later).
-//   - HTTP: a real REST client hitting the Mora API / RAG search endpoints,
-//     used in production once YS-6/YS-8 are available.
+//     standalone development.
+//   - HTTP: a REST client for the Mora API and RAG search endpoints.
 //
 // RBAC semantics (design doc 06 §6.4):
 //   - Read operations MUST NOT leak existence. When the caller lacks read

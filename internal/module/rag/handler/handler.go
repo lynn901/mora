@@ -1,7 +1,7 @@
 // Package handler exposes the RAG HTTP endpoints (API 04 §9): semantic hybrid
 // search, document index-status, and embedding-model admin. Handlers are plain
-// net/http so YS-6 can mount them into its Gin router; they depend only on RAG
-// ports + an Authenticator supplied by the Mora backend.
+// net/http so any router can mount them; they depend only on RAG ports and an
+// Authenticator.
 package handler
 
 import (
@@ -18,8 +18,7 @@ import (
 	"github.com/lynn901/mora/internal/module/rag/search"
 )
 
-// Authenticator resolves the authenticated user id from a request. YS-6 supplies
-// the real implementation (JWT/session); tests inject a fake.
+// Authenticator resolves the authenticated user id from a request.
 type Authenticator interface {
 	UserID(r *http.Request) (string, error)
 }
@@ -40,7 +39,7 @@ type Handler struct {
 }
 
 // Routes returns a ServeMux with all RAG routes registered. Go 1.22 pattern
-// matching is used so YS-6 can also mount individual handlers if preferred.
+// matching is used so callers can also mount individual handlers.
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/rag/search", h.handleSearch)

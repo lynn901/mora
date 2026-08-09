@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# deploy/chart/hack/generate-migrations-cm.sh
+# deployments/chart/hack/generate-migrations-cm.sh
 # 将 migrations/*.sql 打包为 Helm Chart 内 ConfigMap 的数据文件。
 # Helm 不支持直接包含外部目录（非子路径），因此将迁移文件平铺到 chart/templates/ 下
 # 作为一个 ConfigMap，供 migrate Job 挂载。
 #
-# 用法: bash deploy/chart/hack/generate-migrations-cm.sh
-# 输出: deploy/chart/mora/templates/migrations-cm.yaml
+# 用法: bash deployments/chart/hack/generate-migrations-cm.sh
+# 输出: deployments/chart/mora/templates/migrations-cm.yaml
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -26,14 +26,14 @@ metadata:
     helm.sh/hook-weight: "-1"
 data:
   run-migrations.sh: |
-$(sed 's/^/    /' "$ROOT/deployments/run-migrations.sh")
+$(sed 's/^/    /; s/^    $//' "$ROOT/deployments/run-migrations.sh")
 EOF
 
 for f in "$ROOT"/migrations/*.sql; do
   name=$(basename "$f")
   cat >> "$OUTPUT" <<EOF
   ${name}: |
-$(sed 's/^/    /' "$f")
+$(sed 's/^/    /; s/^    $//' "$f")
 EOF
 done
 

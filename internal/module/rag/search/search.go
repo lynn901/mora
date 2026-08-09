@@ -44,7 +44,7 @@ type SearchResult struct {
 }
 
 // TitleLookup optionally hydrates document titles for Dense-only hits (docs that
-// BM25 didn't return). If nil, such hits get an empty title. Supplied by YS-6.
+// BM25 did not return). If nil, such hits get an empty title.
 type TitleLookup func(ctx context.Context, documentIDs []string) (map[string]string, error)
 
 // HybridSearcher fuses Dense + BM25 (+ optional rerank) under RBAC hard filters.

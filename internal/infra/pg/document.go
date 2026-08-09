@@ -10,8 +10,7 @@ import (
 )
 
 // DocumentStore loads document snapshots for indexing. This is a basic
-// standalone implementation reading documents/document_versions; YS-6 may
-// substitute a richer one (block rendering, attachment text injection).
+// standalone implementation reading documents/document_versions.
 type DocumentStore struct {
 	Pool *pgxpool.Pool
 }

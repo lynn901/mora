@@ -15,13 +15,6 @@ import (
 // TestBoundary_MCPOverPermissionDenied covers PRD §7 "MCP 越权": a write tool
 // call without permission must not modify the document and the attempt is
 // recorded in the audit log.
-//
-// NOTE: the MCP moraclient currently sends `content` as a string while mora-api
-// expects `[]Block`/`markdown` (known contract drift, YS-10 scope). Until fixed,
-// update_document via MCP fails before/without reaching RBAC. This test asserts
-// the SECURITY OUTCOME (no tampering + audited) which holds regardless of
-// whether the rejection is 403 (RBAC) or 400 (drift). The precise 403 RBAC
-// denial is verified at the mora layer in TestBoundary_MoraWriteRBACDenied.
 func (s *Suite) TestBoundary_MCPOverPermissionDenied() {
 	s.requireDB("non-admin token for over-permission")
 	admin := s.adminClient()
@@ -35,9 +28,9 @@ func (s *Suite) TestBoundary_MCPOverPermissionDenied() {
 		"document_id": doc.ID, "content": "# tampered", "format": "markdown",
 	})
 
-	// The write must NOT succeed: either an RPC error or an isError tool result.
-	succeeded := err == nil && res != nil && !isToolError(res)
-	require.False(s.T(), succeeded, "alice must NOT modify a doc she has no write permission on (PRD §7 MCP 越权)")
+	require.Nil(s.T(), res)
+	require.NotNil(s.T(), err, "alice must not modify a document without write permission")
+	require.Equal(s.T(), -32003, err.Code, "MCP must return the forbidden error code")
 
 	// Content must be unchanged (no tampering) — the core security guarantee.
 	got, _, _ := s.getDoc(admin, doc.ID)
@@ -52,8 +45,7 @@ func (s *Suite) TestBoundary_MCPOverPermissionDenied() {
 
 // TestBoundary_MoraWriteRBACDenied verifies the precise 403 RBAC write denial at
 // the mora-api layer: alice (no write permission) issuing a valid PATCH is
-// rejected with 403/forbidden. This complements the MCP over-permission test
-// (which is currently masked by the content-shape contract drift).
+// rejected with 403/forbidden.
 func (s *Suite) TestBoundary_MoraWriteRBACDenied() {
 	s.requireDB("non-admin user for write RBAC denial")
 	admin := s.adminClient()

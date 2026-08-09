@@ -3,8 +3,7 @@ package domain
 import "testing"
 
 // TestCollectionName_DefaultPrefix verifies the deterministic collection name
-// uses the mora_chunks_ prefix (brand-naming-spec §4-F). One collection per
-// model; the slug encoding is stable.
+// uses the mora_chunks_ prefix. One collection per model; the slug is stable.
 func TestCollectionName_DefaultPrefix(t *testing.T) {
 	m := EmbeddingModel{Provider: "tei", ModelName: "Qwen3-Embedding-0.6B", Dimension: 1024}
 	want := "mora_chunks_tei_qwen3_embedding_0_6b_1024"
@@ -16,8 +15,8 @@ func TestCollectionName_DefaultPrefix(t *testing.T) {
 	}
 }
 
-// TestSetCollectionPrefix verifies the prefix is configurable (PM suggestion,
-// YS-49): overriding it changes every model's collection name, and an empty
+// TestSetCollectionPrefix verifies that overriding the prefix changes every
+// model's collection name, and an empty
 // value is ignored so the default stays safe. Restores the default at the end
 // so other tests in this package are unaffected.
 func TestSetCollectionPrefix(t *testing.T) {

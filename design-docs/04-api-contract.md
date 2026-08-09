@@ -159,7 +159,7 @@ POST /api/v1/auth/login
                     properties:
                       id: { type: string, format: uuid }
                       token: { type: string, description: "明文 Token，仅此一次" }
-                      prefix: { type: string, example: "wki_a1b2" }
+                      prefix: { type: string, example: "mora_a1b2" }
                       scope: { type: string }
 
     get:
@@ -304,7 +304,7 @@ Authorization: Bearer <jwt>
   "code": 0,
   "data": {
     "items": [
-      { "id": "user-uuid", "email": "alice@wiki.local", "name": "Alice", "avatar_url": "", "status": "active" }
+      { "id": "user-uuid", "email": "alice@mora.local", "name": "Alice", "avatar_url": "", "status": "active" }
     ],
     "total": 1,
     "page": 1,

@@ -2,16 +2,13 @@
 // transports (HTTP/SSE default, stdio P2) and two backends:
 //
 //   - Mock (--mock or MCP_USE_MOCK=1): in-memory MoraClient + token/session/
-//     audit/rate-limit stores seeded with sample data. Lets the MCP module run
-//     end-to-end before YS-6 (Mora backend) / YS-8 (RAG) are integrated — the
-//     "mock 先行" strategy from the YS-4 dependency plan.
-//   - Production: real HTTP MoraClient + PostgreSQL + Valkey stores, used once
-//     the upstream services and infra are available.
+//     audit/rate-limit stores seeded with sample data for local development.
+//   - Production: HTTP MoraClient + PostgreSQL + Valkey stores.
 //
 // Usage:
 //
 //	MCP_USE_MOCK=1 ./mcp-server                 # HTTP/SSE on :8081, mock data
-//	./mcp-server --transport stdio --api-token wki_...   # stdio, fixed token
+//	./mcp-server --transport stdio --api-token mora_...   # stdio, fixed token
 package main
 
 import (
@@ -188,12 +185,12 @@ func buildMock() (moraclient.MoraClient, auth.TokenStore, *auth.TokenRecord) {
 	mock.GrantRead("user-1", wsSales)
 
 	// Dev token bound to user-1 with readwrite scope.
-	const devToken = "wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+	const devToken = "mora_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 	tokenStore := auth.NewMemoryTokenStore()
 	rec := &auth.TokenRecord{
 		ID:           "tok-dev-0001",
 		Name:         "dev-token",
-		Prefix:       "wki_dev_a1b2",
+		Prefix:       "mora_dev_a1b2",
 		IdentityType: rbac.IdentityUser,
 		IdentityID:   "user-1",
 		IdentityName: "Dev User",
@@ -202,11 +199,11 @@ func buildMock() (moraclient.MoraClient, auth.TokenStore, *auth.TokenRecord) {
 	}
 	tokenStore.Add(hashToken(devToken), rec)
 	// Also add a readonly token for testing scope enforcement.
-	const roToken = "wki_ro_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+	const roToken = "mora_ro_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 	roRec := &auth.TokenRecord{
 		ID:           "tok-ro-0002",
 		Name:         "readonly-token",
-		Prefix:       "wki_ro_a1b2",
+		Prefix:       "mora_ro_a1b2",
 		IdentityType: rbac.IdentityUser,
 		IdentityID:   "user-1",
 		IdentityName: "Dev User",

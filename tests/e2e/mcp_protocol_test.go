@@ -54,18 +54,18 @@ func (s *Suite) TestMCP_Resources() {
 	require.True(s.T(), len(resources) > 0, "resources/list must be non-empty for admin")
 
 	// Read the workspaces resource — admin sees the workspace we just created.
-	wsContents := adminSess.resourcesRead("wiki://workspaces")
+	wsContents := adminSess.resourcesRead("mora://workspaces")
 	require.True(s.T(), len(wsContents) > 0, "resources/read workspaces must return content")
 	require.True(s.T(), contentMentions(wsContents, ws.ID), "admin workspaces resource must list the workspace")
 
 	// Read document metadata.
-	metaContents := adminSess.resourcesRead("wiki://documents/" + doc.ID + "/meta")
+	metaContents := adminSess.resourcesRead("mora://documents/" + doc.ID + "/meta")
 	require.True(s.T(), len(metaContents) > 0, "resources/read doc meta must return content")
 	require.True(s.T(), contentMentions(metaContents, doc.ID), "doc meta resource must mention the doc id")
 
 	// bob (no permission) sees a scoped/empty workspace set — no leak.
 	bobSess := s.mcpInitialize(s.mcpClient(s.bobROToken))
-	bobWS := bobSess.resourcesRead("wiki://workspaces")
+	bobWS := bobSess.resourcesRead("mora://workspaces")
 	require.False(s.T(), contentMentions(bobWS, ws.ID), "bob must not see admin's workspace in resources")
 }
 
@@ -122,16 +122,8 @@ func (s *Suite) TestMCP_WriteToolsDraftState() {
 	res, err := ms.toolsCall("create_draft", map[string]any{
 		"workspace_id": ws.ID, "title": "E2E-MCP-Draft", "content": "# draft via mcp", "format": "markdown",
 	})
-	if err != nil || isToolError(res) {
-		// Known contract drift (YS-10 scope): the MCP moraclient sends `content`
-		// as a string while mora-api create expects `markdown` (string) or `content`
-		// ([]Block), so the MCP write path currently 400s. Skip the MCP-path
-		// assertion until YS-10 fixes the wiring; AC-17 draft-state was verified
-		// at the mora layer above.
-		s.T().Skipf("MCP create_draft unavailable (err=%v res=%+v) — known moraclient/mora-api "+
-			"content-shape contract drift, tracked in YS-10 mock→真实联调修复", err, res)
-		return
-	}
+	require.Nilf(s.T(), err, "create_draft error: %+v", err)
+	require.False(s.T(), isToolError(res), "create_draft returned an error: %+v", res)
 
 	// Extract the created draft id and verify via admin that status=draft (not published).
 	draftID := extractDocID(res)
@@ -152,7 +144,7 @@ func (s *Suite) TestMCP_TokenAuthAndAudit() {
 	s.publishDoc(admin, doc.ID, doc.VersionNo, "")
 
 	// Invalid token → 401 JSON-RPC error (initialize path).
-	bad := s.mcpClient("wki_invalid_token_" + randHex(8))
+	bad := s.mcpClient("mora_invalid_token_" + randHex(8))
 	st, _, body, _ := bad.raw(http.MethodPost, "/mcp", map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "initialize",
 		"params": map[string]any{"protocolVersion": "2025-06-18"},

@@ -11,8 +11,7 @@ import (
 
 // RBACResolver resolves read visibility for RAG. This standalone implementation
 // resolves against the permissions table (allow on doc or ancestor subtree,
-// minus deny). The canonical engine lives in YS-6 platform/rbac; RAG uses this
-// when running standalone or until YS-6 injects its optimized resolver.
+// minus deny). RAG uses this adapter for indexing and search visibility.
 type RBACResolver struct {
 	Pool *pgxpool.Pool
 }

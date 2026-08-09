@@ -1,9 +1,8 @@
 // Package domain defines cross-module domain types shared by the RAG engine.
 //
-// These types mirror the YS-5 data model (03-data-model.md §2.7, §3.2) and the
-// RAG pipeline contract (05-rag-pipeline-design.md). They are intentionally
-// framework-free so the RAG module can be built and tested mock-first while the
-// Mora backend (YS-6) supplies the concrete repositories.
+// These types mirror the data model (03-data-model.md §2.7, §3.2) and the RAG
+// pipeline contract (05-rag-pipeline-design.md). They remain framework-free so
+// all services can share them.
 package domain
 
 import (
@@ -11,8 +10,7 @@ import (
 	"time"
 )
 
-// NOTE: IndexStatus / IndexPending / IndexProcessing / IndexIndexed / IndexFailed
-// are defined in user.go (owned by the Mora backend, YS-6) and reused by RAG.
+// IndexStatus and its values are defined in user.go and reused by RAG.
 
 // DocStatus mirrors documents.status.
 type DocStatus string
@@ -39,10 +37,8 @@ type EmbeddingModel struct {
 }
 
 // collectionPrefix is the Qdrant collection-name prefix. It defaults to
-// "mora_chunks_" (brand-naming-spec §4-F) and is configurable at process start
-// via SetCollectionPrefix so future renames cost nothing (PM suggestion,
-// adopted in YS-49). The domain package stays env-free; binaries inject the
-// configured value from env (e.g. RAG_COLLECTION_PREFIX) at startup.
+// "mora_chunks_" and is configurable at process start. The domain package
+// stays env-free; binaries inject RAG_COLLECTION_PREFIX at startup.
 var collectionPrefix = "mora_chunks_"
 
 // SetCollectionPrefix overrides the Qdrant collection-name prefix. It must be
