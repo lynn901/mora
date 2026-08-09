@@ -43,10 +43,10 @@ func loadConfig() config {
 		BaseURL:       envOr("E2E_BASE_URL", "http://localhost:8990"),
 		MCPURL:        envOr("E2E_MCP_URL", "http://localhost:8081"),
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		InternalToken: envOr("INTERNAL_SERVICE_TOKEN", "wiki-internal-token"),
+		InternalToken: envOr("INTERNAL_SERVICE_TOKEN", "mora-internal-token"),
 		AdminEmail:    envOr("E2E_ADMIN_EMAIL", "admin@mora.local"),
 		AdminPassword: envOr("E2E_ADMIN_PASSWORD", "admin123"),
-		DevToken:      envOr("E2E_DEV_TOKEN", "wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"),
+		DevToken:      envOr("E2E_DEV_TOKEN", "mora_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"),
 	}
 	c.IndexTimeout = durationOr("E2E_INDEX_TIMEOUT", 120*time.Second)
 	return c
@@ -350,7 +350,7 @@ func (s *Suite) seedUser(ctx context.Context, email, name, password string) stri
 
 // seedToken inserts an api_tokens row and returns the plaintext token.
 func (s *Suite) seedToken(ctx context.Context, name, identityID, scope string, expires *time.Time) string {
-	plaintext := "wki_e2e_" + randHex(20)
+	plaintext := "mora_e2e_" + randHex(20)
 	hash := sha256Hex(plaintext)
 	prefix := plaintext
 	if len(prefix) > 12 {

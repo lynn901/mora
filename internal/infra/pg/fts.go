@@ -19,8 +19,7 @@ type FTSStore struct {
 	Pool *pgxpool.Pool
 	// VisibilitySQL is an optional SQL fragment appended to the WHERE clause to
 	// enforce RBAC; it receives the subject-id array as a parameter. If empty, a
-	// default resolution against the permissions table is used. YS-6 may inject
-	// its optimized rbac_doc_visible(...) predicate here.
+	// default resolution against the permissions table is used.
 	VisibilitySQL string
 	// Config is the PostgreSQL text-search configuration name used by to_tsvector
 	// / ts_headline / plainto_tsquery. It MUST match the config the documents

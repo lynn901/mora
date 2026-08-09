@@ -12,22 +12,22 @@ import (
 )
 
 func TestHashTokenStableAndLowercase(t *testing.T) {
-	h1 := HashToken("wki_abc123")
-	h2 := HashToken("wki_abc123")
+	h1 := HashToken("mora_abc123")
+	h2 := HashToken("mora_abc123")
 	assert.Equal(t, h1, h2, "hash must be deterministic")
 	assert.Len(t, h1, 64, "sha256 hex is 64 chars")
 	// Different input → different hash.
-	assert.NotEqual(t, h1, HashToken("wki_other"))
+	assert.NotEqual(t, h1, HashToken("mora_other"))
 }
 
 func TestExtractBearer(t *testing.T) {
-	tok, err := ExtractBearer("Bearer wki_abc")
+	tok, err := ExtractBearer("Bearer mora_abc")
 	require.NoError(t, err)
-	assert.Equal(t, "wki_abc", tok)
+	assert.Equal(t, "mora_abc", tok)
 
-	tok, err = ExtractBearer("wki_bare")
+	tok, err = ExtractBearer("mora_bare")
 	require.NoError(t, err)
-	assert.Equal(t, "wki_bare", tok)
+	assert.Equal(t, "mora_bare", tok)
 
 	_, err = ExtractBearer("")
 	assert.Error(t, err)
@@ -76,7 +76,7 @@ func TestCheckWriteScope(t *testing.T) {
 
 func TestMemoryTokenStoreLookup(t *testing.T) {
 	store := NewMemoryTokenStore()
-	hash := HashToken("wki_lookup")
+	hash := HashToken("mora_lookup")
 	store.Add(hash, &TokenRecord{
 		ID: "t1", Name: "n", IdentityType: rbac.IdentityUser, IdentityID: "u1",
 		Scope: rbac.ScopeReadOnly,

@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import { login as apiLogin, setToken, clearToken, getToken } from "@/api"
+import { login as apiLogin, clearToken, getToken } from "@/api"
 
 interface AuthUser {
   id: string

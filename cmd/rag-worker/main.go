@@ -38,7 +38,7 @@ func main() {
 
 	// Configure the Qdrant collection-name prefix before indexing resolves a
 	// collection. Must match mora-api (search path). Defaults to "mora_chunks_";
-	// RAG_COLLECTION_PREFIX overrides it (brand-naming-spec §4-F, YS-49).
+	// RAG_COLLECTION_PREFIX overrides it.
 	domain.SetCollectionPrefix(env("RAG_COLLECTION_PREFIX", "mora_chunks_"))
 
 	// --- Postgres ---

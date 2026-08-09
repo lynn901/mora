@@ -90,7 +90,7 @@ func Load() (*Config, error) {
 		RateLimitSearchPerMin:  getenvInt("RATE_LIMIT_SEARCH_PER_MIN", 200),
 		RateLimitMCPPerMin:     getenvInt("RATE_LIMIT_MCP_PER_MIN", 100),
 		Transport:              getenv("MCP_TRANSPORT", "http"),
-		MoraAPIURL:             getenv("WIKI_API_URL", "http://localhost:8080"),
+		MoraAPIURL:             strings.TrimRight(getenv("MORA_API_URL", "http://localhost:8080"), "/"),
 		InternalToken:          os.Getenv("INTERNAL_SERVICE_TOKEN"),
 		RateLimitRead:          getenvInt("MCP_RATE_LIMIT_READ", 100),
 		RateLimitWrite:         getenvInt("MCP_RATE_LIMIT_WRITE", 20),
@@ -154,7 +154,7 @@ func FromEnv() Config {
 	if v := os.Getenv("MCP_TRANSPORT"); v != "" {
 		c.Transport = strings.ToLower(v)
 	}
-	if v := getenv("WIKI_API_URL", ""); v != "" {
+	if v := getenv("MORA_API_URL", ""); v != "" {
 		c.MoraAPIURL = strings.TrimRight(v, "/")
 	}
 	c.InternalToken = os.Getenv("INTERNAL_SERVICE_TOKEN")

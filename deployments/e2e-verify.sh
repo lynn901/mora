@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # deployments/e2e-verify.sh
-# YS-12 端到端联调验证脚本：一键验证 docker compose up 后全部 AC。
+# Docker Compose 端到端联调验证脚本。
 # 用法： ./deployments/e2e-verify.sh
 # 前提： docker compose up -d 已执行，mora-api 在 localhost:${MORA_API_PORT:-8990}。
 set -uo pipefail
 
 MORA_PORT="${MORA_API_PORT:-8990}"
 MCP_PORT="${MCP_SERVER_PORT:-8081}"
-WIKI="http://localhost:${MORA_PORT}"
+MORA="http://localhost:${MORA_PORT}"
 MCP="http://localhost:${MCP_PORT}"
 ADMIN_EMAIL="admin@mora.local"
 ADMIN_PW="admin123"
-DEV_TOKEN="wki_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+DEV_TOKEN="mora_dev_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 PASS=0
 FAIL=0
 
@@ -30,15 +30,15 @@ else
 fi
 
 section "1. 健康检查"
-HC=$(curlv "${WIKI}/healthz")
+HC=$(curlv "${MORA}/healthz")
 if echo "${HC}" | grep -q '"status":"ok"'; then ok "mora-api /healthz"; else fail "mora-api /healthz"; echo "  响应: ${HC}"; fi
-HC=$(curlv "${WIKI}/ready")
+HC=$(curlv "${MORA}/ready")
 if echo "${HC}" | grep -q '"status":"ready"'; then ok "mora-api /ready (PG 连通)"; else fail "mora-api /ready"; echo "  响应: ${HC}"; fi
 HC=$(curlv "${MCP}/mcp/health")
 if echo "${HC}" | grep -q '"status":"ok"'; then ok "mcp-server /mcp/health"; else fail "mcp-server /mcp/health"; echo "  响应: ${HC}"; echo "  提示: docker compose logs mcp-server 查看启动错误"; fi
 
 section "2. 登录获取 JWT（admin@mora.local / admin123）"
-LOGIN=$(curlv -XPOST "${WIKI}/api/v1/auth/login" -H 'Content-Type: application/json' -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PW}\"}")
+LOGIN=$(curlv -XPOST "${MORA}/api/v1/auth/login" -H 'Content-Type: application/json' -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PW}\"}")
 JWT=$(echo "${LOGIN}" | python3 -c "import json,sys; s=sys.stdin.read().split('__HTTP_CODE__')[0]; print(json.loads(s).get('data',{}).get('token',''))" 2>/dev/null || echo "")
 if [ -n "$JWT" ] && [ "$JWT" != "" ]; then ok "JWT 获取成功"; else fail "登录失败"; echo "  响应: ${LOGIN}"; fi
 
@@ -47,7 +47,7 @@ if [ -n "$JWT" ] && [ "$JWT" != "" ]; then
   AUTH="Authorization: Bearer ${JWT}"
 
   section "3. 创建文档 → 触发 doc_event 到 Valkey Streams"
-  DOC_RESP=$(curlv -XPOST "${WIKI}/api/v1/workspaces/11111111-1111-1111-1111-111111111111/documents" \
+  DOC_RESP=$(curlv -XPOST "${MORA}/api/v1/workspaces/11111111-1111-1111-1111-111111111111/documents" \
     -H "${AUTH}" -H 'Content-Type: application/json' \
     -d '{"title":"联调验证文档","content":[{"type":"paragraph","text":"这是一个用于验证 RAG 索引链路的测试文档，包含可被检索的关键词：向量检索测试。"}],"format":"blocks"}')
   DOC_ID=$(echo "${DOC_RESP}" | python3 -c "import json,sys; s=sys.stdin.read().split('__HTTP_CODE__')[0]; print(json.loads(s).get('data',{}).get('id',''))" 2>/dev/null || echo "")
@@ -55,7 +55,7 @@ if [ -n "$JWT" ] && [ "$JWT" != "" ]; then
 
   if [ -n "$DOC_ID" ] && [ "$DOC_ID" != "" ]; then
     section "4. 发布文档 → 触发 RAG 索引（doc_event → rag-worker → TEI → Qdrant）"
-    PUB_RESP=$(curlv -XPATCH "${WIKI}/api/v1/documents/${DOC_ID}" \
+    PUB_RESP=$(curlv -XPATCH "${MORA}/api/v1/documents/${DOC_ID}" \
       -H "${AUTH}" -H 'Content-Type: application/json' -H "If-Match: 1" \
       -d '{"title":"联调验证文档","status":"published"}')
     if echo "${PUB_RESP}" | grep -q "published"; then ok "文档已发布"; else fail "文档发布失败"; echo "  响应: ${PUB_RESP}"; fi
@@ -66,7 +66,7 @@ if [ -n "$JWT" ] && [ "$JWT" != "" ]; then
     section "5. 验证 index_status = indexed（rag-worker 回执）"
     IDX_STATUS=""
     for i in $(seq 1 12); do
-      STATUS_RESP=$(curlv "${WIKI}/api/v1/documents/${DOC_ID}" -H "${AUTH}")
+      STATUS_RESP=$(curlv "${MORA}/api/v1/documents/${DOC_ID}" -H "${AUTH}")
       IDX_STATUS=$(echo "${STATUS_RESP}" | python3 -c "import json,sys; s=sys.stdin.read().split('__HTTP_CODE__')[0]; print(json.loads(s).get('data',{}).get('index_status',''))" 2>/dev/null || echo "")
       if [ "$IDX_STATUS" = "indexed" ]; then break; fi
       echo "  attempt $i: index_status=${IDX_STATUS}, waiting 5s..."
@@ -76,7 +76,7 @@ if [ -n "$JWT" ] && [ "$JWT" != "" ]; then
   fi
 
   section "6. mora-api FTS 搜索（BM25）"
-  SEARCH_RESP=$(curlv "${WIKI}/api/v1/search?workspace_id=11111111-1111-1111-1111-111111111111&q=向量检索" -H "${AUTH}")
+  SEARCH_RESP=$(curlv "${MORA}/api/v1/search?workspace_id=11111111-1111-1111-1111-111111111111&q=向量检索" -H "${AUTH}")
   SEARCH_TOTAL=$(echo "${SEARCH_RESP}" | python3 -c "import json,sys; s=sys.stdin.read().split('__HTTP_CODE__')[0]; d=json.loads(s); print(d.get('data',{}).get('total',0) if isinstance(d.get('data'),dict) else 0)" 2>/dev/null || echo "0")
   SEARCH_CODE=$(echo "${SEARCH_RESP}" | grep -o '__HTTP_CODE__[0-9]*' | grep -o '[0-9]*')
   if [ "$SEARCH_CODE" = "200" ]; then ok "FTS 搜索 200（total=${SEARCH_TOTAL}；simple 分词不支持中文，0 结果属正常）"; else fail "FTS 搜索失败 (HTTP $SEARCH_CODE)"; echo "  响应: ${SEARCH_RESP}"; fi
@@ -108,7 +108,7 @@ fi
 
 section "10. 级联删除 → Qdrant chunk 清理"
 if [ -n "${DOC_ID:-}" ] && [ "${DOC_ID:-}" != "" ]; then
-  DEL_RESP=$(curlv -XDELETE "${WIKI}/api/v1/documents/${DOC_ID}" -H "${AUTH}")
+  DEL_RESP=$(curlv -XDELETE "${MORA}/api/v1/documents/${DOC_ID}" -H "${AUTH}")
   if echo "${DEL_RESP}" | grep -q "__HTTP_CODE__204\|__HTTP_CODE__200"; then ok "文档删除成功"; else fail "文档删除失败"; echo "  响应: ${DEL_RESP}"; fi
   sleep 5
   RE_SEARCH=$(curlv -XPOST "${MCP}/mcp" \

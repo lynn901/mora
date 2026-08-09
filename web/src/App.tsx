@@ -1,9 +1,15 @@
+import { lazy, Suspense } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import { MoraLayout } from "@/components/mora/MoraLayout"
 import { LoginPage } from "@/components/auth/LoginPage"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/components/theme-provider"
 import { useAuthStore } from "@/stores/auth"
+
+const MoraLayout = lazy(() =>
+  import("@/components/mora/MoraLayout").then((module) => ({
+    default: module.MoraLayout,
+  }))
+)
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
@@ -18,11 +24,22 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/*" element={
-              <ProtectedRoute>
-                <MoraLayout />
-              </ProtectedRoute>
-            } />
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <Suspense
+                    fallback={
+                      <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
+                        Loading...
+                      </div>
+                    }
+                  >
+                    <MoraLayout />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            />
           </Routes>
         </BrowserRouter>
       </TooltipProvider>

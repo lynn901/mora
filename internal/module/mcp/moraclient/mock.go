@@ -10,9 +10,8 @@ import (
 	domainerr "github.com/lynn901/mora/internal/pkg/errors"
 )
 
-// Mock is an in-memory MoraClient with an embedded RBAC model. It lets the MCP
-// module run and be tested end-to-end before YS-6 (Mora backend) and YS-8
-// (RAG) are integrated. It is safe for concurrent use.
+// Mock is an in-memory MoraClient with an embedded RBAC model for standalone
+// development and tests. It is safe for concurrent use.
 //
 // ACL model (deliberately simple but realistic for testing):
 //   - Each identity has a set of workspace read/write grants.
@@ -342,9 +341,7 @@ func (m *Mock) GetDocumentVersions(_ context.Context, auth *AuthContext, documen
 	return doc.versions, nil
 }
 
-// Search runs a trivial in-memory keyword match (RBAC-filtered). The real RAG
-// Dense+BM25+Rerank lives in YS-8; this mock approximates it for testing the
-// MCP tool wiring, RBAC, and result shaping.
+// Search runs a simple in-memory keyword match for MCP tool and RBAC tests.
 func (m *Mock) Search(_ context.Context, auth *AuthContext, req SearchRequest) (*SearchResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -451,9 +448,7 @@ func makeSnippet(content, q string) string {
 	return content[start:end]
 }
 
-// blocksToMarkdown is a placeholder converter (blocks→markdown). The real
-// bidirectional converter lives in the Mora backend (YS-6); this stub is
-// sufficient for the mock to return markdown when requested.
+// blocksToMarkdown is a minimal converter for mock responses.
 func blocksToMarkdown(blocks string) string {
 	return blocks
 }

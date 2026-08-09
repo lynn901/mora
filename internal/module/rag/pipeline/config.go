@@ -13,7 +13,7 @@ type Config struct {
 	RespectHeadingBoundary bool   // default true
 	MaxChunkSize           int    // default 1024 tokens
 	EmbedBatchSize         int    // default 32 (TEI batch /embed)
-	CollectionPrefix       string // default "mora_chunks_"; injected into domain.SetCollectionPrefix at startup (brand-naming-spec §4-F)
+	CollectionPrefix       string // default "mora_chunks_"; applied at process startup
 	// Retry backoff for transient failures (worker-level). 10s/30s/90s by default.
 	Backoffs   []time.Duration
 	MaxAttempt int // default 3

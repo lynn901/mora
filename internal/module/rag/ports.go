@@ -1,11 +1,9 @@
-// Package rag owns the Automated RAG & Vector engine (PRD §4 模块二 / YS-8).
+// Package rag owns the automated RAG and vector engine.
 //
 // ports.go defines every external capability the RAG module needs. The RAG
 // pipeline, search engine, worker and HTTP handlers depend only on these
-// interfaces, never on concrete infra. This is the "mock-first" contract: the
-// Mora backend (YS-6) supplies the concrete RBAC / document / FTS / index-status
-// repositories, infra supplies Qdrant + Valkey clients, and tests supply
-// in-memory fakes — so the engine is fully exercised without a database.
+// interfaces, never on concrete infrastructure. Production adapters supply
+// storage clients while tests use in-memory fakes.
 package rag
 
 import (
@@ -17,7 +15,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Document access (owned by YS-6 Mora backend; RAG consumes read-only snapshots)
+// Document access
 // ---------------------------------------------------------------------------
 
 // DocumentSnapshot is the immutable input to the pipeline for one document
@@ -35,7 +33,7 @@ type DocumentSnapshot struct {
 	Tags        []string
 }
 
-// DocumentStore loads document snapshots for indexing. Owned by YS-6.
+// DocumentStore loads document snapshots for indexing.
 type DocumentStore interface {
 	GetSnapshot(ctx context.Context, documentID string, versionNo int) (DocumentSnapshot, error)
 	// PublishedDocumentIDs lists published document ids, paged by cursor, for
@@ -44,8 +42,7 @@ type DocumentStore interface {
 }
 
 // ---------------------------------------------------------------------------
-// RBAC (owned by YS-6 platform/rbac; RAG uses it for visible_to computation
-// and search-time hard filtering). 05-rag-pipeline-design.md §4.3.
+// RBAC visibility for indexing and search-time hard filtering.
 // ---------------------------------------------------------------------------
 
 // ViewerScope is the search-time permission envelope for a user: the subject
@@ -58,7 +55,7 @@ type ViewerScope struct {
 	DirectoryIDs []string // optional directory scoping (empty = no dir filter)
 }
 
-// RBACResolver resolves read visibility. Owned by YS-6 platform/rbac.
+// RBACResolver resolves read visibility.
 type RBACResolver interface {
 	// ResolveReaders returns the subject ids (user:/group:) that may read the
 	// document — used to populate the chunk visible_to payload at index time.
@@ -114,7 +111,7 @@ type VectorStore interface {
 }
 
 // ---------------------------------------------------------------------------
-// Full-text search (PostgreSQL FTS / BM25). Owned by YS-6.
+// Full-text search (PostgreSQL FTS / BM25).
 // ---------------------------------------------------------------------------
 
 // FTSHit is a BM25 retrieval result before fusion.
@@ -142,7 +139,7 @@ type FTSRequest struct {
 }
 
 // ---------------------------------------------------------------------------
-// Index status / metadata store (PostgreSQL). Owned by YS-6; RAG writes receipts.
+// Index status and model metadata store. RAG writes indexing receipts.
 // ---------------------------------------------------------------------------
 
 // IndexStatusStore persists the pipeline state machine + chunk metadata and

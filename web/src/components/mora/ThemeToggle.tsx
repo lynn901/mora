@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react"
 import { Moon, Sun, Monitor } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip"
 import { useTheme } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
 
@@ -13,23 +16,17 @@ const OPTIONS: { value: ThemeOption; label: string; icon: typeof Sun }[] = [
   { value: "system", label: "跟随系统", icon: Monitor },
 ]
 
-/**
- * Light / dark / system theme switch (§11 migration step 3).
- * Each option is an icon button with an accessible name and tooltip.
- * `mounted` defers the active-state highlight to avoid SSR/client mismatch.
- */
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(() => true)
-  }, [])
 
   return (
-    <div className="flex items-center gap-0.5" role="group" aria-label="主题切换">
+    <div
+      className="flex items-center gap-0.5"
+      role="group"
+      aria-label="主题切换"
+    >
       {OPTIONS.map(({ value, label, icon: Icon }) => {
-        const active = mounted && theme === value
+        const active = theme === value
         return (
           <Tooltip key={value}>
             <TooltipTrigger asChild>
@@ -42,7 +39,7 @@ export function ThemeToggle() {
                 onClick={() => setTheme(value)}
                 className={cn(
                   "size-7",
-                  active ? "text-primary" : "text-muted-foreground",
+                  active ? "text-primary" : "text-muted-foreground"
                 )}
               >
                 <Icon className="size-3.5" />

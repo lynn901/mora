@@ -122,7 +122,7 @@ internal/
   infra/
     postgres/            pgx 仓库实现 + RBAC 适配器 + 检索执行器
     pg/, mq/, qdrant/, ragwiring/   基础设施适配
-migrations/              10 套 up/down 迁移（001…010，含 demo 种子）
+migrations/              11 套 up/down 迁移（001…011，含 demo 种子）
 test/integration/        DATABASE_URL 门控的端到端集成测试
 deployments/             Dockerfile / docker-compose / Helm chart / 脚本
 design-docs/             8 份设计文档（技术选型 / 架构 / 数据模型 / API / RAG / MCP / 安全 / 命名）
@@ -202,7 +202,7 @@ make verify
 # 单元测试（无需 DB）
 go test ./...
 
-# 起一个本地 Postgres 跑集成测试（含 10 套迁移）
+# 起一个本地 Postgres 跑集成测试（含 11 套迁移）
 DATABASE_URL="host=/tmp port=5433 user=mora dbname=mora sslmode=disable" \
   go test -tags=integration ./test/integration/...
 
@@ -340,7 +340,7 @@ docker compose exec ollama ollama pull nomic-embed-text
 
 ## 生产部署（K8s / Helm）
 
-Helm Chart 位于 `deployments/chart/mora/`，含模板：`postgresql` / `valkey` / `qdrant` / `tei` / `migrate-job` / `wiki-api`（Mora API）/ `rag-worker` / `mcp-server` / `frontend` / `secret-config` / `migrations-cm` / `_helpers`。
+Helm Chart 位于 `deployments/chart/mora/`，含模板：`postgresql` / `valkey` / `qdrant` / `tei` / `migrate-job` / `mora-api` / `rag-worker` / `mcp-server` / `frontend` / `secret-config` / `migrations-cm` / `_helpers`。
 
 ```bash
 # 1. 构建镜像并推送（单 Dockerfile 多 TARGET）
@@ -363,8 +363,6 @@ helm install mora ./deployments/chart/mora \
 ```
 
 Helm 特性：滚动升级（`maxUnavailable: 0`，零宕机）、liveness/readiness 探针、HPA（mora-api 默认 2–10 副本，CPU > 70% 扩容）、每有状态组件独立 PVC、前端 Ingress + TLS（cert-manager）。
-
-> 注：Chart 中应用 Deployment 模板文件名仍为历史名 `wiki-api.yaml`（内部已指向 mora-api），属待清理的命名遗留，不影响部署。
 
 ### 生产注意事项
 
@@ -392,7 +390,7 @@ make export    # 全量导出（迁移到另一实例），输出 mora-export-<t
 # 单元测试（无需 DB）
 go test ./...
 
-# 集成测试（需可连通的 Postgres，含 10 套迁移）
+# 集成测试（需可连通的 Postgres，含 11 套迁移）
 DATABASE_URL="host=/tmp port=5433 user=mora dbname=mora sslmode=disable" \
   go test -tags=integration ./test/integration/...
 
@@ -424,7 +422,7 @@ docker compose -f deployments/docker-compose.yml -p mora down -v
 
 ## 设计文档
 
-`design-docs/` 下 8 份设计文档是本仓实现的设计依据：
+`design-docs/` 下的设计文档是本仓实现的设计依据：
 
 1. `01-tech-selection-decision.md` — 技术选型与基座决策书
 2. `02-system-architecture.md` — 系统架构设计
@@ -433,7 +431,7 @@ docker compose -f deployments/docker-compose.yml -p mora down -v
 5. `05-rag-pipeline-design.md` — RAG 流水线与向量库设计
 6. `06-mcp-server-design.md` — MCP Server 设计
 7. `07-security-observability.md` — 安全与可观测设计
-8. `08-brand-naming-spec.md` — 品牌命名规范（wiki → mora）
+8. `09-design-system.md` — 设计系统
 
 ## 安全
 
@@ -445,7 +443,7 @@ docker compose -f deployments/docker-compose.yml -p mora down -v
 
 ## 贡献
 
-欢迎提 Issue 与 PR。提交前请确保 `go test ./...` 与 `go vet ./...` 通过，前端 `npm run typecheck` 通过。命名遵循 `design-docs/08-brand-naming-spec.md`（面向用户的标识符使用 mora，避免残留 wiki）。
+欢迎提 Issue 与 PR。提交前请确保 `go test ./...` 与 `go vet ./...` 通过，前端 `npm run typecheck` 通过。
 
 ## 许可证
 

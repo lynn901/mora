@@ -105,7 +105,7 @@ Agent 进程 ──stdin──▶ MCP Server 子进程 ──stdout──▶ Age
       "tools": { "listChanged": true },
       "resources": { "list": true, "read": true, "listChanged": true }
     },
-    "serverInfo": { "name": "wiki-mcp", "version": "1.0.0" }
+    "serverInfo": { "name": "mora-mcp", "version": "1.0.0" }
   }
 }
 ```
@@ -129,11 +129,11 @@ Resources 以 URI 暴露只读知识结构，供 Agent 感知 Mora 结构（PRD 
 
 | URI | 方法 | 描述 | RBAC |
 |---|---|---|---|
-| `wiki://workspaces` | `resources/list`/`read` | 当前 Token 身份可见的工作区列表 | 仅返回有 read 权限的工作区 |
-| `wiki://workspaces/{ws_id}/tree` | `resources/read` | 工作区目录树（含文档标题/ID，不含正文） | 仅返回可见目录/文档 |
-| `wiki://documents/{doc_id}/meta` | `resources/read` | 文档元数据（标题/状态/版本/标签/索引状态） | 无 read 权限返回空/不存在 |
-| `wiki://workspaces/{ws_id}/tags` | `resources/read` | 工作区标签体系 | 工作区可见即可读 |
-| `wiki://documents/{doc_id}/versions` | `resources/read` | 文档版本历史摘要 | 有 read 权限 |
+| `mora://workspaces` | `resources/list`/`read` | 当前 Token 身份可见的工作区列表 | 仅返回有 read 权限的工作区 |
+| `mora://workspaces/{ws_id}/tree` | `resources/read` | 工作区目录树（含文档标题/ID，不含正文） | 仅返回可见目录/文档 |
+| `mora://documents/{doc_id}/meta` | `resources/read` | 文档元数据（标题/状态/版本/标签/索引状态） | 无 read 权限返回空/不存在 |
+| `mora://workspaces/{ws_id}/tags` | `resources/read` | 工作区标签体系 | 工作区可见即可读 |
+| `mora://documents/{doc_id}/versions` | `resources/read` | 文档版本历史摘要 | 有 read 权限 |
 
 ### 4.1 resources/list 示例
 
@@ -147,9 +147,9 @@ Resources 以 URI 暴露只读知识结构，供 Agent 感知 Mora 结构（PRD 
   "jsonrpc": "2.0", "id": 2,
   "result": {
     "resources": [
-      { "uri": "wiki://workspaces", "name": "可见工作区", "mimeType": "application/json" },
-      { "uri": "wiki://workspaces/ws-1/tree", "name": "工程团队-目录树", "mimeType": "application/json" },
-      { "uri": "wiki://documents/doc-1/meta", "name": "API设计规范-元数据", "mimeType": "application/json" }
+      { "uri": "mora://workspaces", "name": "可见工作区", "mimeType": "application/json" },
+      { "uri": "mora://workspaces/ws-1/tree", "name": "工程团队-目录树", "mimeType": "application/json" },
+      { "uri": "mora://documents/doc-1/meta", "name": "API设计规范-元数据", "mimeType": "application/json" }
     ],
     "nextCursor": null
   }
@@ -161,14 +161,14 @@ Resources 以 URI 暴露只读知识结构，供 Agent 感知 Mora 结构（PRD 
 ```jsonc
 // Agent → Server
 { "jsonrpc": "2.0", "id": 3, "method": "resources/read",
-  "params": { "uri": "wiki://documents/doc-1/meta" } }
+  "params": { "uri": "mora://documents/doc-1/meta" } }
 
 // Server → Agent
 {
   "jsonrpc": "2.0", "id": 3,
   "result": {
     "contents": [{
-      "uri": "wiki://documents/doc-1/meta",
+      "uri": "mora://documents/doc-1/meta",
       "mimeType": "application/json",
       "text": "{\"id\":\"doc-1\",\"title\":\"API设计规范\",\"status\":\"published\",\"version_no\":5,\"tags\":[\"api\"],\"index_status\":\"indexed\"}"
     }]
