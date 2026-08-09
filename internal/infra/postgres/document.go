@@ -102,10 +102,11 @@ func (r *DocumentRepo) Create(ctx context.Context, d *domain.Document) error {
 	}
 	content, _ := json.Marshal(d.Content)
 	return r.db.Pool.QueryRow(ctx, `
-		INSERT INTO documents (id, workspace_id, directory_id, title, content, content_text, format, status, index_status, version_no, created_by, updated_by, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+		INSERT INTO documents (id, workspace_id, directory_id, title, content, content_text, format, status, index_status, version_no, created_by, updated_by, created_at, updated_at, storage_key, source_format, parse_status)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
 		d.ID, d.WorkspaceID, d.DirectoryID, d.Title, content, d.ContentText, d.Format,
-		d.Status, d.IndexStatus, d.VersionNo, d.CreatedBy, d.UpdatedBy, d.CreatedAt, d.UpdatedAt).Scan(&d.ID)
+		d.Status, d.IndexStatus, d.VersionNo, d.CreatedBy, d.UpdatedBy, d.CreatedAt, d.UpdatedAt,
+		nullIfEmpty(d.StorageKey), d.SourceFormat, nullIfEmpty(string(d.ParseStatus))).Scan(&d.ID)
 }
 
 func (r *DocumentRepo) Update(ctx context.Context, d *domain.Document, prevVersion int) error {
@@ -185,4 +186,13 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(buf[i:])
+}
+
+// nullIfEmpty returns nil for an empty string so a NULL is written instead of
+// ” (storage_key/parse_status default semantics). pgx accepts *string or nil.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

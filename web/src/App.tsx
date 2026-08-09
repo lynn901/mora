@@ -11,6 +11,12 @@ const MoraLayout = lazy(() =>
   }))
 )
 
+const LlmGatewayPanel = lazy(() =>
+  import("@/components/parse/LlmGatewayPanel").then((module) => ({
+    default: module.LlmGatewayPanel,
+  }))
+)
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore()
   if (!isAuthenticated) return <Navigate to="/login" replace />
@@ -22,25 +28,35 @@ function App() {
     <ThemeProvider defaultTheme="system" storageKey="mora-theme">
       <TooltipProvider>
         <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route
-              path="/*"
-              element={
-                <ProtectedRoute>
-                  <Suspense
-                    fallback={
-                      <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
-                        Loading...
-                      </div>
-                    }
-                  >
+          <Suspense
+            fallback={
+              <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
+                Loading...
+              </div>
+            }
+          >
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route
+                path="/admin/llm-gateway"
+                element={
+                  <ProtectedRoute>
+                    <MoraLayout>
+                      <LlmGatewayPanel />
+                    </MoraLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/*"
+                element={
+                  <ProtectedRoute>
                     <MoraLayout />
-                  </Suspense>
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </Suspense>
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>

@@ -7,6 +7,9 @@ import {
   PanelLeftClose,
   Menu,
   LogOut,
+  Upload,
+  Gauge,
+  X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -29,13 +32,16 @@ import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
 import { ThemeToggle } from "@/components/mora/ThemeToggle"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
+import { ParseHost } from "@/components/parse/ParseHost"
+import { ParseMonitoringPanel } from "@/components/parse/ParseMonitoringPanel"
 import { useMoraStore } from "@/stores/mora"
+import { useParseStore } from "@/stores/parse"
 import { useCollabStore } from "@/stores/collab"
 import { useAuthStore } from "@/stores/auth"
 
 type SidePanel = "tree" | "search" | "rbac" | "history"
 
-export function MoraLayout() {
+export function MoraLayout({ children }: { children?: React.ReactNode }) {
   const {
     currentWorkspace,
     workspaces,
@@ -46,6 +52,7 @@ export function MoraLayout() {
     setWorkspace,
     selectNode,
   } = useMoraStore()
+  const { setUploadOpen, setMonitoringOpen, monitoringOpen } = useParseStore()
   const [activePanel, setActivePanel] = useState<SidePanel>("tree")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
@@ -222,6 +229,39 @@ export function MoraLayout() {
           )}
         </div>
 
+        {/* Parse entry points — upload + monitoring, aligned with the tree panel (UI spec §2.1). */}
+        {activePanel === "tree" && (
+          <div className="flex items-center gap-1 border-b px-2 py-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 flex-1 text-xs"
+                  onClick={() => setUploadOpen(true)}
+                >
+                  <Upload className="size-3.5" /> 上传并解析
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>上传文档并解析</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={() => setMonitoringOpen(true)}
+                  aria-label="解析监控"
+                >
+                  <Gauge className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>解析监控</TooltipContent>
+            </Tooltip>
+          </div>
+        )}
+
         <div className="flex-1 overflow-hidden">
           {panelContent[activePanel]}
         </div>
@@ -245,7 +285,22 @@ export function MoraLayout() {
             </div>
           )}
 
-          {isLoading && !currentDocument ? (
+          {children ? (
+            <div className="flex-1 overflow-hidden">{children}</div>
+          ) : monitoringOpen ? (
+            <div className="relative flex-1 overflow-hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute top-3 right-3 z-10 size-7"
+                onClick={() => setMonitoringOpen(false)}
+                aria-label="关闭监控"
+              >
+                <X className="size-4" />
+              </Button>
+              <ParseMonitoringPanel />
+            </div>
+          ) : isLoading && !currentDocument ? (
             <div className="flex flex-1 items-center justify-center">
               <div className="text-center">
                 <div className="mx-auto size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -283,6 +338,9 @@ export function MoraLayout() {
           )}
         </div>
       </main>
+
+      {/* Parse overlays — upload dialog, progress drawer, batch reparse dialog. */}
+      <ParseHost />
     </div>
   )
 }

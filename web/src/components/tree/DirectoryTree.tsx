@@ -6,6 +6,7 @@ import {
   FileText,
   Plus,
   GripVertical,
+  Upload,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -18,6 +19,7 @@ import {
 } from "@/components/ui/tooltip"
 import type { TreeNode } from "@/types"
 import { useMoraStore } from "@/stores/mora"
+import { useParseStore } from "@/stores/parse"
 
 interface TreeNodeItemProps {
   node: TreeNode
@@ -135,6 +137,7 @@ function TreeNodeItem({
 export function DirectoryTree() {
   const { tree, selectedNodeId, selectNode, currentWorkspace, createDocument } =
     useMoraStore()
+  const { setUploadOpen } = useParseStore()
   const [search, setSearch] = useState("")
 
   const handleSelect = useCallback(
@@ -160,6 +163,20 @@ export function DirectoryTree() {
           className="h-7 text-xs"
           aria-label="Filter directory tree"
         />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0"
+              onClick={() => setUploadOpen(true)}
+              aria-label="Upload and parse document"
+            >
+              <Upload className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>上传并解析文档</TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

@@ -4,12 +4,38 @@ import (
 	"strings"
 )
 
+// Strategy selects the chunking algorithm (10 §2.2). The default StrategyFixed
+// keeps the pre-parsing behavior; new strategies are opt-in via Config.Strategy.
+type Strategy string
+
+const (
+	StrategyFixed         Strategy = "fixed"          // 现状默认：固定长度 + 重叠 + 标题边界
+	StrategyAdaptive3Tier Strategy = "adaptive_3tier" // 自适应三层：section→merge→split
+	StrategyParentChild   Strategy = "parent_child"   // 父子块：大粒度父 + 小粒度子
+)
+
+// ChunkRole marks a chunk's role in a parent-child strategy (10 §2.3). The
+// standalone role (zero value) is used by fixed/adaptive strategies so the
+// field is backward-compatible with existing chunks.
+type ChunkRole string
+
+const (
+	RoleStandalone ChunkRole = ""       // 默认：独立块（现状）
+	RoleParent     ChunkRole = "parent" // 父块：大粒度上下文召回
+	RoleChild      ChunkRole = "child"  // 子块：精准匹配，指向 parent
+)
+
 // ChunkRef is one chunk produced by the chunker (before embedding).
 type ChunkRef struct {
 	Text        string
 	ChunkIndex  int
 	SectionPath string
 	TokenCount  int
+	// parent-child fields (10 §2.3). For fixed/adaptive chunks these stay
+	// zero/empty so the payload stays backward-compatible.
+	Role             ChunkRole
+	ParentChunkID    string // child 指向 parent 的 point id；parent/standalone 为空
+	ParentChunkIndex int    // child 指向 parent 的 chunk_index；便于回溯
 }
 
 // Tokenizer counts tokens. Production wires the embedding model's tokenizer
@@ -47,10 +73,28 @@ func (w WordTokenizer) Count(text string) int {
 // Chunk splits structured text (with Markdown heading markers) into chunks.
 // Algorithm (05 §3.3): section by headings → size with overlap, never cutting a
 // sentence; section_path records the heading hierarchy for each chunk.
+//
+// The strategy is selected by cfg.Strategy (10 §2.2): StrategyFixed (default,
+// unchanged), StrategyAdaptive3Tier (merge small sections, split large), and
+// StrategyParentChild (emit parent + child chunks linked by parent_chunk_id).
 func Chunk(text string, cfg Config, tok Tokenizer) []ChunkRef {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
+	switch cfg.Strategy {
+	case StrategyAdaptive3Tier:
+		return chunkAdaptive3Tier(text, cfg, tok)
+	case StrategyParentChild:
+		return chunkParentChild(text, cfg, tok)
+	default:
+		return chunkFixed(text, cfg, tok)
+	}
+}
+
+// chunkFixed is the pre-parsing algorithm (05 §3.3): section by headings →
+// size with overlap, never cutting a sentence. Renamed from the original
+// Chunk so the dispatch can route to it. Behavior is unchanged.
+func chunkFixed(text string, cfg Config, tok Tokenizer) []ChunkRef {
 	chunkSize := cfg.ChunkSize
 	if chunkSize <= 0 {
 		chunkSize = 512
@@ -87,6 +131,178 @@ func Chunk(text string, cfg Config, tok Tokenizer) []ChunkRef {
 			chunks = append(chunks, ChunkRef{Text: c, ChunkIndex: idx, TokenCount: tok.Count(c)})
 			idx++
 		}
+	}
+	return chunks
+}
+
+// chunkAdaptive3Tier is the adaptive three-tier strategy (10 §2.2):
+//
+//	Tier 1 (section): split by headings (h1-h3) into sections.
+//	Tier 2 (merge):  merge adjacent small sections whose combined tokens ≤
+//	                 chunk_size and each < chunk_size/2 (avoid fragment chunks).
+//	Tier 3 (split):  sections still over chunk_size are split with overlap
+//	                 (reusing chunkSection, the fixed splitter).
+//
+// The merge step is the only delta from the fixed strategy; merged chunks carry
+// a section_path that is the union of the merged sections ("3.1 > 3.2").
+func chunkAdaptive3Tier(text string, cfg Config, tok Tokenizer) []ChunkRef {
+	chunkSize := cfg.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = 512
+	}
+	overlap := cfg.ChunkOverlap
+	if overlap < 0 {
+		overlap = 0
+	}
+	maxSize := cfg.MaxChunkSize
+	if maxSize <= 0 {
+		maxSize = chunkSize
+	}
+	if maxSize < chunkSize {
+		maxSize = chunkSize
+	}
+	halfChunk := chunkSize / 2
+
+	secs := splitSections(text, cfg.RespectHeadingBoundary)
+	if len(secs) == 0 {
+		return chunkFixed(text, cfg, tok)
+	}
+
+	var chunks []ChunkRef
+	idx := 0
+	// Tier 2: merge run of adjacent small sections.
+	i := 0
+	for i < len(secs) {
+		cur := secs[i]
+		curBody := strings.TrimSpace(cur.Body)
+		curTokens := tok.Count(curBody)
+		mergedPath := cur.Path
+		// try to merge forward while combined tokens ≤ chunkSize AND each < halfChunk
+		for j := i + 1; j < len(secs); j++ {
+			next := secs[j]
+			nextBody := strings.TrimSpace(next.Body)
+			nextTokens := tok.Count(nextBody)
+			if curTokens+nextTokens > chunkSize {
+				break
+			}
+			if curTokens >= halfChunk || nextTokens >= halfChunk {
+				break
+			}
+			curBody = curBody + "\n\n" + nextBody
+			curTokens += nextTokens
+			mergedPath = mergePath(mergedPath, next.Path)
+			i = j // advance past the merged section
+		}
+		// Tier 3: split the (possibly merged) section body.
+		for _, c := range chunkSection(curBody, chunkSize, overlap, maxSize, cfg.RespectHeadingBoundary, tok) {
+			chunks = append(chunks, ChunkRef{
+				Text:        c,
+				ChunkIndex:  idx,
+				SectionPath: mergedPath,
+				TokenCount:  tok.Count(c),
+			})
+			idx++
+		}
+		i++
+	}
+	if len(chunks) == 0 && strings.TrimSpace(text) != "" {
+		// fall back to plain fixed chunking of the whole text
+		for _, c := range chunkSection(text, chunkSize, overlap, maxSize, false, tok) {
+			chunks = append(chunks, ChunkRef{Text: c, ChunkIndex: idx, TokenCount: tok.Count(c)})
+			idx++
+		}
+	}
+	return chunks
+}
+
+// mergePath joins two section paths so a merged chunk records both ("3.1 > 3.2").
+func mergePath(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	return a + " > " + b
+}
+
+// chunkParentChild emits parent + child chunks (10 §2.3):
+//   - A parent chunk is the whole section body (may exceed chunk_size) — used
+//     for context recall.
+//   - Child chunks are the section body split to chunk_size — used for precise
+//     match. Each child records its parent's chunk index so retrieval can walk
+//     child → parent to supplement context.
+//
+// Very small sections (< chunk_size) emit a single standalone chunk (no
+// parent/child split) to avoid pointless single-child parents.
+func chunkParentChild(text string, cfg Config, tok Tokenizer) []ChunkRef {
+	chunkSize := cfg.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = 512
+	}
+	overlap := cfg.ChunkOverlap
+	if overlap < 0 {
+		overlap = 0
+	}
+	maxSize := cfg.MaxChunkSize
+	if maxSize <= 0 {
+		maxSize = chunkSize
+	}
+	if maxSize < chunkSize {
+		maxSize = chunkSize
+	}
+
+	secs := splitSections(text, cfg.RespectHeadingBoundary)
+	var chunks []ChunkRef
+	idx := 0
+	// no headings → no parent/child structure; behave like fixed
+	if len(secs) == 0 {
+		return chunkFixed(text, cfg, tok)
+	}
+	for _, sec := range secs {
+		body := strings.TrimSpace(sec.Body)
+		if body == "" {
+			continue
+		}
+		bodyTokens := tok.Count(body)
+		// small section: one standalone chunk, no parent/child overhead
+		if bodyTokens <= chunkSize {
+			chunks = append(chunks, ChunkRef{
+				Text:        body,
+				ChunkIndex:  idx,
+				SectionPath: sec.Path,
+				TokenCount:  bodyTokens,
+				Role:        RoleStandalone,
+			})
+			idx++
+			continue
+		}
+		// parent: whole section (context recall candidate)
+		parentIdx := idx
+		chunks = append(chunks, ChunkRef{
+			Text:        body,
+			ChunkIndex:  idx,
+			SectionPath: sec.Path,
+			TokenCount:  bodyTokens,
+			Role:        RoleParent,
+		})
+		idx++
+		// children: section split to chunk_size (precise match candidates)
+		childChunks := chunkSection(body, chunkSize, overlap, maxSize, cfg.RespectHeadingBoundary, tok)
+		for _, c := range childChunks {
+			chunks = append(chunks, ChunkRef{
+				Text:             c,
+				ChunkIndex:       idx,
+				SectionPath:      sec.Path,
+				TokenCount:       tok.Count(c),
+				Role:             RoleChild,
+				ParentChunkIndex: parentIdx,
+			})
+			idx++
+		}
+	}
+	if len(chunks) == 0 && strings.TrimSpace(text) != "" {
+		return chunkFixed(text, cfg, tok)
 	}
 	return chunks
 }
@@ -168,7 +384,10 @@ func headingLevel(line string) (int, string) {
 }
 
 // chunkSection splits one section body into chunk-sized pieces with overlap,
-// never cutting inside a sentence.
+// never cutting inside a sentence. maxSize is the absolute chunk ceiling
+// (Config.MaxChunkSize); it is honored because every emitted chunk is bounded
+// by chunkSize (accumulated sentences flush at chunkSize; hardSplitWords emits
+// chunkSize-sized groups) and callers guarantee maxSize >= chunkSize.
 func chunkSection(body string, chunkSize, overlap, maxSize int, _ bool, tok Tokenizer) []string {
 	body = strings.TrimSpace(body)
 	if body == "" {
@@ -184,8 +403,15 @@ func chunkSection(body string, chunkSize, overlap, maxSize int, _ bool, tok Toke
 	for i := 0; i < len(sents); i++ {
 		s := sents[i]
 		st := tok.Count(s)
-		if st >= maxSize {
-			// single sentence longer than max: hard-split by words
+		// A single sentence that on its own reaches or exceeds chunk_size can
+		// never fit inside a chunk (05 §3.3: a section over chunk_size is split
+		// in-place). Flush any accumulated sentences first so the long one
+		// doesn't bleed across the boundary, then hard-split it into
+		// chunk_size-sized word groups with overlap. The earlier `>= maxSize`
+		// guard fired only when a sentence exceeded MaxChunkSize (default 1024),
+		// so a 500-word, terminator-less sentence with chunk_size=64 slipped
+		// through and collapsed the whole body into one oversized chunk (YS-82).
+		if st >= chunkSize {
 			if curTokens > 0 {
 				chunks = append(chunks, strings.Join(cur, " "))
 				cur, curTokens = cur[:0], 0

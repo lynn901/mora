@@ -26,14 +26,14 @@ metadata:
     helm.sh/hook-weight: "-1"
 data:
   run-migrations.sh: |
-$(sed 's/^/    /' "$ROOT/deployments/run-migrations.sh")
+$(sed 's/^/    /; s/^    $//' "$ROOT/deployments/run-migrations.sh")
 EOF
 
 for f in "$ROOT"/migrations/*.sql; do
   name=$(basename "$f")
   cat >> "$OUTPUT" <<EOF
   ${name}: |
-$(sed 's/^/    /' "$f")
+$(sed 's/^/    /; s/^    $//' "$f")
 EOF
 done
 

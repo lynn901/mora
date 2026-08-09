@@ -43,10 +43,22 @@ type Config struct {
 	RateLimitSearchPerMin int
 	RateLimitMCPPerMin    int
 
-	// Minio object storage (attachments)
+	// Minio object storage (attachments + parsed source files, 10 §4.2.1)
 	MinioEndpoint  string
 	MinioAccessKey string
 	MinioSecretKey string
+	MinioBucket    string
+	MinioSecure    bool // true = HTTPS
+	MinioRegion    string
+
+	// --- multi-format document parsing (10 §9.2) ---
+	MoraParserURL         string // mora-parser sidecar (OCR/VLM/ASR); empty = disabled (P2)
+	WhisperURL            string // whisper.cpp ASR server; empty = disabled (P2)
+	ParseMaxFileMB        int    // single-file upload cap
+	ParseOCRDefaultLang   string // chi_sim+eng
+	ParseVLMModel         string // ollama VLM model id, e.g. minicpm-v
+	ParseTaskMaxAttempt   int    // parse task retry count
+	ParseDeadLetterStream string
 
 	// --- mcp domain ---
 	Transport       string // "http" (default) or "stdio"
@@ -74,6 +86,16 @@ func Load() (*Config, error) {
 		MinioEndpoint:          getenv("MINIO_ENDPOINT", "localhost:9000"),
 		MinioAccessKey:         getenv("MINIO_ACCESS_KEY", ""),
 		MinioSecretKey:         getenv("MINIO_SECRET_KEY", ""),
+		MinioBucket:            getenv("MINIO_BUCKET", "mora"),
+		MinioSecure:            os.Getenv("MINIO_SECURE") == "true",
+		MinioRegion:            getenv("MINIO_REGION", "us-east-1"),
+		MoraParserURL:          getenv("MORA_PARSER_URL", ""),
+		WhisperURL:             getenv("WHISPER_URL", ""),
+		ParseMaxFileMB:         getenvInt("PARSE_MAX_FILE_MB", 100),
+		ParseOCRDefaultLang:    getenv("PARSE_OCR_DEFAULT_LANG", "chi_sim+eng"),
+		ParseVLMModel:          getenv("PARSE_VLM_MODEL", "minicpm-v"),
+		ParseTaskMaxAttempt:    getenvInt("PARSE_TASK_MAX_ATTEMPT", 3),
+		ParseDeadLetterStream:  getenv("PARSE_DEAD_LETTER_STREAM", "doc_events:parse_dead"),
 		QdrantURL:              getenv("QDRANT_URL", "http://localhost:6333"),
 		QdrantCollectionPrefix: getenv("RAG_COLLECTION_PREFIX", "mora_chunks_"),
 		TEIURL:                 getenv("TEI_URL", "http://localhost:8080"),
@@ -90,7 +112,7 @@ func Load() (*Config, error) {
 		RateLimitSearchPerMin:  getenvInt("RATE_LIMIT_SEARCH_PER_MIN", 200),
 		RateLimitMCPPerMin:     getenvInt("RATE_LIMIT_MCP_PER_MIN", 100),
 		Transport:              getenv("MCP_TRANSPORT", "http"),
-		MoraAPIURL:             strings.TrimRight(getenv("MORA_API_URL", "http://localhost:8080"), "/"),
+		MoraAPIURL:             getenv("MORA_API_URL", "http://localhost:8080"),
 		InternalToken:          os.Getenv("INTERNAL_SERVICE_TOKEN"),
 		RateLimitRead:          getenvInt("MCP_RATE_LIMIT_READ", 100),
 		RateLimitWrite:         getenvInt("MCP_RATE_LIMIT_WRITE", 20),

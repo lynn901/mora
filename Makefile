@@ -10,17 +10,23 @@
 #        make restore — 恢复数据
 #        make export  — 全量导出（迁移）
 #        make verify  — 冒烟验证
+#        make up-parser — 拉起 P2 多模态解析 sidecar（需先 make up）
 
 COMPOSE_FILE = deployments/docker-compose.yml
 COMPOSE_PROJECT = mora
 
-.PHONY: build up down logs ps restart reset backup restore export verify config
+.PHONY: build up up-parser down logs ps restart reset backup restore export verify config
 
 build:
 	docker compose -f $(COMPOSE_FILE) -p $(COMPOSE_PROJECT) build
 
 up:
 	docker compose -f $(COMPOSE_FILE) -p $(COMPOSE_PROJECT) up -d
+
+# P2 多模态/复杂版式解析 sidecar（mora-parser：OCR/VLM/版式 PDF）。
+# 启用后须在 .env 设 MORA_PARSER_URL=http://mora-parser:8000；详见 deployments/docker-compose.yml。
+up-parser:
+	docker compose -f $(COMPOSE_FILE) -p $(COMPOSE_PROJECT) --profile parser up -d
 
 down:
 	docker compose -f $(COMPOSE_FILE) -p $(COMPOSE_PROJECT) down

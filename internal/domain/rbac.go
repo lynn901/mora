@@ -38,9 +38,9 @@ const (
 type TargetType string
 
 const (
-	TargetWorkspace  TargetType = "workspace"
-	TargetDirectory  TargetType = "directory"
-	TargetDocument   TargetType = "document"
+	TargetWorkspace TargetType = "workspace"
+	TargetDirectory TargetType = "directory"
+	TargetDocument  TargetType = "document"
 )
 
 type SubjectType string
@@ -62,16 +62,16 @@ type Role struct {
 
 // Permission grants a subject (user/group) a role over a target resource.
 type Permission struct {
-	ID           UUID          `json:"id"`
-	SubjectType  SubjectType   `json:"subject_type"`
-	SubjectID    UUID          `json:"subject_id"`
-	RoleID       UUID          `json:"role_id"`
-	TargetType   TargetType    `json:"target_type"`
-	TargetID     UUID          `json:"target_id"`
-	Effect       Effect        `json:"effect"`
-	InheritScope InheritScope  `json:"inherit_scope"`
-	CreatedAt    time.Time     `json:"created_at"`
-	CreatedBy    *UUID         `json:"created_by,omitempty"`
+	ID           UUID         `json:"id"`
+	SubjectType  SubjectType  `json:"subject_type"`
+	SubjectID    UUID         `json:"subject_id"`
+	RoleID       UUID         `json:"role_id"`
+	TargetType   TargetType   `json:"target_type"`
+	TargetID     UUID         `json:"target_id"`
+	Effect       Effect       `json:"effect"`
+	InheritScope InheritScope `json:"inherit_scope"`
+	CreatedAt    time.Time    `json:"created_at"`
+	CreatedBy    *UUID        `json:"created_by,omitempty"`
 }
 
 // Grant is a resolved, in-memory permission entry used by the RBAC engine.

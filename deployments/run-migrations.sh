@@ -1,7 +1,7 @@
 #!/bin/sh
 # deployments/run-migrations.sh
 # 幂等执行 PostgreSQL 迁移：用 schema_migrations 表记录已应用版本，重复
-# `docker compose up` 不会重复执行。按文件名顺序应用 0??_*.up.sql（001-010）。
+# `docker compose up` 不会重复执行。按文件名顺序应用 0??_*.up.sql。
 # 在 postgres:16 镜像中运行（含 psql + sh）。
 set -e
 

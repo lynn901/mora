@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { login as apiLogin, clearToken, getToken } from "@/api"
+import { ApiError } from "@/api/client"
 
 interface AuthUser {
   id: string
@@ -33,8 +34,15 @@ export const useAuthStore = create<AuthState>((set) => ({
         isLoading: false,
       })
     } catch (e) {
+      // A 401 on login means bad credentials — map the backend's
+      // "invalid credentials" to a user-facing message; surface any
+      // other error verbatim to match the rest of the app's convention.
+      const message =
+        e instanceof ApiError && e.status === 401
+          ? "邮箱或密码错误"
+          : (e as Error).message
       set({
-        error: (e as Error).message,
+        error: message,
         isLoading: false,
       })
       throw e

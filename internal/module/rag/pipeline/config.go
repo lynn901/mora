@@ -8,12 +8,13 @@ import "time"
 
 // Config tunes the pipeline. Defaults follow PRD F2.1 (chunk 512 / overlap 64).
 type Config struct {
-	ChunkSize              int    // default 512 tokens
-	ChunkOverlap           int    // default 64 tokens
-	RespectHeadingBoundary bool   // default true
-	MaxChunkSize           int    // default 1024 tokens
-	EmbedBatchSize         int    // default 32 (TEI batch /embed)
-	CollectionPrefix       string // default "mora_chunks_"; applied at process startup
+	ChunkSize              int      // default 512 tokens
+	ChunkOverlap           int      // default 64 tokens
+	RespectHeadingBoundary bool     // default true
+	MaxChunkSize           int      // default 1024 tokens
+	EmbedBatchSize         int      // default 32 (TEI batch /embed)
+	CollectionPrefix       string   // default "mora_chunks_"; injected into domain.SetCollectionPrefix at startup (brand-naming-spec §4-F)
+	Strategy               Strategy // default StrategyFixed (10 §2.2); adaptive_3tier / parent_child are opt-in
 	// Retry backoff for transient failures (worker-level). 10s/30s/90s by default.
 	Backoffs   []time.Duration
 	MaxAttempt int // default 3
@@ -27,6 +28,7 @@ func DefaultConfig() Config {
 		MaxChunkSize:           1024,
 		EmbedBatchSize:         32,
 		CollectionPrefix:       "mora_chunks_",
+		Strategy:               StrategyFixed,
 		Backoffs:               []time.Duration{10 * time.Second, 30 * time.Second, 90 * time.Second},
 		MaxAttempt:             3,
 	}

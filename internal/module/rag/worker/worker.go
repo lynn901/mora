@@ -143,6 +143,13 @@ func (w *Worker) Process(ctx context.Context, msg rag.QueueMessage) {
 			if _, markErr := w.Idem.MarkSeen(ctx, ev.EventID, 24*time.Hour); markErr != nil {
 				w.Logf("rag/worker: mark seen %s: %v", ev.EventID, markErr)
 			}
+			// two-stage decoupling (10 §4.1): a successful parse publishes a
+			// follow-on document.create so the existing RAG pipeline indexes
+			// the freshly-written content. ParseOpts are forwarded so the
+			// indexing stage picks the configured chunking strategy.
+			if ev.EventType == domain.EventDocumentParse || ev.EventType == domain.EventDocumentReparse {
+				w.publishParseFollowOn(ctx, ev)
+			}
 			_ = w.Queue.Ack(ctx, msg)
 			w.Logf("rag/worker: processed %s (%s) attempt %d", ev.EventID, ev.EventType, attempt)
 			return
@@ -165,4 +172,39 @@ func (w *Worker) Process(ctx context.Context, msg rag.QueueMessage) {
 	w.DeadLetters++
 	w.Logf("rag/worker: DEAD-LETTER %s: %s", ev.EventID, reason)
 	_ = w.Queue.Ack(ctx, msg)
+}
+
+// publishParseFollowOn emits the document.create event that drives the second
+// stage of the two-stage decoupling (10 §4.1): after a successful parse, the
+// freshly-written content must be indexed. The new event re-enters the same
+// doc_events stream and is consumed by this same worker's create path.
+//
+// The follow-on carries the chunking strategy from the parse payload so the
+// indexing stage uses the configured chunker. It uses a fresh event_id (so it
+// is not deduped against the parse event). Publish failures are best-effort:
+// the parse already succeeded and the content is persisted; a missed follow-on
+// is recoverable via the compensation scanner (which re-publishes pending
+// indexing tasks).
+func (w *Worker) publishParseFollowOn(ctx context.Context, ev domain.DocEvent) {
+	if w.Queue == nil {
+		return
+	}
+	follow := domain.DocEvent{
+		EventID:     "parse-idx-" + ev.DocumentID + "-" + ev.EventID,
+		EventType:   domain.EventDocumentCreate,
+		DocumentID:  ev.DocumentID,
+		WorkspaceID: ev.WorkspaceID,
+		VersionNo:   ev.VersionNo,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+	}
+	// forward parse_opts so handleIndex can apply the chunking strategy. The
+	// pipeline's handleIndex currently reads Config.Strategy (process-wide);
+	// per-event strategy override is a follow-up — for now the parse_opts are
+	// carried so a future change can route by them without re-publishing.
+	if ev.Payload != nil {
+		follow.Payload = map[string]any{"parse_opts": ev.Payload["parse_opts"]}
+	}
+	if _, err := w.Queue.Publish(ctx, follow); err != nil {
+		w.Logf("rag/worker: parse follow-on publish for %s: %v (will retry via compensation)", ev.DocumentID, err)
+	}
 }

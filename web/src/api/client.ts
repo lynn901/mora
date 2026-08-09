@@ -52,7 +52,11 @@ async function request<T>(
 
   if (!res.ok || json.code !== 0) {
     const msg = json.message || `Request failed (${res.status})`
-    if (res.status === 401) {
+    // A 401 on the login endpoint is a credential error (wrong email/password),
+    // not session expiry. Clearing the token and reloading here would tear down
+    // the page and wipe the store's error state before the user ever sees it, so
+    // surface it as a normal ApiError and let the caller render the message.
+    if (res.status === 401 && path !== "/auth/login") {
       clearToken()
       window.location.reload()
     }
@@ -71,6 +75,9 @@ export const http = {
 
   patch: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
     request<T>("PATCH", path, body, headers),
+
+  put: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
+    request<T>("PUT", path, body, headers),
 
   delete: <T>(path: string, headers?: Record<string, string>) =>
     request<T>("DELETE", path, undefined, headers),

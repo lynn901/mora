@@ -1,3 +1,4 @@
+-- migrations/012_rotate_demo_token.up.sql
 -- Rotate the local/demo MCP token from the retired wki_ prefix to mora_.
 UPDATE api_tokens
 SET token_hash = 'd2e038407eb0a334decd26d3b91d88acfaa23fbfdfe6c1008927e05d416f5f2e',

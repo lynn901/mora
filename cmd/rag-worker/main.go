@@ -17,9 +17,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/infra/mq"
+	"github.com/lynn901/mora/internal/infra/objstore"
 	"github.com/lynn901/mora/internal/infra/pg"
 	"github.com/lynn901/mora/internal/infra/qdrant"
 	"github.com/lynn901/mora/internal/infra/ragwiring"
+	"github.com/lynn901/mora/internal/module/rag/parser"
 	"github.com/lynn901/mora/internal/module/rag/pipeline"
 	"github.com/lynn901/mora/internal/module/rag/worker"
 	"github.com/redis/go-redis/v9"
@@ -66,9 +68,41 @@ func main() {
 		RerankModel: env("RERANKER_MODEL", ""),
 	}
 
+	// --- multi-format parsing (10 §4) ---
+	// Object storage: MinIO/S3-compatible. When not configured (no endpoint),
+	// parse events surface ErrNotConfigured and dead-letter; the existing
+	// document.create pipeline is unaffected.
+	objStore := objstore.New(
+		env("MINIO_ENDPOINT", "minio:9000"),
+		env("MINIO_ACCESS_KEY", ""),
+		env("MINIO_SECRET_KEY", ""),
+		env("MINIO_BUCKET", "mora"),
+		env("MINIO_REGION", "us-east-1"),
+	)
+	parseStore := pg.NewParseTaskStore(pool)
+	// parser registry: pure-Go parsers (P0/P1); the sidecar (P2 multimodal) is
+	// registered first so multimodal opts route to it when configured.
+	registry := parser.DefaultRegistry()
+	if sidecarURL := env("MORA_PARSER_URL", ""); sidecarURL != "" {
+		registry = parser.NewRegistry()
+		registry.Register(parser.NewSidecarParser(sidecarURL))
+		for _, p := range []parser.Parser{
+			parser.MarkdownParser{}, parser.HTMLParser{}, parser.JSONParser{},
+			parser.CSVParser{}, parser.PDFParser{}, parser.DocxParser{},
+			parser.XlsxParser{}, parser.PptxParser{}, parser.EpubParser{},
+			parser.MhtmlParser{}, parser.TextParser{},
+		} {
+			registry.Register(p)
+		}
+	}
+
 	pipe := pipeline.New(pipeline.Pipeline{
 		Cfg:  pipeline.DefaultConfig(),
 		Docs: docs, RBAC: rbac, Vectors: vectors, Models: models, Factory: factory, Status: status,
+		Parser:     parser.TextParser{}, // fallback; registry.Lookup is preferred in handleParse
+		Registry:   registry,
+		Objects:    objStore,
+		ParseStore: parseStore,
 		// Wire the pipeline logger so skip/index/error diagnostics are visible.
 		// Without this, pipeline.New defaults Logf to a no-op and every skip
 		// (e.g. a draft document) or swallowed error becomes invisible — the

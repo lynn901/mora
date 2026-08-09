@@ -35,12 +35,10 @@ content; they do not publish directly.
 # In-memory development mode
 MCP_USE_MOCK=1 go run ./cmd/mcp-server
 
-# Backed by mora-api, PostgreSQL, and Valkey
-DATABASE_URL=postgres://... \
-VALKEY_URL=redis://localhost:6379 \
-MORA_API_URL=http://localhost:8080 \
-INTERNAL_SERVICE_TOKEN=... \
-go run ./cmd/mcp-server
+# Production (real Mora API + Postgres + Valkey)
+DATABASE_URL=postgres://... VALKEY_URL=valkey:6379 \
+  MORA_API_URL=http://mora-api:8080 INTERNAL_SERVICE_TOKEN=... \
+  go run ./cmd/mcp-server
 
 # stdio transport
 go run ./cmd/mcp-server --transport stdio --api-token mora_...

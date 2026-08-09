@@ -52,6 +52,11 @@ func (s *DocumentService) Create(ctx context.Context, auth AuthContext, d *domai
 	}
 	d.Status = domain.StatusDraft
 	d.IndexStatus = domain.IndexPending
+	// Block-authored documents are already parsed content; mark them parsed so
+	// the NOT NULL DEFAULT 'parsed' column on documents.parse_status (migration
+	// 011) is never sent an explicit NULL via nullIfEmpty(""). Upload-file
+	// documents get ParsePending set by the upload/parse path instead.
+	d.ParseStatus = domain.ParseParsed
 	d.CreatedBy = auth.UserID
 	d.UpdatedBy = &auth.UserID
 	d.VersionNo = 1

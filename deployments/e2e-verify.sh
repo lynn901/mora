@@ -29,6 +29,17 @@ else
   echo "  (docker 不可用，跳过容器状态检查)"
 fi
 
+section "0.5 对象存储（MinIO，多格式解析上传依赖）"
+# MinIO 是多格式解析的 P0 依赖（design-docs/10 §4.2.1）；mora-api/rag-worker depends_on 它 healthy。
+# 宿主 9000 探测 /minio/health/live；未暴露端口时改走 docker exec。
+MINIO_PORT="${MINIO_PORT:-9000}"
+MINIO_HC=$(curlv "http://localhost:${MINIO_PORT}/minio/health/live" 2>/dev/null || echo "")
+if [ -z "${MINIO_HC}" ]; then
+  # 端口未发布到宿主（仅同网可达）→ 通过容器名探测
+  MINIO_HC=$(docker exec mora-mora-api-1 wget -qO- "http://minio:9000/minio/health/live" 2>/dev/null || docker exec mora-rag-worker-1 wget -qO- "http://minio:9000/minio/health/live" 2>/dev/null || echo "")
+fi
+if [ -n "${MINIO_HC}" ]; then ok "MinIO /minio/health/live 可达（多格式解析对象存储就绪）"; else fail "MinIO 不可达"; echo "  提示: docker compose logs minio; mora-api/rag-worker depends_on minio healthy"; fi
+
 section "1. 健康检查"
 HC=$(curlv "${MORA}/healthz")
 if echo "${HC}" | grep -q '"status":"ok"'; then ok "mora-api /healthz"; else fail "mora-api /healthz"; echo "  响应: ${HC}"; fi

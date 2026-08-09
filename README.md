@@ -122,7 +122,7 @@ internal/
   infra/
     postgres/            pgx 仓库实现 + RBAC 适配器 + 检索执行器
     pg/, mq/, qdrant/, ragwiring/   基础设施适配
-migrations/              11 套 up/down 迁移（001…011，含 demo 种子）
+migrations/              12 套 up/down 迁移（001…012，含 demo 种子）
 test/integration/        DATABASE_URL 门控的端到端集成测试
 deployments/             Dockerfile / docker-compose / Helm chart / 脚本
 design-docs/             8 份设计文档（技术选型 / 架构 / 数据模型 / API / RAG / MCP / 安全 / 命名）
