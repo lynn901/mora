@@ -20,7 +20,7 @@
 | 并发检索 | 单实例 ≥ 200 并发 |
 | 可靠性 | 流水线失败自动重试（指数退避，最多 3 次），幂等不产生重复向量 |
 | 最终一致 | Mora 与向量库最终一致；删除级联有对账补偿；权限变更触发可见性重算 |
-| 私有化 | 默认不出网；Embedding 限定本地 TEI/Ollama，外部模型须显式授权+审计 |
+| 私有化 | 支持本地部署；Embedding 可使用本地 TEI/Ollama 或经授权的外部模型 |
 | 可插拔 | Embedding Provider、Reranker、检索后端均可抽象替换 |
 
 ### 1.3 设计原则
@@ -332,7 +332,7 @@ type RerankerProvider interface {
 |---|---|---|
 | TEI | `TEIProvider` | 调 TEI `/embed`（batch）+ `/rerank`（Cross-Encoder）；主选，高性能批量推理 |
 | Ollama | `OllamaProvider` | 调 Ollama `/api/embeddings`；备选，轻量化试用场景 |
-| 外部 API | `ExternalAPIProvider` | 预留；须显式授权+审计+脱敏（默认不出网） |
+| 外部 API | `ExternalAPIProvider` | 预留；须显式授权+审计+脱敏 |
 
 ### 5.3 模型配置与热切换
 

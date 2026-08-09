@@ -57,7 +57,7 @@ services:
 
   minio:
     # 对象存储：多格式文档解析上传原文件 + 解析产物（design-docs/10 §4.2.1）。
-    # S3 兼容；mora-api/rag-worker 通过 MINIO_* 环境变量访问。默认不出网。
+    # S3 兼容；mora-api/rag-worker 通过 MINIO_* 环境变量访问。
     image: minio/minio:RELEASE.2024-12-18T13-15-44Z
     command: server /data --console-address ":9001"
     environment:
@@ -103,7 +103,7 @@ services:
   # 启用：docker compose --profile parser up -d，并在 .env 设
   #   MORA_PARSER_URL=http://mora-parser:8000
   #   WHISPER_URL=http://mora-parser:8001   # ASR（whisper.cpp server，sidecar 内或独立）
-  # 默认不出网：权重从挂载的 parser_models 卷加载，运行期不拉网。
+  # 权重可从挂载的 parser_models 卷加载，也可按配置连接模型服务。
   # P0/P1 不依赖本服务（纯 Go 库覆盖文本 PDF/Word/Excel/PPT/EPUB/MHTML/CSV）。
 
   mora-parser:
@@ -129,7 +129,7 @@ services:
       # 共享密钥（rag-worker 侧 X-Sidecar-Token）；默认无
       SIDECAR_TOKEN: "${MORA_PARSER_TOKEN:-}"
     volumes:
-      - parser_models:/models:ro   # 预置权重卷，运行期只读，不出网
+      - parser_models:/models:ro   # 预置权重卷，运行期只读
     # 端口默认不暴露宿主（仅同网可达）；调试需暴露时设 MORA_PARSER_PORT
     ports: ["${MORA_PARSER_PORT:-8000}:8000"]
     healthcheck:

@@ -8,7 +8,7 @@
 ## 1. 架构总览
 
 ### 1.1 设计目标
-- **私有化优先**：全套组件本地部署，默认不出网。
+- **私有化优先**：全套组件支持本地部署，网络连接按部署环境配置。
 - **事件驱动**：文档变更经消息队列异步驱动 RAG 流水线，Mora 读写不被向量化阻塞。
 - **RBAC 全链路**：权限引擎统一，Mora 检索、向量库 payload 过滤、MCP 调用均复用同一权限决策。
 - **可插拔**：Embedding Provider、Reranker、存储后端、组织架构源抽象为接口。
@@ -281,7 +281,7 @@ volumes:
 **单机部署特点**：
 - 一键 `docker compose up -d` 拉起全部组件，初始化 ≤ 30 分钟。
 - 所有数据卷本地挂载（`./data` 或 named volume），100% 私有化。
-- TEI 模型文件预下载本地挂载，不出网拉取模型。
+- TEI 模型文件支持本地挂载，也可按需从配置的模型源获取。
 - 资源建议：8 核 CPU / 16GB RAM / 100GB 磁盘（含模型）。
 
 ### 3.2 Kubernetes 生产部署
@@ -330,7 +330,7 @@ volumes:
 - **配置注入**：ConfigMap（非敏感）+ Secret（密钥）→ 环境变量。
 - **HPA**：Mora API/MCP 按 CPU；RAG Worker 按自定义指标（队列深度，需 Prometheus Adapter）。
 - **资源配额**：各容器设 requests/limits，防资源争抢。
-- **网络策略**：NetworkPolicy 限制仅 Ingress 可达应用层，应用层仅可达数据层。
+- **网络策略**：NetworkPolicy 按组件职责限制访问范围，外部服务访问可按需配置。
 
 ---
 
@@ -463,7 +463,7 @@ consumers: rag-worker-1, rag-worker-2, ...
 - 容器化部署，支持 Qwen3-Embedding 等模型。
 - 批量推理 API（`/embed`），适合流水线批量切块向量化。
 - Reranker 模式（`/rerank`），支持 Cross-Encoder 重排。
-- 模型文件本地挂载，不出网。
+- 模型文件支持本地挂载，也可配置远程模型服务。
 
 **Ollama（备选）**：
 - 轻量化，适合小规模/试用场景。

@@ -1,11 +1,12 @@
 // LlmGatewayPanel — screen 5 (UI spec §3.5). Admin config for external
-// OpenAI-compatible endpoints. Surfaces the privacy / egress constraints
+// OpenAI-compatible endpoints. Surfaces the privacy / external endpoint controls
 // (F0.2): content leaves the workspace, calls are audited and rate-limited,
 // keys come from env/secret (never stored in plaintext).
 //
 // P2 note (architecture §0): the sidecar gateway is not yet wired; this page
 // renders the management surface with empty-state + form so the design is
-// ready when the backend lands. No network calls are made.
+// ready when the backend lands. The current page only manages configuration;
+// the backend will issue calls once the gateway is connected.
 import { useState } from "react"
 import { Plus, Pencil, Trash2, Plug, ShieldAlert, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -101,7 +102,7 @@ export function LlmGatewayPanel() {
 
       <ScrollArea className="flex-1">
         <div className="mx-auto max-w-3xl px-6 py-4 space-y-4">
-          {/* Alert strip — privacy / egress constraints (F0.2). */}
+          {/* Alert strip — privacy / external endpoint controls (F0.2). */}
           <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2 text-sm text-info">
             <Info className="size-4 shrink-0 mt-0.5" />
             <span>

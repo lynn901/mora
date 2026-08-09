@@ -2,7 +2,7 @@
 
 > 文档版本：v1.0 ｜ 产出人：Mora 项目架构师 ｜ 对应任务：YS-75（父 issue YS-73）
 > 依据：父 issue YS-73（参考 WeKnora 多格式解析）、design-docs/02-system-architecture.md、03-data-model.md、05-rag-pipeline-design.md、04-api-contract.md
-> 技术栈约束：Go 1.25 / Gin / PostgreSQL 16 + zhparser FTS / Valkey Streams / Qdrant / TEI / Ollama / y-websocket；100% 私有化、默认不出网
+> 技术栈约束：Go 1.25 / Gin / PostgreSQL 16 + zhparser FTS / Valkey Streams / Qdrant / TEI / Ollama / y-websocket；支持 100% 私有化部署，网络连接可配置
 
 ---
 
@@ -24,7 +24,7 @@
 
 ### 1.1 设计原则与约束
 
-- **私有化不出网**：所有解析依赖必须可 Docker 化、离线运行；禁止调用外部 SaaS API。模型权重须可预置或内网拉取后缓存。
+- **私有化部署**：所有解析依赖必须可 Docker 化并支持本地运行；需要调用外部 SaaS API 时通过配置启用并纳入授权与审计。模型权重可预置、本地挂载或从配置的模型源获取。
 - **CGO 谨慎**：Mora 现为纯 Go 构建（见 Dockerfile），引入 CGO 会拉高交叉编译与镜像构建成本。优先纯 Go；仅在无可用纯 Go 实现时引入 sidecar。
 - **解耦优先**：解析层与 RAG 流水线之间只通过 `DocumentSnapshot{Content []byte, ContentText string}` 与 `ParsedDocument` 结构通信，不直接写 Qdrant。
 - **可插拔**：定义 `Parser` 接口，按 MIME/扩展名路由；新增格式只加一个 Parser 实现，不改管线。
@@ -151,7 +151,7 @@ type ParseOptions struct {
 **部署形态**：
 - CPU 模式：mora-parser 镜像含 CPU 版 PaddleOCR + whisper.cpp 客户端，与 rag-worker 同网部署。
 - GPU 模式：`docker compose --profile gpu-parser up`，mora-parser 挂 GPU，rag-worker 通过 `MORA_PARSER_URL` 路由。
-- **默认不出网**：mora-parser 启动时从挂载的 `models/` 卷加载预置权重，运行期不拉网。
+- mora-parser 启动时可从挂载的 `models/` 卷加载预置权重，也可按配置连接模型服务。
 
 **MVP 边界**：P0/P1 不依赖 mora-parser（纯 Go 库即可覆盖文本 PDF/Word/Excel/PPT/EPUB/MHTML/CSV）；mora-parser 在 P2 才成为硬依赖，此时可独立迭代而不阻塞主线。
 
@@ -712,7 +712,7 @@ PARSE_DEAD_LETTER_STREAM=doc_events:parse_dead
 | 纯 Go PDF 库对版式/表格弱 | 富版式 PDF 解析质量低 | P0 先满足文本层；版式走 mora-parser(P1/P2) |
 | PPT 纯 Go 库多为 AGPL | License 传染 | 不进主进程；走 sidecar，隔离 AGPL 义务 |
 | 解析与向量化两段状态机复杂度 | 调试链路长 | 双状态机对称设计、统一 SSE 进度、统一死信；补偿扫描器复用 |
-| mora-parser 依赖 Python 生态 | 运维面增加 | 单一镜像、单一健康检查、默认禁用(P2 才需要)、权重预置不出网 |
+| mora-parser 依赖 Python 生态 | 运维面增加 | 单一镜像、单一健康检查、默认按需启用(P2 才需要)、权重可预置或按配置获取 |
 | 重解析过渡期文档暂不可见 | 检索体验波动 | 沿用 update 先删后写语义；过渡期 < 解析时长，徽标明示 |
 | 大文件/超大文档 | worker 内存/超时 | 分页流式解析、`PARSE_MAX_FILE_MB`、大文档复用 05 §3.3.4 分批 |
 

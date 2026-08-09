@@ -4,7 +4,7 @@
 
 Mora 是一套以「企业内部文档协作 + 个人知识管理」为核心场景的协同平台后端，采用 Go 模块化单体（modular monolith）架构实现。它把知识库产品最关键的几件事一次性做扎实：**块级文档的 Markdown 双向可逆转换**、**多工作区隔离与无限级目录**、**不可改写的版本历史与 Diff 回滚**、**显式优先的 RBAC 权限继承**、**BM25 全文 + 向量 RAG 混合检索**，以及**实时协同编辑（presence / cursor / 并发降级）**。
 
-平台自托管、100% 私有化：前端（nginx SPA）、三个 Go 服务（mora-api / rag-worker / mcp-server）、CRDT 协同服务（yjs-server）与基础设施（PostgreSQL / Valkey / Qdrant / TEI）全部以 Docker Compose 一键拉起，默认不出网。
+平台支持自托管、100% 私有化：前端（nginx SPA）、三个 Go 服务（mora-api / rag-worker / mcp-server）、CRDT 协同服务（yjs-server）与基础设施（PostgreSQL / Valkey / Qdrant / TEI）全部以 Docker Compose 一键拉起；网络连接按部署环境配置。
 
 ## 目录
 
@@ -438,7 +438,7 @@ docker compose -f deployments/docker-compose.yml -p mora down -v
 - 全部 SQL 参数化（pgx），FTS 配置名严格白名单（`[a-zA-Z0-9_]`）防注入。
 - 审计日志追加写（`audit_logs` 分区表，仅 INSERT）。
 - JWT 鉴权 + 按用户/域速率限制；服务间 `INTERNAL_SERVICE_TOKEN`。
-- 默认不出网；密钥经环境变量注入，不硬编码。
+- 网络连接按部署环境配置；密钥经环境变量注入，不硬编码。
 - RBAC 为检索与目录的硬约束，无权资源存在性不泄露。
 
 ## 贡献
