@@ -54,6 +54,31 @@ type fakeRevisionRepo struct{ rev int64 }
 
 func (f *fakeRevisionRepo) Current(_ context.Context, _ uuid.UUID) (int64, error) { return f.rev, nil }
 
+// fakeVersionRepo backs the pinned-version-revocation gate (§8.2 用例 5).
+// versions maps a pinned version id to its usable state; a missing entry
+// returns a not-found error the service maps to a deny (no existence leak).
+type fakeVersionRepo struct {
+	versions map[uuid.UUID]AssetVersionInfo
+	err     error // force a read failure (fail-closed)
+}
+
+func (f *fakeVersionRepo) Get(_ context.Context, id uuid.UUID) (AssetVersionInfo, error) {
+	if f.err != nil {
+		return AssetVersionInfo{}, f.err
+	}
+	v, ok := f.versions[id]
+	if !ok {
+		return AssetVersionInfo{}, errors.New("not found")
+	}
+	return v, nil
+}
+
+// usableVersion is the healthy pinned version: build ready + governance
+// published (the same invariant current_version_id enforces).
+func usableVersion() AssetVersionInfo {
+	return AssetVersionInfo{BuildStatus: domain.VersionBuildReady, GovernanceStatus: domain.VersionGovPublished}
+}
+
 type fakeDecisionRepo struct{ recorded DecisionRecord }
 
 func (f *fakeDecisionRepo) Record(_ context.Context, d DecisionRecord) (uuid.UUID, error) {
@@ -94,14 +119,17 @@ func (r *fakeRBACRepo) DocumentsInDirectorySubtree(_ context.Context, _ uuid.UUI
 // internal locate/targetChain — so a [asset, workspace] chain can be
 // evaluated node-by-node without re-resolving the workspace node through
 // the asset-only CompositeLocator.
-func newTestService(t *testing.T, rbacRepo *fakeRBACRepo, assets *fakeAssetRepo, agents *fakeAgentRepo, binds *fakeBindingRepo) *Service {
+//
+// versions feeds the pinned-version-revocation gate; callers with no pinned
+// binding pass an empty repo (the gate is then a no-op).
+func newTestService(t *testing.T, rbacRepo *fakeRBACRepo, assets *fakeAssetRepo, agents *fakeAgentRepo, binds *fakeBindingRepo, versions *fakeVersionRepo) *Service {
 	t.Helper()
 	eng := rbac.NewEngine(rbacRepo) // built-in doc-family path (no locator)
 	comp := NewCompositeLocator(struct {
 		Type TargetType
 		Loc  ResourceLocator
 	}{Type: domain.TargetAsset, Loc: NewAssetLocator(assets)})
-	return NewService(comp, eng, binds, agents, assets, &fakeRevisionRepo{rev: 1}, &fakeDecisionRepo{})
+	return NewService(comp, eng, binds, agents, assets, versions, &fakeRevisionRepo{rev: 1}, &fakeDecisionRepo{})
 }
 
 // Test_UseCase1_UserWithoutUseDenied: user lacks 'use' grant on asset → deny,
@@ -117,7 +145,7 @@ func Test_UseCase1_UserWithoutUseDenied(t *testing.T) {
 			TargetType: domain.TargetWorkspace, TargetID: ws, Effect: domain.EffectAllow},
 	}}
 	assets := &fakeAssetRepo{assets: map[uuid.UUID]AssetInfo{asset: {WorkspaceID: ws, Status: domain.AssetPublished, OwnerType: domain.SubjectUser, OwnerID: user}}}
-	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{})
+	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: user,
@@ -141,7 +169,7 @@ func Test_UseCase2_AgentOnBehalfNoUserRead(t *testing.T) {
 	binds := &fakeBindingRepo{binds: map[uuid.UUID][]domain.AgentBinding{
 		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws, ScopeKind: domain.BindingScopeAsset, AssetID: &asset, Effect: domain.BindingAllow}},
 	}}
-	svc := newTestService(t, &fakeRBACRepo{}, assets, agents, binds)
+	svc := newTestService(t, &fakeRBACRepo{}, assets, agents, binds, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
@@ -166,7 +194,7 @@ func Test_UseCase3_AgentSelfBindingDoesNotEnlarge(t *testing.T) {
 	binds := &fakeBindingRepo{binds: map[uuid.UUID][]domain.AgentBinding{
 		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws, ScopeKind: domain.BindingScopeAsset, AssetID: &asset, Effect: domain.BindingAllow}},
 	}}
-	svc := newTestService(t, &fakeRBACRepo{}, assets, agents, binds)
+	svc := newTestService(t, &fakeRBACRepo{}, assets, agents, binds, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
@@ -198,7 +226,7 @@ func Test_UseCase4_BindingDenyBeatsRBACAllow(t *testing.T) {
 			{ID: uuid.New(), AgentID: agent, WorkspaceID: ws, ScopeKind: domain.BindingScopeAsset, AssetID: &assetPtr, Effect: domain.BindingDeny},
 		},
 	}}
-	svc := newTestService(t, rbacRepo, assets, agents, binds)
+	svc := newTestService(t, rbacRepo, assets, agents, binds, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
@@ -223,7 +251,7 @@ func Test_UseCase10_CrossWorkspaceAssetDenied(t *testing.T) {
 			TargetType: domain.TargetWorkspace, TargetID: ws, Effect: domain.EffectAllow},
 	}}
 	assets := &fakeAssetRepo{assets: map[uuid.UUID]AssetInfo{asset: {WorkspaceID: otherWS, Status: domain.AssetPublished, OwnerType: domain.SubjectUser, OwnerID: user}}}
-	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{})
+	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 
 	_, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: user,
@@ -244,7 +272,7 @@ func Test_Lifecycle_ArchivedAssetBlocksUse(t *testing.T) {
 			TargetType: domain.TargetWorkspace, TargetID: ws, Effect: domain.EffectAllow},
 	}}
 	assets := &fakeAssetRepo{assets: map[uuid.UUID]AssetInfo{asset: {WorkspaceID: ws, Status: domain.AssetArchived, OwnerType: domain.SubjectUser, OwnerID: user}}}
-	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{})
+	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: user,
@@ -270,7 +298,7 @@ func Test_ReadDoesNotImplyUse(t *testing.T) {
 		{SubjectType: domain.SubjectUser, SubjectID: userWithRead, Actions: []domain.Action{domain.ActionRead},
 			TargetType: domain.TargetWorkspace, TargetID: ws, Effect: domain.EffectAllow},
 	}}
-	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{})
+	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 
 	// user with 'use' grant → allowed.
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
@@ -305,7 +333,7 @@ func Test_VisibleAssets_FiltersByAuthorize(t *testing.T) {
 		allowed:   {WorkspaceID: ws, Status: domain.AssetPublished, OwnerType: domain.SubjectUser, OwnerID: user},
 		archived:  {WorkspaceID: ws, Status: domain.AssetArchived, OwnerType: domain.SubjectUser, OwnerID: user},
 	}}
-	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{})
+	svc := newTestService(t, rbacRepo, assets, &fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 
 	out, err := svc.VisibleAssets(context.Background(), ListScope{
 		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: user,
@@ -332,7 +360,7 @@ func Test_IssueDecision_RecordsAndReturnsCapability(t *testing.T) {
 			Type TargetType
 			Loc  ResourceLocator
 		}{Type: domain.TargetAsset, Loc: NewAssetLocator(assets)}),
-		rbac.NewEngine(rbacRepo), &fakeBindingRepo{}, &fakeAgentRepo{}, assets, &fakeRevisionRepo{rev: 7}, decRepo,
+		rbac.NewEngine(rbacRepo), &fakeBindingRepo{}, &fakeAgentRepo{}, assets, nil, &fakeRevisionRepo{rev: 7}, decRepo,
 	)
 
 	cap, err := svc.IssueDecision(context.Background(), AuthzRequest{

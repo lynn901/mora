@@ -73,8 +73,8 @@ type AssetVersion struct {
 	ProviderRef                map[string]any
 	ContentHash                string
 	DedupeKey                  string
-	BuildStatus                string // pending|building|succeeded|failed|dead
-	GovernanceStatus           string // candidate|approved|rejected|superseded
+	BuildStatus                string // VersionBuild* — pending|building|ready|failed|superseded
+	GovernanceStatus           string // VersionGov* — candidate|approved|published|rejected|deprecated
 	ActivationPolicySnapshot   map[string]any
 	ApprovedByType             string
 	ApprovedByID               *UUID
@@ -83,6 +83,28 @@ type AssetVersion struct {
 	CreatedByID                UUID
 	CreatedAt                  time.Time
 }
+
+// Version build_status values (design-docs/12 §4.2 knowledge_asset_versions).
+// A version is build-complete only at 'ready'; every other state is treated
+// as not-yet-usable by the authz lifecycle gate.
+const (
+	VersionBuildPending   = "pending"
+	VersionBuildBuilding  = "building"
+	VersionBuildReady     = "ready"
+	VersionBuildFailed    = "failed"
+	VersionBuildSuperseded = "superseded"
+)
+
+// Version governance_status values (design-docs/12 §4.2). 'published' is the
+// only governance state the authz lifecycle gate treats as authorized; a
+// version that has been deprecated or rejected counts as revoked.
+const (
+	VersionGovCandidate  = "candidate"
+	VersionGovApproved   = "approved"
+	VersionGovPublished  = "published"
+	VersionGovRejected   = "rejected"
+	VersionGovDeprecated  = "deprecated"
+)
 
 // AgentStatus is the lifecycle state of an agent.
 type AgentStatus string

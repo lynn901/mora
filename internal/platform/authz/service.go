@@ -13,6 +13,8 @@ import (
 // It composes the decision pipeline:
 //
 //	1. lifecycle gate     — asset/version status permits the action?
+//	  1b. pinned-version gate — a pinned binding's version revoked? block,
+//	      no auto-fallback to latest (§8.2 用例 5 / §11.4).
 //	2. RBAC/ACL           — principal's read/write/admin/use grant on the
 //	                          target chain (legacy rbac.Engine for doc-family;
 //	                          workspace-level intersection for assets).
@@ -36,17 +38,22 @@ type Service struct {
 	binding   BindingRepo
 	agents    AgentRepo
 	assets    AssetRepo
+	versions  AssetVersionRepo
 	revisions RevisionRepo
 	decisions DecisionRepo
 }
 
 // NewService wires an authz.Service. rbac is the legacy engine (a sub-strategy
 // for read/write/admin on doc/directory/workspace); locator resolves targets;
-// the repos feed the lifecycle + agent-use + revision steps.
-func NewService(locator ResourceLocator, engine *rbac.Engine, binding BindingRepo, agents AgentRepo, assets AssetRepo, revisions RevisionRepo, decisions DecisionRepo) *Service {
+// the repos feed the lifecycle + agent-use + revision steps. versions reads
+// knowledge_asset_versions for the pinned-version-revocation gate (§8.2 用例 5):
+// a nil versions repo disables that gate (only acceptable where no agent can
+// hold a pinned binding — production wiring always passes a real repo).
+func NewService(locator ResourceLocator, engine *rbac.Engine, binding BindingRepo, agents AgentRepo, assets AssetRepo, versions AssetVersionRepo, revisions RevisionRepo, decisions DecisionRepo) *Service {
 	return &Service{
 		locator: locator, rbac: engine, binding: binding,
-		agents: agents, assets: assets, revisions: revisions, decisions: decisions,
+		agents: agents, assets: assets, versions: versions,
+		revisions: revisions, decisions: decisions,
 	}
 }
 
@@ -104,6 +111,19 @@ func (s *Service) Authorize(ctx context.Context, req AuthzRequest) (AuthzContext
 	if !s.lifecycleGate(ctx, req, loc) {
 		out.Allowed = false
 		out.Reason = "lifecycle gate: status does not permit action"
+		return out, ErrNotFound
+	}
+
+	// 1b. Pinned-version-revocation gate (§8.2 用例 5 / §11.4): if an agent
+	// principal holds a pinned binding on this asset whose pinned version is
+	// revoked (no longer ready+published), block use — no auto-fallback to the
+	// latest published version. Surfaced as ErrNotFound so a revoked pinned
+	// version's (former) existence never leaks. Runs after the asset lifecycle
+	// gate and before RBAC/binding narrowing: a revoked pinned version blocks
+	// regardless of RBAC allow, matching the "阻断" invariant.
+	if !s.pinnedVersionGate(ctx, req) {
+		out.Allowed = false
+		out.Reason = "lifecycle gate: pinned version revoked"
 		return out, ErrNotFound
 	}
 
@@ -301,6 +321,59 @@ func (s *Service) lifecycleGate(ctx context.Context, req AuthzRequest, loc Locat
 		case domain.AssetDeprecated:
 			return req.Action == domain.ActionSync // allow sync to re-publish
 		default: // archived, rejected
+			return false
+		}
+	}
+	return true
+}
+
+// pinnedVersionGate enforces the pinned-version-revocation invariant
+// (§8.2 用例 5 / §11.4: 固定版本不存在/被撤权 → 阻断，不自动回退最新版).
+//
+// It applies only to an agent principal acting on an asset via a binding
+// whose VersionPolicy is 'pinned' and whose scope covers that asset. For
+// each such binding the gate loads the pinned version's build/governance
+// state: a usable version (build_status='ready' AND governance_status=
+// 'published', the same invariant current_version_id enforces) lets the
+// request proceed; a missing row or any revoked state (deprecated /
+// superseded / rejected / failed / in-flight) blocks use — no fallback to
+// the latest published version.
+//
+// Non-asset targets and non-agent principals have no pinned binding, so the
+// gate is a no-op (returns true). A missing versions repo (nil) also returns
+// true; production wiring must pass a real AssetVersionRepo so the gate is
+// active wherever pinned bindings are reachable.
+//
+// The gate only narrows (a binding can never grant a capability the
+// principal lacks — 不变量 A #4): an agent with no pinned binding, or one
+// whose pinned version is still usable, falls through to the RBAC +
+// binding-narrowing steps unchanged.
+func (s *Service) pinnedVersionGate(ctx context.Context, req AuthzRequest) bool {
+	// Only agents can hold bindings; only assets are pin-able
+	// (§4.3: pinned requires scope_kind=asset).
+	if s.versions == nil || req.TargetType != domain.TargetAsset ||
+		req.PrincipalType != domain.SubjectAgent || req.AgentID == nil {
+		return true
+	}
+	bindings, err := s.binding.ActiveForAgent(ctx, *req.AgentID, req.WorkspaceID)
+	if err != nil {
+		// Fail closed: a binding read failure blocks rather than risks
+		// authorizing a revoked pinned version. Surfaced as ErrNotFound
+		// (no existence leak) by the caller.
+		return false
+	}
+	for _, b := range bindings {
+		if b.VersionPolicy != domain.BindingPinned || b.PinnedVersionID == nil {
+			continue
+		}
+		if !bindingCoversTarget(b, req.TargetType, req.TargetID) {
+			continue
+		}
+		// The binding pins a version on THIS asset. If that version is no
+		// longer usable, block — the agent may NOT silently use the latest
+		// published version instead (§11.4).
+		v, err := s.versions.Get(ctx, *b.PinnedVersionID)
+		if err != nil || !v.IsUsable() {
 			return false
 		}
 	}

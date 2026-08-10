@@ -175,6 +175,33 @@ func (r *assetRepo) Get(ctx context.Context, assetID uuid.UUID) (authz.AssetInfo
 	return a, nil
 }
 
+// assetVersionRepo adapts knowledge_asset_versions reads for authz.Service's
+// pinned-version-revocation gate (§8.2 用例 5 / §11.4). It returns only the
+// two status axes the gate decides on (build_status, governance_status); a
+// missing row returns errNotFound so the service maps it to a deny (existence
+// never leaks). All SQL is parameterized — no string-concatenated input
+// (07-security §10).
+type assetVersionRepo struct{ db *DB }
+
+func NewAuthzAssetVersionRepo(db *DB) authz.AssetVersionRepo {
+	return &assetVersionRepo{db: db}
+}
+
+func (r *assetVersionRepo) Get(ctx context.Context, versionID uuid.UUID) (authz.AssetVersionInfo, error) {
+	var v authz.AssetVersionInfo
+	err := r.db.Pool.QueryRow(ctx, `
+		SELECT build_status, governance_status
+		FROM knowledge_asset_versions WHERE id = $1`, versionID).Scan(
+		&v.BuildStatus, &v.GovernanceStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return authz.AssetVersionInfo{}, errNotFound
+		}
+		return authz.AssetVersionInfo{}, err
+	}
+	return v, nil
+}
+
 // agentRepo adapts agents reads for authz.Service (rbac subject resolution +
 // locator).
 type agentRepo struct{ db *DB }
@@ -310,10 +337,11 @@ func scanActions(blob []byte) []domain.Action {
 
 // Compile-time checks.
 var (
-	_ authz.RevisionRepo = (*revisionsRepo)(nil)
-	_ authz.SessionRepo  = (*sessionRepo)(nil)
-	_ authz.AssetRepo    = (*assetRepo)(nil)
-	_ authz.AgentRepo    = (*agentRepo)(nil)
-	_ authz.BindingRepo  = (*bindingRepo)(nil)
-	_ authz.DecisionRepo = (*decisionRepo)(nil)
+	_ authz.RevisionRepo    = (*revisionsRepo)(nil)
+	_ authz.SessionRepo     = (*sessionRepo)(nil)
+	_ authz.AssetRepo       = (*assetRepo)(nil)
+	_ authz.AssetVersionRepo = (*assetVersionRepo)(nil)
+	_ authz.AgentRepo       = (*agentRepo)(nil)
+	_ authz.BindingRepo     = (*bindingRepo)(nil)
+	_ authz.DecisionRepo    = (*decisionRepo)(nil)
 )
