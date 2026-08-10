@@ -42,3 +42,8 @@ web/.git/
 # Docker
 deployments/backup/
 deployments/export/
+
+# Third-party governance (not needed in image build context)
+third-party/
+THIRD_PARTY_NOTICES.md
+.out/
