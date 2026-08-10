@@ -10,6 +10,7 @@ import (
 
 	stderrors "errors"
 
+	"github.com/google/uuid"
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/module/mora/version"
 	pkgerr "github.com/lynn901/mora/internal/pkg/errors"
@@ -26,10 +27,23 @@ type DocumentService struct {
 	versions VersionRepo
 	rbac     *rbac.Engine
 	events   EventPublisher
+	// sink, when non-nil, routes Create/Update/Delete through a transactional
+	// double-write: documents + document_versions + a Knowledge Outbox event
+	// committed atomically (design-docs/13 §6.3, PR2 item ⑤). When nil the
+	// service uses its legacy non-tx path — unchanged behavior (regression
+	// red line). Set via WithSink.
+	sink DocWriteSink
 }
 
 func NewDocumentService(docs DocumentRepo, versions VersionRepo, engine *rbac.Engine, events EventPublisher) *DocumentService {
 	return &DocumentService{docs: docs, versions: versions, rbac: engine, events: events}
+}
+
+// WithSink attaches a transactional double-write sink and returns the service
+// for chaining. Callers wire this at bootstrap when the outbox is configured.
+func (s *DocumentService) WithSink(sink DocWriteSink) *DocumentService {
+	s.sink = sink
+	return s
 }
 
 // AuthContext carries the caller identity needed for RBAC + audit.
@@ -61,6 +75,16 @@ func (s *DocumentService) Create(ctx context.Context, auth AuthContext, d *domai
 	d.UpdatedBy = &auth.UserID
 	d.VersionNo = 1
 	d.ContentText = domain.BlockArray(d.Content).PlainText()
+
+	if s.sink != nil {
+		// Transactional double-write (§6.3): documents + version + Knowledge
+		// Outbox event in one tx. The sink owns the tx and the outbox row.
+		ev := s.knowledgeEventForDoc(EventCreate, d, 0, auth)
+		return s.sink.WriteDoc(ctx, d, &domain.DocumentVersion{
+			DocumentID: d.ID, VersionNo: 1, Content: d.Content, ContentText: d.ContentText,
+			AuthorID: auth.UserID, DiffSummary: "initial",
+		}, 0, true, ev)
+	}
 
 	if err := s.docs.Create(ctx, d); err != nil {
 		return nil, err
@@ -131,10 +155,19 @@ func (s *DocumentService) Update(ctx context.Context, auth AuthContext, id domai
 		d.IndexStatus = domain.IndexPending
 	}
 	d.UpdatedBy = &auth.UserID
+	diffEntries := version.Diff(oldContent, d.Content)
+	if s.sink != nil {
+		// Transactional double-write (§6.3): UPDATE documents (prevVersion CAS)
+		// + version snapshot + Knowledge Outbox event in one tx.
+		ev := s.knowledgeEventForDoc(EventUpdate, d, prevVersion, auth)
+		return s.sink.WriteDoc(ctx, d, &domain.DocumentVersion{
+			DocumentID: d.ID, VersionNo: d.VersionNo, Content: d.Content, ContentText: d.ContentText,
+			AuthorID: auth.UserID, DiffSummary: version.Summary(diffEntries),
+		}, prevVersion, false, ev)
+	}
 	if err := s.docs.Update(ctx, d, prevVersion); err != nil {
 		return nil, err
 	}
-	diffEntries := version.Diff(oldContent, d.Content)
 	_ = s.versions.Create(ctx, &domain.DocumentVersion{
 		DocumentID: d.ID, VersionNo: d.VersionNo, Content: d.Content, ContentText: d.ContentText,
 		AuthorID: auth.UserID, DiffSummary: version.Summary(diffEntries),
@@ -160,6 +193,14 @@ func (s *DocumentService) Delete(ctx context.Context, auth AuthContext, id domai
 	d, err := s.docs.Get(ctx, id)
 	if err != nil {
 		return mapNotFound(err)
+	}
+	if s.sink != nil {
+		// Transactional double-write (§6.3): soft-delete + Knowledge Outbox
+		// event in one tx.
+		ev := s.knowledgeEventForDoc(EventDelete, &domain.Document{
+			ID: id, WorkspaceID: d.WorkspaceID,
+		}, 0, auth)
+		return s.sink.DeleteDoc(ctx, id, auth.UserID, ev)
 	}
 	if err := s.docs.SoftDelete(ctx, id, auth.UserID); err != nil {
 		return mapNotFound(err)
@@ -267,6 +308,44 @@ func (s *DocumentService) ListVisible(ctx context.Context, auth AuthContext, q D
 		}
 	}
 	return s.docs.List(ctx, q)
+}
+
+// knowledgeEventForDoc builds the Knowledge Outbox envelope for a document
+// write (design-docs/13 §6.3, PR2 item ⑤). The envelope carries only IDs +
+// action — never content (§5.1) — so a leaked outbox row cannot expose document
+// text. destinations is fixed to [knowledge_events]; the legacy doc_events
+// publish stays on its own path (the sink does not touch doc_events).
+//
+// The aggregate is the knowledge_asset the document represents. Phase 0 has no
+// knowledge_assets row yet (no backfill, §16.1), so AggregateID = the document
+// id — the Phase 1 reconciler maps document → asset. Event types follow the
+// domain.KnowledgeEventTypes vocabulary (asset.* / permission.*).
+func (s *DocumentService) knowledgeEventForDoc(t DocumentEventType, d *domain.Document, prevVersion int, auth AuthContext) domain.KnowledgeEvent {
+	ws := d.WorkspaceID
+	evType := domain.KEAssetCreated
+	switch t {
+	case EventUpdate:
+		evType = domain.KEAssetVersionRequested
+	case EventDelete:
+		evType = domain.KEAssetDeprecated
+	case EventPermissionChange:
+		evType = domain.KEPermissionChanged
+	}
+	return domain.KnowledgeEvent{
+		EventID:       uuid.NewString(),
+		EventType:     evType,
+		EventVersion:  1,
+		AggregateType: domain.AggKnowledgeAsset,
+		AggregateID:   d.ID,
+		WorkspaceID:   &ws,
+		Actor:         domain.EventActor{Type: domain.SubjectUser, ID: auth.UserID},
+		Payload: map[string]any{
+			"document_id":    d.ID.String(),
+			"workspace_id":   ws.String(),
+			"version_no":     d.VersionNo,
+			"prev_version_no": prevVersion,
+		},
+	}
 }
 
 func mapNotFound(err error) error {

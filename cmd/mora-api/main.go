@@ -34,6 +34,7 @@ import (
 	auditpkg "github.com/lynn901/mora/internal/platform/audit"
 	"github.com/lynn901/mora/internal/platform/auth"
 	"github.com/lynn901/mora/internal/platform/config"
+	"github.com/lynn901/mora/internal/platform/outbox"
 	"github.com/lynn901/mora/internal/platform/ratelimit"
 	"github.com/redis/go-redis/v9"
 )
@@ -84,7 +85,8 @@ func main() {
 		pub = event.NewQueuePublisher(mq.New(rdb))
 	}
 
-	docSvc := service.NewDocumentService(docRepo, verRepo, engine, pub)
+	docSvc := service.NewDocumentService(docRepo, verRepo, engine, pub).
+		WithSink(postgres.NewDocWriteSink(pool, outbox.NewStore())) // §6.3 double-write: doc + Knowledge Outbox event committed atomically.
 
 	// RAG index-status + embedding-model stores (shared with rag-worker; the
 	// mora-api exposes the admin/index-status HTTP routes the MCP + E2E expect).
