@@ -12,13 +12,37 @@ import (
 	"github.com/lynn901/mora/internal/infra/postgres"
 	"github.com/lynn901/mora/internal/module/mora/collab"
 	"github.com/lynn901/mora/internal/platform/auth"
+	"github.com/lynn901/mora/internal/platform/authz"
 	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
 // newRBACEngine builds the RBAC engine from the postgres permission + directory
-// + document repos via the RBACAdapter.
+// + document repos via the RBACAdapter. Per design-docs/13 §3.5 (D2), the
+// engine's internal target resolution delegates to a CompositeLocator backed
+// by a DocLocator over the same repository — the doc path behavior is
+// unchanged (regression red line: Check/VisibleDocuments + engine_test.go).
+// Asset/agent locators are registered in a later PR.
 func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo, docs *postgres.DocumentRepo) *rbac.Engine {
-	return rbac.NewEngine(postgres.NewRBACAdapter(perms, dirs, docs))
+	repo := postgres.NewRBACAdapter(perms, dirs, docs)
+	eng := rbac.NewEngine(repo)
+	// Wire doc-family target resolution through the unified ResourceLocator
+	// port. AsLocator adapts authz.ResourceLocator -> rbac.Locator so the
+	// engine can delegate without importing authz (which imports rbac).
+	comp := authz.NewCompositeLocator(struct {
+		Type authz.TargetType
+		Loc  authz.ResourceLocator
+	}{Type: domain.TargetWorkspace, Loc: authz.NewDocLocator(repo)},
+		struct {
+			Type authz.TargetType
+			Loc  authz.ResourceLocator
+		}{Type: domain.TargetDirectory, Loc: authz.NewDocLocator(repo)},
+		struct {
+			Type authz.TargetType
+			Loc  authz.ResourceLocator
+		}{Type: domain.TargetDocument, Loc: authz.NewDocLocator(repo)},
+	)
+	eng.SetLocator(authz.AsLocator(comp))
+	return eng
 }
 
 var collabUpgrader = websocket.Upgrader{
