@@ -163,7 +163,7 @@ type Client struct {
 	base       string
 	hc         *http.Client
 	bearer     string // JWT or INTERNAL_SERVICE_TOKEN
-	identityID string // optional X-Identity-Id (internal-service path)
+	identityID string // deprecated X-Identity-Id (§4.4: ignored by the API)
 }
 
 func newClient(base, bearer, identityID string) *Client {
@@ -178,9 +178,12 @@ func newClient(base, bearer, identityID string) *Client {
 func (s *Suite) adminClient() *Client         { return newClient(s.cfg.BaseURL, s.adminJWT, "") }
 func (s *Suite) jwtClient(jwt string) *Client { return newClient(s.cfg.BaseURL, jwt, "") }
 
-// internalClient acts as a trusted internal service propagating identityID.
-// identityID == "" resolves to admin; a concrete UUID enforces RBAC as that
-// principal (handler/middleware.go AuthMiddleware).
+// internalClient acts as a trusted internal service. Since §4.4, the
+// INTERNAL_SERVICE_TOKEN alone degrades to a restricted service_account (never
+// admin), and X-Identity-Id is deprecated (ignored). To act as an end-principal
+// the caller must present a delegated JWT (POST /internal/v1/authz/delegated),
+// not an identity header. The identityID param is retained only for callers
+// that have not yet migrated; it is NOT trusted by the API.
 func (s *Suite) internalClient(identityID string) *Client {
 	return newClient(s.cfg.BaseURL, s.cfg.InternalToken, identityID)
 }
@@ -191,6 +194,8 @@ func (c *Client) setAuth(req *http.Request) {
 	if c.bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+c.bearer)
 	}
+	// §4.4: X-Identity-Id is deprecated and ignored by the API. Still sent
+	// for compatibility, but it confers no identity or privilege.
 	if c.identityID != "" {
 		req.Header.Set("X-Identity-Id", c.identityID)
 	}

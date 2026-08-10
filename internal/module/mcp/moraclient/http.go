@@ -19,12 +19,18 @@ import (
 // Mora/RAG services enforce RBAC server-side (design doc 06 §6.3, 02 §2.2).
 //
 // Identity propagation headers:
-//   - X-Identity-Type / X-Identity-Id / X-Identity-Name: the token-bound principal.
+//   - X-Identity-Type / X-Identity-Id / X-Identity-Name: the token-bound
+//     principal. NOTE (design-docs/13 §4.4): these headers are DEPRECATED on
+//     the mora-api side — the API no longer trusts X-Identity-* for identity
+//     or admin; an internal caller must present a delegated JWT instead. They
+//     are still sent for backward compatibility but confer no authority. The
+//     MCP Server should obtain a delegated context via
+//     POST /internal/v1/authz/delegated and send it as the Bearer token.
 //   - X-Token-Scope: the token capability envelope (defence-in-depth; the Mora
 //     layer also enforces scope for write endpoints).
-//   - Authorization: INTERNAL_SERVICE_TOKEN — the MCP Server authenticates to
-//     the Mora API as a trusted internal service, while the end-principal is
-//     carried in the X-Identity-* headers.
+//   - Authorization: INTERNAL_SERVICE_TOKEN — proves service identity only;
+//     without a delegated JWT the call degrades to a restricted service_account
+//     (§4.4), never admin.
 type HTTPClient struct {
 	baseURL       string
 	internalToken string

@@ -51,6 +51,16 @@ type AuthContext struct {
 	UserID  domain.UUID
 	Groups  []domain.UUID
 	IsAdmin bool
+
+	// SubjectType is the resolved principal kind (user / agent /
+	// service_account). Internal-service callers without a delegated context
+	// resolve to service_account (§4.4) — they get no admin bypass and only
+	// the RBAC the service account actually has.
+	SubjectType domain.SubjectType
+	// IsServiceCaller marks internal-service callers (INTERNAL_SERVICE_TOKEN or
+	// delegated). Service callers without a delegated context have restricted
+	// capability and MUST NOT be treated as admin.
+	IsServiceCaller bool
 }
 
 // Create creates a document, snapshots version 1, and publishes a create event.
@@ -340,9 +350,9 @@ func (s *DocumentService) knowledgeEventForDoc(t DocumentEventType, d *domain.Do
 		WorkspaceID:   &ws,
 		Actor:         domain.EventActor{Type: domain.SubjectUser, ID: auth.UserID},
 		Payload: map[string]any{
-			"document_id":    d.ID.String(),
-			"workspace_id":   ws.String(),
-			"version_no":     d.VersionNo,
+			"document_id":     d.ID.String(),
+			"workspace_id":    ws.String(),
+			"version_no":      d.VersionNo,
 			"prev_version_no": prevVersion,
 		},
 	}

@@ -21,9 +21,22 @@ func AuditMiddleware(logger *audit.Logger) gin.HandlerFunc {
 		}
 		st := MustAuth(c)
 		uid := st.UserID
-		logger.Record(c.Request.Context(), "user", &uid,
+		// Attribute internal-service callers as their service identity, not the
+		// (possibly empty) user id; the actor type records which path was used.
+		actorType := "user"
+		if st.IsServiceCaller {
+			actorType = "service"
+		}
+		// Surface any deprecation note the auth middleware stashed (e.g. a caller
+		// still sending the legacy X-Identity-* headers). Best-effort: absence
+		// is normal.
+		var detail gin.H = gin.H{"path": c.Request.URL.Path, "status": c.Writer.Status()}
+		if note, ok := c.Get(ctxDelegatedAudit); ok && note != "" {
+			detail["deprecation"] = note
+		}
+		logger.Record(c.Request.Context(), actorType, &uid,
 			"http."+method+"."+c.FullPath(),
-			"", nil, gin.H{"path": c.Request.URL.Path, "status": c.Writer.Status()},
+			"", nil, detail,
 			c.ClientIP(), c.Request.UserAgent())
 	}
 }
