@@ -23,6 +23,7 @@ Mora 是一套以「企业内部文档协作 + 个人知识管理」为核心场
 - [生产部署（K8s / Helm）](#生产部署k8s--helm)
 - [备份与恢复](#备份与恢复)
 - [测试](#测试)
+- [第三方治理门禁](#第三方治理门禁)
 - [故障排查](#故障排查)
 - [设计文档](#设计文档)
 - [安全](#安全)
@@ -399,6 +400,22 @@ make verify
 ```
 
 `make verify` 调用 `deployments/e2e-verify.sh`，覆盖健康检查、登录、文档创建/发布/检索、版本、RBAC、MCP 工具调用等全部 AC。
+
+## 第三方治理门禁
+
+Phase 0 引入的第三方治理门禁（`design-docs/13-phase0-contract-safety-baseline.md` §6）：所有直接依赖固定到不可变 digest，发布前 CI 校验漂移 / 许可证 / NOTICE，**fail-closed**。
+
+```bash
+make third-party-check   # 校验 lock.json 漂移 + license 白名单 + NOTICE 齐全（fail-closed）
+make sbom                # 用 anchore/syft 容器镜像生成 CycloneDX SBOM（无需本地装 syft）
+make notices             # 聚合生成 THIRD_PARTY_NOTICES.md
+make third-party-sync    # 维护工具：go.sum / package-lock.json 变动后重新生成 lock.json
+```
+
+- 基线清单：`third-party/lock.json`（67 个组件：13 Go + 52 npm + 2 参考基线）。
+- 引入 / 升级直接依赖需走 `third-party/adr/` ADR 流程并重跑 `make third-party-check sbom notices`。
+- CI 门禁：`.github/workflows/third-party-gate.yml`，PR 触发依赖文件即跑，push 到 main 为发布路径。
+- 许可证策略：白名单 Apache-2.0/MIT/ISC/BSD-2/BSD-3/MPL-2.0/PostgreSQL；拒绝 AGPL/GPL/LGPL/SSPL/BUSL/commons-clause。
 
 ## 故障排查
 
