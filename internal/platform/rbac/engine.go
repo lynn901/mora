@@ -8,6 +8,14 @@ package rbac
 // permissions repository. This keeps the engine trivially unit-testable
 // without a database, while the repository (internal/infra/postgres) owns
 // persistence and tree-walking for inheritance.
+//
+// Target resolution (locate/targetChain) may be delegated to an injected
+// ResourceLocator (design-docs/13 §3.5, D2). When no locator is set the engine
+// uses its built-in doc-family resolution, so NewEngine(repo) and
+// engine_test.go keep their pre-existing behavior. The locator contract is
+// deliberately minimal and local to avoid an import cycle with platform/authz
+// (which depends on rbac for the Repository type); platform/authz.DocLocator
+// satisfies Locator transparently via target resolution.
 
 import (
 	"context"
@@ -16,9 +24,30 @@ import (
 	"github.com/lynn901/mora/internal/domain"
 )
 
+// Locator resolves a target into its workspace id and most-specific-first
+// ancestor chain. It is the minimal contract the engine needs to delegate
+// locate/targetChain (design-docs/13 §3.5). platform/authz.ResourceLocator
+// implementations satisfy this by returning their Location; the adapter
+// platform/authz.AsLocator bridges the two so callers wire a DocLocator once.
+type Locator interface {
+	// Locate returns the workspace the target belongs to and the chain of
+	// ancestor nodes (type+id) ordered most-specific-first. See engine.locate
+	// and engine.targetChain for the built-in doc-family behavior.
+	Locate(ctx context.Context, targetType domain.TargetType, targetID uuid.UUID) (workspaceID uuid.UUID, chain []LocatorNode, err error)
+}
+
+// LocatorNode is a single level in a target's ancestor chain. It mirrors
+// platform/authz.Node but lives here so rbac does not import authz (which
+// would create an import cycle, since authz imports rbac.Repository).
+type LocatorNode struct {
+	Type domain.TargetType
+	ID   uuid.UUID
+}
+
 // Engine decides whether a subject may perform an action on a target.
 type Engine struct {
-	repo Repository
+	repo    Repository
+	locator Locator
 }
 
 // Repository is the persistence interface the engine depends on.
@@ -43,8 +72,17 @@ type Repository interface {
 	DocumentsInDirectorySubtree(ctx context.Context, directoryID uuid.UUID) ([]uuid.UUID, error)
 }
 
-// NewEngine constructs an engine backed by repo.
+// NewEngine constructs an engine backed by repo with built-in doc-family
+// target resolution. Behavior is identical to pre-delegation; existing tests
+// and call sites are unaffected.
 func NewEngine(repo Repository) *Engine { return &Engine{repo: repo} }
+
+// SetLocator injects a ResourceLocator (design-docs/13 §3.5). When set, the
+// engine delegates locate/targetChain to it; when nil the built-in doc-family
+// resolution is used. This is the seam by which CompositeLocator is wired
+// without changing Check/VisibleDocuments signatures or behavior for the
+// doc path.
+func (e *Engine) SetLocator(l Locator) *Engine { e.locator = l; return e }
 
 // Decision captures the outcome of a permission check.
 type Decision struct {
@@ -55,7 +93,7 @@ type Decision struct {
 // Check decides whether subject may perform action on target.
 // subject is the user identity; groupIDs are the user's group memberships.
 func (e *Engine) Check(ctx context.Context, subject uuid.UUID, groupIDs []uuid.UUID, targetType domain.TargetType, targetID uuid.UUID, action domain.Action) (Decision, error) {
-	workspaceID, directoryID, err := e.locate(ctx, targetType, targetID)
+	workspaceID, chain, err := e.resolveTarget(ctx, targetType, targetID)
 	if err != nil {
 		return Decision{}, err
 	}
@@ -65,14 +103,35 @@ func (e *Engine) Check(ctx context.Context, subject uuid.UUID, groupIDs []uuid.U
 		return Decision{}, err
 	}
 
-	// Build the ancestor chain (root-first) of IDs relevant to this target,
-	// including the target itself as the most-specific node.
-	chain, err := e.targetChain(ctx, targetType, targetID, workspaceID, directoryID)
-	if err != nil {
-		return Decision{}, err
-	}
-
 	return decide(grants, chain, action), nil
+}
+
+// resolveTarget returns the workspace and most-specific-first ancestor chain
+// for a target. When a Locator is injected it delegates to the locator
+// (design-docs/13 §3.5); otherwise it falls back to the built-in doc-family
+// locate+targetChain, preserving pre-delegation behavior exactly.
+func (e *Engine) resolveTarget(ctx context.Context, t domain.TargetType, id uuid.UUID) (uuid.UUID, []node, error) {
+	if e.locator != nil {
+		wsID, lnodes, err := e.locator.Locate(ctx, t, id)
+		if err != nil {
+			return uuid.Nil, nil, err
+		}
+		nodes := make([]node, len(lnodes))
+		for i, n := range lnodes {
+			nodes[i] = node{typ: n.Type, id: n.ID}
+		}
+		return wsID, nodes, nil
+	}
+	// Built-in doc-family path (pre-delegation).
+	workspaceID, directoryID, err := e.locate(ctx, t, id)
+	if err != nil {
+		return uuid.Nil, nil, err
+	}
+	chain, err := e.targetChain(ctx, t, id, workspaceID, directoryID)
+	if err != nil {
+		return uuid.Nil, nil, err
+	}
+	return workspaceID, chain, nil
 }
 
 // VisibleDocuments filters a set of document IDs down to those the subject
