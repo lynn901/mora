@@ -1,0 +1,82 @@
+# Third-Party Governance Gate (design-docs/13-phase0-contract-safety-baseline.md §6.4, D8)
+#
+# Fail-closed gate: blocks merge/publish when the third-party baseline has drifted,
+# a license is non-compliant, or a NOTICE is missing. Runs `make third-party-check`
+# (drift + license + NOTICE), `make sbom` (CycloneDX via pinned syft image), and
+# `make notices` (aggregated THIRD_PARTY_NOTICES.md), then uploads the artifacts.
+#
+# Triggers:
+#   - Any PR touching dependency manifests or the third-party/ tree (always).
+#   - Any push to main (the publish path — fail-closed here protects releases).
+name: third-party-gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - go.mod
+      - go.sum
+      - web/package.json
+      - web/package-lock.json
+      - third-party/**
+      - Makefile
+      - .github/workflows/third-party-gate.yml
+  pull_request:
+    paths:
+      - go.mod
+      - go.sum
+      - web/package.json
+      - web/package-lock.json
+      - third-party/**
+      - Makefile
+      - .github/workflows/third-party-gate.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: third-party-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: third-party check + sbom + notices
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install jq
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq
+
+      - name: third-party-check (drift / license / NOTICE) — fail-closed
+        run: make third-party-check
+
+      - name: sbom (CycloneDX via syft image)
+        run: make sbom
+
+      - name: notices (aggregate THIRD_PARTY_NOTICES.md)
+        run: make notices
+
+      - name: Upload SBOM artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mora-sbom-cyclonedx
+          path: .out/mora.sbom.cdx.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload Third-Party Notices artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: third-party-notices
+          path: THIRD_PARTY_NOTICES.md
+          if-no-files-found: warn
+          retention-days: 30
