@@ -1,0 +1,13 @@
+# Agent Skills Spec — Third-Party Notice
+
+Reference specification for Skill package format profile.
+
+- Source: https://agentskills.io/
+- Version: <spec-version> (pinned in `../lock.json`)
+- License: per the specification's own publishing page; referenced as a specification,
+  not redistributed as executable code. See `../lock.json` for the pinned version.
+
+This is a reference-only baseline (ADR-0002). Mora references the specification for
+Skill package format; it does not bundle or redistribute the spec's source repository.
+When a concrete Skill package is introduced in a later Phase, a separate ADR and
+NOTICE file under this directory will be created for that package.

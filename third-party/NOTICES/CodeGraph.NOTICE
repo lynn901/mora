@@ -1,0 +1,14 @@
+# CodeGraph — Third-Party Notice (placeholder)
+
+CodeGraph is a placeholder baseline for the code-symbol / call-graph / impact-query
+capability (ADR-0001). The actual selection is deferred to Phase 3 (YS-97); this file
+exists so the gate machinery is in place. Until ADR-0001 is filled and `lock.json`
+holds a real digest, the `third-party-check` gate will report CodeGraph as `TBD`
+(selection pending) — it does not fail the gate while the component is unreferenced
+at runtime, but it WILL fail once a CodeGraph dependency appears in `go.mod` /
+`package-lock.json` without a matching, non-TBD lock entry.
+
+- Source: TBD (Phase 3)
+- Version: TBD
+- License: TBD
+- Notice file for the selected implementation: TBD
