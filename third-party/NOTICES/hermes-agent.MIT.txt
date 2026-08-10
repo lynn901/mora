@@ -1,0 +1,36 @@
+MIT License (Expat)
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Component: hermes-agent-skills-spec (reference baseline)
+Spec profile: agentskills.io/<spec-version>
+Repo: https://github.com/nousresearch/hermes-agent
+Commit: cd4317b449f93ef34aab83a7dbce5ef6eb14684f
+License: MIT
+Status: reference_baseline_only — Mora 不承担 Runtime 执行；仅参考其兼容格式、渐进式
+披露、资源目录与静态扫描规范。实际 Skill Package 校验在 Phase 1 (YS-95) 落地。
+
+This NOTICE file is a canonical copy of the MIT license text for inclusion in
+Mora's distribution, per the license's retention requirement. The component's
+copyright holders and year are filled at the time Mora pins a concrete
+spec-version.

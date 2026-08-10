@@ -11,11 +11,21 @@
 #        make export  — 全量导出（迁移）
 #        make verify  — 冒烟验证
 #        make up-parser — 拉起 P2 多模态解析 sidecar（需先 make up）
+#        make third-party-check — 第三方治理门禁：校验 lock.json / license / NOTICE（D8）
+#        make sbom            — 生成 SBOM（CycloneDX，需 syft）
+#        make notices         — 聚合生成 THIRD_PARTY_NOTICES.md
+#        make third-party-all — third-party-check + sbom + notices（CI 门禁入口）
 
 COMPOSE_FILE = deployments/docker-compose.yml
 COMPOSE_PROJECT = mora
 
-.PHONY: build up up-parser down logs ps restart reset backup restore export verify config
+# 第三方治理门禁（决策书 §6 / D8）
+THIRD_PARTY_SCRIPTS = deployments/scripts
+SBOM_FORMAT = cyclonedx-json
+SBOM_OUTPUT = third-party/sbom/mora-sbom.json
+
+.PHONY: build up up-parser down logs ps restart reset backup restore export verify config \
+        third-party-check sbom notices third-party-all
 
 build:
 	docker compose -f $(COMPOSE_FILE) -p $(COMPOSE_PROJECT) build
@@ -65,3 +75,29 @@ verify:
 
 config:
 	docker compose -f $(COMPOSE_FILE) -p $(COMPOSE_PROJECT) config
+
+# ─── 第三方治理门禁（决策书 design-docs/13-phase0-contract-safety-baseline.md §6 / D8）───
+# 校验 third-party/lock.json：结构完整、digest 固定、license 白名单通过、NOTICE 齐全。
+# fail closed：违反门禁退出码 1，阻断发布。
+third-party-check:
+	@bash $(THIRD_PARTY_SCRIPTS)/third-party-check.sh
+
+# 用 syft 生成 SBOM（CycloneDX-JSON）。syft 未安装时不阻断 dev（CI 中必须可用）。
+sbom:
+	@mkdir -p $(dir $(SBOM_OUTPUT))
+	@if ! command -v syft >/dev/null 2>&1; then \
+		echo "⚠ syft 未安装，跳过 SBOM 生成。"; \
+		echo "  安装：https://github.com/anchore/syft#installation"; \
+		echo "  CI 环境由 .github/workflows/third-party-gate.yml 保证 syft 可用。"; \
+	else \
+		syft dir:. -o $(SBOM_FORMAT) --file $(SBOM_OUTPUT); \
+		echo "✓ SBOM 生成：$(SBOM_OUTPUT)"; \
+	fi
+
+# 从 lock.json + NOTICES/ 聚合生成 THIRD_PARTY_NOTICES.md（幂等）。
+notices:
+	@bash $(THIRD_PARTY_SCRIPTS)/generate-notices.sh
+
+# CI 门禁入口：check → sbom → notices，全过才放行发布。
+third-party-all: third-party-check sbom notices
+	@echo "✓ 第三方治理门禁全部通过（lock / SBOM / NOTICE）"

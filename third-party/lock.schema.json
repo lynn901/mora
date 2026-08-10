@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mora.local/third-party/lock.schema.json",
+  "title": "Mora Third-Party Lock Manifest",
+  "description": "第三方组件锁定清单。Phase 0 决策书 §6.1 规定：name / source_url / commit_sha_or_digest / license / notice_path / capability。",
+  "type": "object",
+  "required": ["version", "project", "project_license", "license_policy", "components"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "project_license": { "type": "string" },
+    "license_policy": {
+      "type": "object",
+      "required": ["allowlist", "denylist"],
+      "additionalProperties": true,
+      "properties": {
+        "allowlist": { "type": "array", "items": { "type": "string" } },
+        "review_required": { "type": "array", "items": { "type": "string" } },
+        "denylist": { "type": "array", "items": { "type": "string" } },
+        "comment": { "type": "string" }
+      }
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "generated_by": { "type": "string" },
+    "components": {
+      "type": "array",
+      "minItems": 0,
+      "items": { "$ref": "#/$defs/component" }
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["name", "source_url", "commit_sha_or_digest", "license", "notice_path", "capability"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "ecosystem": { "type": "string" },
+        "version": { "type": "string" },
+        "source_url": { "type": "string", "minLength": 1 },
+        "source_repo_url": { "type": "string" },
+        "commit_sha_or_digest": { "type": "string", "minLength": 1 },
+        "digest_algorithm": { "type": "string" },
+        "license": { "type": "string", "minLength": 1 },
+        "license_file_url": { "type": "string" },
+        "notice_path": { "type": "string", "minLength": 1 },
+        "capability": { "type": "string", "minLength": 1 },
+        "status": { "type": "string" },
+        "selection_phase": { "type": "string" },
+        "adr": { "type": "string" },
+        "comment": { "type": "string" }
+      }
+    }
+  }
+}

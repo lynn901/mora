@@ -1,0 +1,66 @@
+# Mora 第三方治理门禁 CI（决策书 §6.4 / D8）
+# 在 publish 前跑 make third-party-check sbom notices，失败阻断发布。
+name: third-party-gate
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'third-party/**'
+      - 'deployments/scripts/third-party-check.sh'
+      - 'deployments/scripts/generate-notices.sh'
+      - 'Makefile'
+      - '.github/workflows/third-party-gate.yml'
+  pull_request:
+    paths:
+      - 'third-party/**'
+      - 'deployments/scripts/third-party-check.sh'
+      - 'deployments/scripts/generate-notices.sh'
+      - 'Makefile'
+      - '.github/workflows/third-party-gate.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: third-party check / sbom / notices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin
+          syft version
+
+      - name: Install jq
+        run: |
+          sudo apt-get update -y && sudo apt-get install -y jq
+          jq --version
+
+      - name: third-party-check (lock.json / license / NOTICE, fail closed)
+        run: make third-party-check
+
+      - name: sbom (CycloneDX)
+        run: make sbom
+
+      - name: notices (aggregate THIRD_PARTY_NOTICES.md)
+        run: make notices
+
+      - name: Verify notices is up to date
+        run: |
+          if ! git diff --exit-code THIRD_PARTY_NOTICES.md; then
+            echo "::error::THIRD_PARTY_NOTICES.md 与 lock.json 不一致，请本地运行 'make notices' 并提交"
+            exit 1
+          fi
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mora-sbom
+          path: third-party/sbom/mora-sbom.json
+          if-no-files-found: error
+          retention-days: 30

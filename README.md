@@ -128,7 +128,10 @@ deployments/             Dockerfile / docker-compose / Helm chart / 脚本
 design-docs/             8 份设计文档（技术选型 / 架构 / 数据模型 / API / RAG / MCP / 安全 / 命名）
 api/                     OpenAPI 规范（rag.yaml 等）
 web/                     React 19 + Vite + TipTap + shadcn/ui 前端
+third-party/             第三方治理门禁资产：lock.json / NOTICES/ / adr/（D8）
 ```
+
+> `third-party/` 结构：`lock.json`（锁定清单）+ `lock.schema.json`（结构校验）+ `NOTICES/`（各组件 NOTICE 副本）+ `adr/`（引入决策，`0000-template.md` 为模板）；根目录 `THIRD_PARTY_NOTICES.md` 由 `make notices` 聚合生成。
 
 ## 快速开始（Docker Compose）
 
@@ -383,6 +386,22 @@ make export    # 全量导出（迁移到另一实例），输出 mora-export-<t
 ```
 
 可选定时备份 profile：`docker compose --profile backup up -d`（保留天数 `BACKUP_RETENTION_DAYS`）。
+
+## 第三方治理门禁（D8）
+
+第三方组件引入受门禁约束，确保发布构建不存在漂移依赖，许可证 / NOTICE 检查通过。详见
+`deployments/THIRD-PARTY-GATE-RUNBOOK.md` 与决策书 `design-docs/13-phase0-contract-safety-baseline.md` §6。
+
+```bash
+make third-party-check   # 校验 lock.json / digest / license 白名单 / NOTICE（fail closed）
+make sbom               # 生成 CycloneDX SBOM（需 syft，本地缺失则告警跳过）
+make notices            # 聚合生成 THIRD_PARTY_NOTICES.md
+make third-party-all    # 上述三者串行（CI 门禁入口）
+```
+
+资产位于 `third-party/`：`lock.json`（锁定清单）、`NOTICES/`（各组件 NOTICE 副本）、
+`adr/`（引入决策记录）。CI 门禁 `.github/workflows/third-party-gate.yml` 在 publish 前运行，
+违反门禁 fail closed。新增第三方组件需走 ADR + lockfile + digest 流程。
 
 ## 测试
 

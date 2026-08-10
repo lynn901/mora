@@ -1,0 +1,61 @@
+{
+  "$schema": "./lock.schema.json",
+  "version": 1,
+  "project": "mora",
+  "project_license": "Apache-2.0",
+  "license_policy": {
+    "allowlist": [
+      "Apache-2.0",
+      "MIT",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "MPL-2.0",
+      "0BSD",
+      "CC0-1.0",
+      "CC-BY-4.0",
+      "CC-BY-SA-4.0"
+    ],
+    "review_required": ["LGPL-2.1-only", "LGPL-3.0-only", "EPL-2.0"],
+    "denylist": ["GPL-2.0-only", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later", "AGPL-3.0-only", "AGPL-3.0-or-later", "SSPL", "BUSL-1.1", "Unlicense", "none"],
+    "comment": "copyleft/AGPL 触发传染性义务或商业限制，默认 fail closed；需引入者走 ADR 评审。"
+  },
+  "generated_at": "2026-08-10T00:00:00Z",
+  "generated_by": "manual (Phase 0 baseline)",
+  "components": [
+    {
+      "name": "codegraph",
+      "ecosystem": "npm",
+      "version": "1.5.0",
+      "source_url": "https://www.npmjs.com/package/codegraph/v/1.5.0",
+      "source_repo_url": "https://github.com/lynn901/codegraph",
+      "commit_sha_or_digest": "c6aaa20",
+      "digest_algorithm": "git_commit_short_sha",
+      "license": "MIT",
+      "license_file_url": "https://opensource.org/license/mit",
+      "notice_path": "third-party/NOTICES/codegraph.MIT.txt",
+      "capability": "代码符号/调用/影响查询（CodeGraph 派生索引）",
+      "status": "reference_baseline_only",
+      "selection_phase": "Phase 3 (YS-97)",
+      "adr": "third-party/adr/0001-codegraph-selection.md",
+      "comment": "Phase 0 只固定参考基线（commit/digest/license/NOTICE），不做实际选型。Phase 3 选型时必须走 ADR + lockfile + digest 流程，不能跳过。"
+    },
+    {
+      "name": "hermes-agent-skills-spec",
+      "ecosystem": "spec",
+      "version": "agentskills.io/<spec-version>",
+      "source_url": "https://agentskills.io/",
+      "source_repo_url": "https://github.com/nousresearch/hermes-agent",
+      "commit_sha_or_digest": "cd4317b449f93ef34aab83a7dbce5ef6eb14684f",
+      "digest_algorithm": "git_commit_sha",
+      "license": "MIT",
+      "license_file_url": "https://opensource.org/license/mit",
+      "notice_path": "third-party/NOTICES/hermes-agent.MIT.txt",
+      "capability": "Skill 包格式 profile（agentskills.io/<spec-version> 核心结构 + hermes/* 兼容扩展）",
+      "status": "reference_baseline_only",
+      "selection_phase": "Phase 1 (YS-95 Skill Package Validator)",
+      "adr": "third-party/adr/0002-skill-spec-baseline.md",
+      "comment": "Mora 不承担 Runtime 执行；仅参考其兼容格式、渐进式披露、资源目录与静态扫描规范。"
+    }
+  ]
+}
