@@ -47,4 +47,8 @@ const (
 	IdentityUser IdentityType = "user"
 	// IdentityServiceAccount binds a token to a service account.
 	IdentityServiceAccount IdentityType = "service_account"
+	// IdentityAgent binds a token to an agent (design-docs/13 §4.1, Phase 0).
+	// identity_id then references agents.id; api_tokens.identity_type is a free
+	// VARCHAR(20) with no CHECK constraint (008_mcp), so no migration needed.
+	IdentityAgent IdentityType = "agent"
 )

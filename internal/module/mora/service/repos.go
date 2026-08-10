@@ -138,3 +138,30 @@ type DocumentEvent struct {
 	PrevVersionNo int               `json:"prev_version_no,omitempty"`
 	Timestamp     time.Time         `json:"timestamp"`
 }
+
+// DocWriteSink is the transactional double-write port (design-docs/13 §6.3,
+// PR2 item ⑤). When wired into DocumentService, a document write (create /
+// update / delete) runs inside ONE database transaction that also records a
+// Knowledge Outbox event (asset.*) destined for the knowledge_events Stream —
+// so the event is committed atomically with the state change and is never lost.
+//
+// The port deliberately hides pgx.Tx from the service layer so the service
+// stays unit-testable with fakes (no pgx dependency). The postgres
+// implementation begins the tx, writes documents + document_versions + the
+// outbox_events row, and commits.
+//
+// When the sink is nil (unit tests, or outbox not wired), DocumentService
+// falls back to its existing non-transactional path: docs.Create/Update/
+// SoftDelete + versions.Create, then events.PublishDocumentEvent. That path is
+// byte-for-byte unchanged — the regression red line.
+type DocWriteSink interface {
+	// WriteDoc creates or updates a document and its version snapshot inside
+	// the sink's own transaction, then records the Knowledge Outbox event.
+	// create=true → INSERT documents + version snapshot (VersionNo as given);
+	// create=false → UPDATE documents (prevVersion CAS) + version snapshot.
+	// Returns the persisted document (with VersionNo/UpdatedAt reflected).
+	WriteDoc(ctx context.Context, d *domain.Document, version *domain.DocumentVersion, prevVersion int, create bool, ev domain.KnowledgeEvent) (*domain.Document, error)
+	// DeleteDoc soft-deletes a document inside the sink's transaction and
+	// records the Knowledge Outbox event.
+	DeleteDoc(ctx context.Context, id, userID domain.UUID, ev domain.KnowledgeEvent) error
+}

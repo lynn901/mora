@@ -19,6 +19,17 @@ const (
 	ActionRead  Action = "read"
 	ActionWrite Action = "write"
 	ActionAdmin Action = "admin"
+	// Phase 0 extensions (design-docs/13 §4.1). Semantics:
+	//   admin implies read+write (unchanged); write implies read (unchanged).
+	//   read does NOT imply use — use must match 'use' or 'admin' explicitly.
+	//   The 'use' intersection is enforced at the authz.Service layer, NOT in
+	//   rbac.Engine.hasAction, so the legacy engine's behavior (engine_test.go)
+	//   is untouched.
+	ActionUse    Action = "use"    // Agent 调用资产
+	ActionAssign Action = "assign" // 绑定资产到 Agent
+	ActionShare  Action = "share"  // 分享证据/资产
+	ActionReview Action = "review" // 治理审核
+	ActionSync   Action = "sync"   // 来源同步
 )
 
 type Effect string
@@ -41,6 +52,12 @@ const (
 	TargetWorkspace TargetType = "workspace"
 	TargetDirectory TargetType = "directory"
 	TargetDocument  TargetType = "document"
+	// Phase 0 extensions (design-docs/13 §4.1).
+	TargetAsset    TargetType = "asset"
+	TargetSource   TargetType = "source"
+	TargetAgent    TargetType = "agent"
+	TargetReview   TargetType = "review"
+	TargetEvidence TargetType = "evidence"
 )
 
 type SubjectType string
@@ -48,6 +65,9 @@ type SubjectType string
 const (
 	SubjectUser  SubjectType = "user"
 	SubjectGroup SubjectType = "group"
+	// Phase 0 extensions (design-docs/13 §4.1).
+	SubjectAgent         SubjectType = "agent"
+	SubjectServiceAccount SubjectType = "service_account"
 )
 
 type Role struct {
