@@ -434,6 +434,7 @@ docker compose -f deployments/docker-compose.yml -p mora down -v
 8. `09-design-system.md` — 设计系统
 9. `10-document-parsing-design.md` — 多格式文档解析设计
 10. `11-human-agent-knowledge-blueprint.md` — 人与 Agent 统一知识蓝图
+11. `12-human-agent-knowledge-architecture.md` — 人与 Agent 统一知识技术架构
 
 ## 安全
 
