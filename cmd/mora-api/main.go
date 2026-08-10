@@ -33,6 +33,7 @@ import (
 	"github.com/lynn901/mora/internal/pkg/response"
 	auditpkg "github.com/lynn901/mora/internal/platform/audit"
 	"github.com/lynn901/mora/internal/platform/auth"
+	"github.com/lynn901/mora/internal/platform/authz"
 	"github.com/lynn901/mora/internal/platform/config"
 	"github.com/lynn901/mora/internal/platform/outbox"
 	"github.com/lynn901/mora/internal/platform/ratelimit"
@@ -130,6 +131,19 @@ func main() {
 	userLookup := &pgUserLookup{db: db}
 	collabHub := collab.NewHub(cfg.CollabMaxConcurrent)
 
+	// DelegatedManager (§4.3/§4.4): issues/verifies the short-lived delegated
+	// sessions the MCP Server presents when acting on behalf of a principal.
+	// Reuses JWT_SECRET (same HS256 as the user JWT); the authoritative,
+	// revocable record lives in delegated_sessions; revision currency lives in
+	// workspace_authz_revisions (§5.6 linearization). Wired into AuthMiddleware
+	// so internal-service callers WITHOUT a delegated context degrade to a
+	// restricted service_account (never admin).
+	// nolint:errcheck // sessionRepo is a plain value; nothing to close here.
+	delegatedMgr := authz.NewDelegatedManager(
+		cfg.JWTSecret, authz.DelegatedTTL,
+		postgres.NewSessionRepo(db), postgres.NewRevisionsRepo(db),
+	)
+
 	// handlers
 	authH := wh.NewAuthHandler(userLookup, tm)
 	wsH := wh.NewWorkspaceHandler(wsRepo)
@@ -168,7 +182,7 @@ func main() {
 
 	// authenticated
 	authed := api.Group("")
-	authed.Use(wh.AuthMiddleware(tm, cfg.InternalToken))
+	authed.Use(wh.AuthMiddleware(tm, cfg.InternalToken, delegatedMgr))
 	authed.Use(wh.AuditMiddleware(auditLogger))
 	docLimit := ratelimit.New(cfg.RateLimitDocPerMin)
 	searchLimit := ratelimit.New(cfg.RateLimitSearchPerMin)

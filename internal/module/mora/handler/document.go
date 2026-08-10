@@ -249,7 +249,13 @@ func (h *DocumentHandler) Rollback(c *gin.Context) {
 // --- helpers ---
 
 func svcAuth(s AuthState) service.AuthContext {
-	return service.AuthContext{UserID: s.UserID, Groups: s.Groups, IsAdmin: s.IsAdmin}
+	return service.AuthContext{
+		UserID:          s.UserID,
+		Groups:          s.Groups,
+		IsAdmin:         s.IsAdmin,
+		SubjectType:     s.SubjectType,
+		IsServiceCaller: s.IsServiceCaller,
+	}
 }
 
 func badRequest(msg string) error { return badRequestErr(msg) }
