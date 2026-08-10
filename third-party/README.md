@@ -47,6 +47,8 @@ third-party/
 - **Review required** (manual sign-off): MPL-2.0 (file-level copyleft — record in ADR).
 - **Denylist** (publish blocked): AGPL-3.0*, GPL-2.0/3.0*, LGPL-*, SSPL, BUSL-1.1, CC-BY-NC-*, commons-clause.
 
+> **Go licenses are manually curated.** `go.sum` carries no license metadata, so the SPDX identifier for each Go direct dependency is hand-set in `licenses-override.json` and copied into `lock.json` by `sync-lock.sh`. After bumping/adding a Go module in `go.mod`, you **must** manually verify the upstream license and update `licenses-override.json` if it changed — the gate does not auto-detect Go licenses. npm licenses come from `package-lock.json` and are automated.
+
 ## Reference baselines (non-runtime)
 
 Two reference (spec / selection-framework) baselines are pinned, not runtime code:

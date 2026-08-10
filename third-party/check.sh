@@ -126,13 +126,18 @@ while [ "$i" -lt "$NCOMP" ]; do
 
   # ---- 3. License policy (runtime components only) ---------------------------
   # Denylist uses shell glob so CC-BY-NC-* etc. work without jq gymnastics.
+  # The whitelist lookup uses --null-input (-n): without it jq-1.7 (ubuntu-latest
+  # CI runners) ignores the --argjson $wl binding and runs the filter against
+  # empty stdin → no output → `jq -e` exits 4 → every license spuriously "not in
+  # whitelist". jq-1.6 worked without -n (passed locally, failed in CI). -n makes
+  # $wl bind as the input on both versions.
   if [ "$eco" = "go" ] || [ "$eco" = "npm" ]; then
     case "$lic" in
       AGPL-*|GPL-2.*|GPL-3.*|LGPL-*|SSPL|BUSL-*|CC-BY-NC-*|commons-clause)
         fail "$eco $name: DENIED license '$lic' (matches denylist)"
         ;;
       *)
-        if ! jq -e --arg lic "$lic" --argjson wl "$WHITELIST" '$wl | index($lic)' >/dev/null 2>&1; then
+        if ! jq -en --arg lic "$lic" --argjson wl "$WHITELIST" '$wl | index($lic)' >/dev/null 2>&1; then
           fail "$eco $name: license '$lic' not in whitelist"
         else
           ok "$eco $name: license '$lic' allowed"

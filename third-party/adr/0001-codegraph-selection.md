@@ -3,7 +3,7 @@
 - Status: proposed
 - Date: 2026-08-10
 - Deciders: Mora项目架构师 / 交付部署工程师
-- Superseds: —
+- ADR-IDs: —
 - Phase: Phase 3（YS-97 代码符号 RAG）
 
 ## 背景
