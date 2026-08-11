@@ -118,6 +118,25 @@ ragWorker:
       memory: 256Mi
       cpu: 200m
 
+# knowledge-worker（design-docs/14 §5）：消费 source_events / knowledge_events
+# Streams，编排资产投影与版本原子切换；内嵌 Outbox Dispatcher。
+# 出网防护（egress）为硬约束（§6）：默认不出网。
+knowledgeWorker:
+  image:
+    repository: knowledge-worker
+    tag: "latest"
+  replicaCount: 1
+  servicePort: 8083
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 200m
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
 mcpServer:
   image:
     repository: mcp-server
@@ -161,6 +180,14 @@ config:
   rateLimitSearchPerMin: 200
   mcpRateLimitRead: 100
   mcpRateLimitWrite: 20
+  # 出网与 SSRF 防护（design-docs/14 §6，knowledge-worker egress）。
+  # 默认 egressAllowDomains 为空=不出网；架构红线：默认不出网配置不可改。
+  # 需要拉取外部来源时设为逗号分隔的主机列表（精确或 *.suffix）。
+  egressAllowDomains: ""
+  egressAllowPrivateRanges: false
+  egressMaxRedirects: 5
+  egressMaxResponseBytes: "104857600"  # 100MB
+  egressTimeout: "30s"
 
 monitoring:
   enabled: false
