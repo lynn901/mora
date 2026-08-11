@@ -69,6 +69,27 @@ type AssetInfo struct {
 	CurrentVersionID *uuid.UUID
 }
 
+// AssetVersionInfo is the minimal projection authz.Service needs from
+// knowledge_asset_versions to evaluate the pinned-version-revocation gate
+// (§8.2 用例 5 / §11.4). Only the two status axes the gate decides on are
+// carried: a version is usable iff build_status='ready' AND
+// governance_status='published' (the same invariant the asset's
+// current_version_id FK enforces, design-docs/12 §4.2). Any other state
+// (deprecated/superseded/rejected/failed/…) counts as revoked → block use,
+// no auto-fallback to the latest published version.
+type AssetVersionInfo struct {
+	BuildStatus      string // domain.VersionBuild* — pending|building|ready|failed|superseded
+	GovernanceStatus string // domain.VersionGov*  — candidate|approved|published|rejected|deprecated
+}
+
+// IsUsable reports whether this version is in a state the gate treats as
+// authorized for use: build ready AND governance published. Revoked,
+// superseded, deprecated, failed or in-flight versions return false.
+func (v AssetVersionInfo) IsUsable() bool {
+	return v.BuildStatus == domain.VersionBuildReady &&
+		v.GovernanceStatus == domain.VersionGovPublished
+}
+
 // AgentInfo is the minimal projection authz.Service needs from agents.
 type AgentInfo struct {
 	WorkspaceID      uuid.UUID
@@ -79,6 +100,16 @@ type AgentInfo struct {
 // AssetRepo is the read port authz.Service needs over knowledge_assets.
 type AssetRepo interface {
 	Get(ctx context.Context, assetID uuid.UUID) (AssetInfo, error)
+}
+
+// AssetVersionRepo is the read port authz.Service needs over
+// knowledge_asset_versions. It backs the pinned-version-revocation gate
+// (§8.2 用例 5): when a binding pins a version whose state is no longer
+// usable (revoked/deprecated/superseded/…), use must block — no silent
+// fallback to the latest published version (§11.4). A missing version row
+// returns an error the service maps to a deny (existence never leaks).
+type AssetVersionRepo interface {
+	Get(ctx context.Context, versionID uuid.UUID) (AssetVersionInfo, error)
 }
 
 // AgentRepo is the read port authz.Service needs over agents.

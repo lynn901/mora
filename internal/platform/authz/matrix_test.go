@@ -277,26 +277,21 @@ func Test_Lifecycle_RejectedBlocksUse(t *testing.T) {
 // §8.2 UC5 — pinned binding version revocation.
 // A pinned binding (VersionPolicy=pinned, PinnedVersionID set) whose pinned
 // version is revoked must block use — it must NOT silently fall back to the
-// latest published version (§11.4).
-//
-// NOTE: Phase 0 authz.Service.lifecycleGate checks asset.Status (not the
-// pinned version's status). The pinned-version-revoked branch is a PR2 gap —
-// see the defect section of the YS-94 report. This test documents the SPEC
-// expectation so the gap is observable; it is expected to FAIL against the
-// current implementation, demonstrating the defect.
+// latest published version (§11.4). A version is usable iff build_status=
+// 'ready' AND governance_status='published' (the same invariant the asset's
+// current_version_id FK enforces, design-docs/12 §4.2); any other state
+// (deprecated/superseded/rejected/failed/in-flight) counts as revoked.
 // =====================================================================
 
 // Test_UseCase5_PinnedVersionRevokedBlocks: pinned binding's version is
-// revoked → use must block, no auto-fallback to latest.
+// deprecated (governance_status=deprecated → no longer usable) → use must
+// block as ErrNotFound, no auto-fallback to the latest published version.
+// The asset itself is published, so only the pinned-version gate blocks.
 func Test_UseCase5_PinnedVersionRevokedBlocks(t *testing.T) {
 	ws, asset, agent, user := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	pinnedVersion := uuid.New()
 
 	rbacRepo := &fakeRBACRepo{grants: []domain.Grant{workspaceUseGrant(user, ws)}}
-	// Asset itself is published (would pass lifecycleGate), but the pinned
-	// version is in a revoked/terminal state. The spec (§11.4) says this must
-	// block use; Phase 0 Service does not currently consult the pinned
-	// version's status — only the asset's.
 	assets := publishedAsset(asset, ws, user)
 	agents := &fakeAgentRepo{agents: map[uuid.UUID]AgentInfo{agent: {WorkspaceID: ws, Status: domain.AgentActive}}}
 	binds := &fakeBindingRepo{binds: map[uuid.UUID][]domain.AgentBinding{
@@ -305,26 +300,140 @@ func Test_UseCase5_PinnedVersionRevokedBlocks(t *testing.T) {
 			VersionPolicy: domain.BindingPinned, PinnedVersionID: &pinnedVersion,
 			Effect: domain.BindingAllow}},
 	}}
-	svc := newTestService(t, rbacRepo, assets, agents, binds)
+	// Pinned version: build ready but governance deprecated → revoked.
+	versions := &fakeVersionRepo{versions: map[uuid.UUID]AssetVersionInfo{
+		pinnedVersion: {BuildStatus: domain.VersionBuildReady, GovernanceStatus: domain.VersionGovDeprecated},
+	}}
+	svc := newTestService(t, rbacRepo, assets, agents, binds, versions)
 
-	// The spec says this should be denied (pinned version revoked → block).
-	// The current implementation has no AssetVersionRepo, so it cannot observe
-	// the pinned version's status and will (incorrectly) allow.
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
 		AgentID: &agent, ActingUserID: &user,
 		TargetType: domain.TargetAsset, TargetID: asset, Action: domain.ActionUse,
 	})
-	// SPEC expectation: denied.
-	if err == nil && dec.Allowed {
-		t.Skip("UC5 PR2 gap: lifecycleGate does not consult pinned version status — " +
-			"asset published so use is allowed, but the pinned version is revoked. " +
-			"Defect recorded in YS-94 report; no AssetVersionRepo seam exists yet.")
-	}
-	// If the implementation is ever fixed, this is the real assertion:
 	assert.ErrorIs(t, err, ErrNotFound, "pinned version revoked must block use (no auto-fallback)")
 	assert.False(t, dec.Allowed)
+	assert.Contains(t, dec.Reason, "pinned version revoked")
 }
+
+// Test_UseCase5_PinnedVersionSupersededBlocks: a superseded pinned version
+// (build_status=superseded) also blocks — every non-ready/non-published
+// state is treated as revoked by the gate, not only 'deprecated'.
+func Test_UseCase5_PinnedVersionSupersededBlocks(t *testing.T) {
+	ws, asset, agent, user := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	pinnedVersion := uuid.New()
+
+	rbacRepo := &fakeRBACRepo{grants: []domain.Grant{workspaceUseGrant(user, ws)}}
+	binds := &fakeBindingRepo{binds: map[uuid.UUID][]domain.AgentBinding{
+		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
+			ScopeKind: domain.BindingScopeAsset, AssetID: &asset,
+			VersionPolicy: domain.BindingPinned, PinnedVersionID: &pinnedVersion,
+			Effect: domain.BindingAllow}},
+	}}
+	versions := &fakeVersionRepo{versions: map[uuid.UUID]AssetVersionInfo{
+		pinnedVersion: {BuildStatus: domain.VersionBuildSuperseded, GovernanceStatus: domain.VersionGovPublished},
+	}}
+	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user),
+		&fakeAgentRepo{agents: map[uuid.UUID]AgentInfo{agent: {WorkspaceID: ws, Status: domain.AgentActive}}},
+		binds, versions)
+
+	dec, err := svc.Authorize(context.Background(), AuthzRequest{
+		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
+		AgentID: &agent, ActingUserID: &user,
+		TargetType: domain.TargetAsset, TargetID: asset, Action: domain.ActionUse,
+	})
+	assert.ErrorIs(t, err, ErrNotFound, "superseded pinned version must block use")
+	assert.False(t, dec.Allowed)
+}
+
+// Test_UseCase5_PinnedVersionMissingBlocks: the pinned version row is gone
+// (e.g. retention deleted it — §12.2 "Asset Version ... 固定绑定阻断并告警").
+// A missing version must block, not fall through to the asset's latest.
+func Test_UseCase5_PinnedVersionMissingBlocks(t *testing.T) {
+	ws, asset, agent, user := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	pinnedVersion := uuid.New()
+
+	rbacRepo := &fakeRBACRepo{grants: []domain.Grant{workspaceUseGrant(user, ws)}}
+	binds := &fakeBindingRepo{binds: map[uuid.UUID][]domain.AgentBinding{
+		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
+			ScopeKind: domain.BindingScopeAsset, AssetID: &asset,
+			VersionPolicy: domain.BindingPinned, PinnedVersionID: &pinnedVersion,
+			Effect: domain.BindingAllow}},
+	}}
+	// versions map deliberately omits pinnedVersion → not-found.
+	versions := &fakeVersionRepo{versions: map[uuid.UUID]AssetVersionInfo{}}
+	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user),
+		&fakeAgentRepo{agents: map[uuid.UUID]AgentInfo{agent: {WorkspaceID: ws, Status: domain.AgentActive}}},
+		binds, versions)
+
+	dec, err := svc.Authorize(context.Background(), AuthzRequest{
+		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
+		AgentID: &agent, ActingUserID: &user,
+		TargetType: domain.TargetAsset, TargetID: asset, Action: domain.ActionUse,
+	})
+	assert.ErrorIs(t, err, ErrNotFound, "missing pinned version must block use")
+	assert.False(t, dec.Allowed)
+}
+
+// Test_UseCase5_PinnedVersionHealthyAllows: the positive counterpart — a
+// pinned binding whose version is still usable (ready+published) does NOT
+// block; the request proceeds to RBAC+binding narrowing and is allowed.
+// Guards against the gate over-restricting (regression of its own).
+func Test_UseCase5_PinnedVersionHealthyAllows(t *testing.T) {
+	ws, asset, agent, user := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	pinnedVersion := uuid.New()
+
+	rbacRepo := &fakeRBACRepo{grants: []domain.Grant{workspaceUseGrant(user, ws)}}
+	binds := &fakeBindingRepo{binds: map[uuid.UUID][]domain.AgentBinding{
+		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
+			ScopeKind: domain.BindingScopeAsset, AssetID: &asset,
+			VersionPolicy: domain.BindingPinned, PinnedVersionID: &pinnedVersion,
+			Effect: domain.BindingAllow}},
+	}}
+	versions := &fakeVersionRepo{versions: map[uuid.UUID]AssetVersionInfo{
+		pinnedVersion: usableVersion(),
+	}}
+	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user),
+		&fakeAgentRepo{agents: map[uuid.UUID]AgentInfo{agent: {WorkspaceID: ws, Status: domain.AgentActive}}},
+		binds, versions)
+
+	dec, err := svc.Authorize(context.Background(), AuthzRequest{
+		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
+		AgentID: &agent, ActingUserID: &user,
+		TargetType: domain.TargetAsset, TargetID: asset, Action: domain.ActionUse,
+	})
+	require.NoError(t, err)
+	assert.True(t, dec.Allowed, "a usable pinned version must not block use")
+}
+
+// Test_UseCase5_FollowPublishedIgnoresVersionGate: a follow_published
+// binding (the default) has no pinned version, so the gate is a no-op and
+// the asset's own lifecycle (published) governs — the gate must not trip
+// on follow_published bindings even when the versions repo is empty.
+func Test_UseCase5_FollowPublishedIgnoresVersionGate(t *testing.T) {
+	ws, asset, agent, user := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	rbacRepo := &fakeRBACRepo{grants: []domain.Grant{workspaceUseGrant(user, ws)}}
+	binds := &fakeBindingRepo{binds: map[uuid.UUID][]domain.AgentBinding{
+		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
+			ScopeKind: domain.BindingScopeAsset, AssetID: &asset,
+			VersionPolicy: domain.BindingFollowPublished,
+			Effect: domain.BindingAllow}},
+	}}
+	versions := &fakeVersionRepo{versions: map[uuid.UUID]AssetVersionInfo{}}
+	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user),
+		&fakeAgentRepo{agents: map[uuid.UUID]AgentInfo{agent: {WorkspaceID: ws, Status: domain.AgentActive}}},
+		binds, versions)
+
+	dec, err := svc.Authorize(context.Background(), AuthzRequest{
+		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
+		AgentID: &agent, ActingUserID: &user,
+		TargetType: domain.TargetAsset, TargetID: asset, Action: domain.ActionUse,
+	})
+	require.NoError(t, err)
+	assert.True(t, dec.Allowed, "follow_published binding must not trip the pinned-version gate")
+}
+
 
 // =====================================================================
 // §8.2 UC6 — revocation → next request synchronous deny.
@@ -420,7 +529,7 @@ func Test_UseCase7_VisibleAssetsConvergesAfterYank(t *testing.T) {
 		Type TargetType
 		Loc  ResourceLocator
 	}{Type: domain.TargetAsset, Loc: NewAssetLocator(assets)})
-	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, assets, rev, &fakeDecisionRepo{})
+	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, assets, nil, rev, &fakeDecisionRepo{})
 
 	// t0: asset is visible.
 	out, err := svc.VisibleAssets(context.Background(), ListScope{
@@ -519,7 +628,7 @@ func Test_Regression_ServiceDocFamilyDelegatesToEngine(t *testing.T) {
 		Type TargetType
 		Loc  ResourceLocator
 	}{Type: domain.TargetDocument, Loc: NewDocLocator(repo)})
-	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, &fakeAssetRepo{},
+	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, &fakeAssetRepo{}, nil,
 		&fakeRevisionRepo{rev: 1}, &fakeDecisionRepo{})
 
 	ctx := context.Background()
@@ -569,7 +678,7 @@ func Test_Gap_ServiceDropsGroups(t *testing.T) {
 		Type TargetType
 		Loc  ResourceLocator
 	}{Type: domain.TargetDocument, Loc: NewDocLocator(repo)})
-	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, &fakeAssetRepo{},
+	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, &fakeAssetRepo{}, nil,
 		&fakeRevisionRepo{rev: 1}, &fakeDecisionRepo{})
 
 	ctx := context.Background()
@@ -612,7 +721,7 @@ func Test_Regression_DocDenyAtSubdirBlocksViaService(t *testing.T) {
 		Type TargetType
 		Loc  ResourceLocator
 	}{Type: domain.TargetDocument, Loc: NewDocLocator(repo)})
-	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, &fakeAssetRepo{},
+	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, &fakeAssetRepo{}, nil,
 		&fakeRevisionRepo{rev: 1}, &fakeDecisionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
@@ -638,7 +747,7 @@ func Test_Regression_AdminImpliesReadAndWrite(t *testing.T) {
 		Type TargetType
 		Loc  ResourceLocator
 	}{Type: domain.TargetDocument, Loc: NewDocLocator(repo)})
-	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, &fakeAssetRepo{},
+	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, &fakeAssetRepo{}, nil,
 		&fakeRevisionRepo{rev: 1}, &fakeDecisionRepo{})
 
 	ctx := context.Background()
@@ -727,7 +836,7 @@ func Test_Regression_ServiceCarriesAuthzRevision(t *testing.T) {
 		Type TargetType
 		Loc  ResourceLocator
 	}{Type: domain.TargetAsset, Loc: NewAssetLocator(assets)})
-	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, assets, rev, &fakeDecisionRepo{})
+	svc := NewService(comp, eng, &fakeBindingRepo{}, &fakeAgentRepo{}, assets, nil, rev, &fakeDecisionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: user,
