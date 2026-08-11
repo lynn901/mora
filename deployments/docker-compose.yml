@@ -1,10 +1,12 @@
 # Mora 平台单机部署（试用 / ≤50 人）。
-# 一键 `docker compose up -d` 拉起全部组件：前端（nginx） + 3 应用（mora-api / rag-worker / mcp-server）
-# + 4 基础设施（postgres / valkey / qdrant / tei）+ 1 迁移 init 容器，数据卷本地挂载，100% 私有化。
+# 一键 `docker compose up -d` 拉起全部组件：前端（nginx） + 4 应用
+# （mora-api / rag-worker / knowledge-worker / mcp-server）+ 4 基础设施
+# （postgres / valkey / qdrant / tei）+ 1 迁移 init 容器，数据卷本地挂载，100% 私有化。
 # 对应架构设计 02-system-architecture.md §3.1。
 #
 # 启动顺序：postgres(healthy) → valkey/qdrant/tei(started) → migrate(completed)
-#           → mora-api(healthy) → frontend + rag-worker + mcp-server(healthy)。
+#           → mora-api(healthy) → frontend + rag-worker + knowledge-worker
+#           + mcp-server(healthy)。
 # 默认 TEI 作为 Embedding 推理；可选 Ollama：`docker compose --profile ollama up -d`。
 # 可选可观测：Prometheus + Grafana：`docker compose --profile monitoring up -d`。
 # 可选 P2 多模态解析 sidecar：`docker compose --profile parser up -d`
@@ -251,6 +253,57 @@ services:
       PARSE_TASK_MAX_ATTEMPT: "${PARSE_TASK_MAX_ATTEMPT:-3}"
     healthcheck:
       test: ["CMD", "/app/healthcheck", "http://localhost:8082/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  knowledge-worker:
+    # knowledge-worker（design-docs/14 §5）：消费 source_events（消费组 source_sync）
+    # + knowledge_events（消费组 knowledge_projection）Streams，编排资产投影与版本
+    # 原子切换；内嵌 Outbox Dispatcher（首版）。复用同一 Go 仓库 + Dockerfile
+    # TARGET=knowledge-worker 构建分支，与 rag-worker 独立消费组、独立扩缩容。
+    # 出网防护（egress）为硬约束（§6）：URL/API/Git 来源必须经 egress 校验，
+    # 默认 EGRESS_ALLOW_DOMAINS 为空=不出网；EGRESS_ALLOW_PRIVATE_RANGES 默认 false。
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        TARGET: knowledge-worker
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      tei: { condition: service_started } # TEI 模型加载较慢；worker 自带重试，不阻塞启动
+      migrate: { condition: service_completed_successfully }
+    environment:
+      DATABASE_URL: "postgres://mora:${POSTGRES_PASSWORD:-mora}@postgres:5432/mora?sslmode=disable"
+      VALKEY_URL: "valkey:6379"
+      QDRANT_URL: "http://qdrant:6333"
+      TEI_URL: "http://tei:8080"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-tei}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+      EMBEDDING_DIM: "${EMBEDDING_DIM:-384}"
+      CONSUMER_NAME: "knowledge-worker-1"
+      HEALTH_ADDR: ":8083"
+      # 对象存储：Connector 拉取的来源内容写入隔离 MinIO 前缀（§4.1 ContentSink）
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-mora}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-mora-secret}"
+      MINIO_BUCKET: "mora"
+      MINIO_SECURE: "false"
+      # 出网白名单（egress allowlist，design-docs/14 §6）。
+      # 默认 EGRESS_ALLOW_DOMAINS 为空=不出网；架构红线：默认不出网配置不可改。
+      # 需要拉取外部来源时显式设为逗号分隔的主机列表（精确或 *.suffix）。
+      EGRESS_ALLOW_DOMAINS: "${EGRESS_ALLOW_DOMAINS:-}"
+      EGRESS_ALLOW_PRIVATE_RANGES: "${EGRESS_ALLOW_PRIVATE_RANGES:-false}"
+      EGRESS_MAX_REDIRECTS: "5"
+      EGRESS_MAX_RESPONSE_BYTES: "${EGRESS_MAX_RESPONSE_BYTES:-104857600}"  # 100MB
+      EGRESS_TIMEOUT: "${EGRESS_TIMEOUT:-30s}"
+    healthcheck:
+      test: ["CMD", "/app/healthcheck", "http://localhost:8083/healthz"]
       interval: 15s
       timeout: 3s
       retries: 20

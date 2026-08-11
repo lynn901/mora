@@ -174,6 +174,7 @@ make verify
 | frontend | 80 | 3010 | nginx 托管前端 SPA，反向代理 API |
 | mora-api | 8080 | 8990 | 主 REST API + 协同 WebSocket |
 | rag-worker | 8082 | — | RAG 索引消费者（仅内部健康检查） |
+| knowledge-worker | 8083 | — | 来源同步 + 资产投影编排（仅内部健康检查，默认不出网） |
 | mcp-server | 8081 | 8081 | MCP 协议服务器 |
 | yjs-server | 1234 | 1234 | Yjs CRDT 协同同步 |
 | postgres | 5432 | — | 元数据 / 版本 / 权限 / 审计 |
