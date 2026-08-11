@@ -14,9 +14,9 @@ import (
 // resolved server-side via decision_id" rather than "no assets" — the
 // distinction matters for search/listing so large sets are not transferred.
 type AuthzContext struct {
-	WorkspaceID      uuid.UUID
-	AuthzRevision    int64
-	PrincipalType    domain.SubjectType
+	WorkspaceID     uuid.UUID
+	AuthzRevision   int64
+	PrincipalType   domain.SubjectType
 	PrincipalID     uuid.UUID
 	ActingUserID    *uuid.UUID // present when an agent acts on behalf of a user
 	AgentID         *uuid.UUID // present when principal_type=agent
@@ -27,23 +27,34 @@ type AuthzContext struct {
 }
 
 // AuthzRequest is the input to Service.Authorize (13 §3.4).
+//
+// GroupIDs carries the principal's group memberships so grants granted to a
+// group the principal belongs to (subject_type=group) are visible through the
+// Service path — the same groups handlers already pass to rbac.Engine.Check
+// via AuthState. Without it the unified entry point silently drops group-
+// inherited permissions (PR2 gap #2). For agent self (service account
+// principal) groups are nil: a service account holds no group memberships.
 type AuthzRequest struct {
 	WorkspaceID   uuid.UUID
 	PrincipalType domain.SubjectType
 	PrincipalID   uuid.UUID
-	ActingUserID  *uuid.UUID // agent-on-behalf-of-user
-	AgentID       *uuid.UUID // when principal is an agent
+	GroupIDs      []uuid.UUID // principal's group memberships (user path)
+	ActingUserID  *uuid.UUID  // agent-on-behalf-of-user
+	AgentID       *uuid.UUID  // when principal is an agent
 	TargetType    TargetType
 	TargetID      uuid.UUID
 	Action        domain.Action
 }
 
 // ListScope is the input to VisibleAssets: the principal and the workspace
-// whose asset set is to be filtered (存在性不泄露).
+// whose asset set is to be filtered (存在性不泄露). GroupIDs carries the
+// principal's group memberships, plumbed into each per-asset Authorize so
+// group-inherited use is visible — same field/same reason as AuthzRequest.
 type ListScope struct {
 	WorkspaceID   uuid.UUID
 	PrincipalType domain.SubjectType
 	PrincipalID   uuid.UUID
+	GroupIDs      []uuid.UUID
 	ActingUserID  *uuid.UUID
 	AgentID       *uuid.UUID
 }
@@ -138,12 +149,12 @@ type DecisionRecord struct {
 	WorkspaceID   uuid.UUID
 	AuthzRevision int64
 	PrincipalType domain.SubjectType
-	PrincipalID  uuid.UUID
-	ActingUserID *uuid.UUID
-	AgentID      *uuid.UUID
-	Action       domain.Action
-	ScopeHash    string
-	Audience     string
-	NonceHash    string
-	ExpiresAt    time.Time
+	PrincipalID   uuid.UUID
+	ActingUserID  *uuid.UUID
+	AgentID       *uuid.UUID
+	Action        domain.Action
+	ScopeHash     string
+	Audience      string
+	NonceHash     string
+	ExpiresAt     time.Time
 }
