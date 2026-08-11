@@ -10,6 +10,8 @@ import {
   Upload,
   Gauge,
   X,
+  Boxes,
+  Inbox,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -28,6 +30,8 @@ import { DirectoryTree } from "@/components/tree/DirectoryTree"
 import { BlockEditor } from "@/components/editor/BlockEditor"
 import { SearchPanel } from "@/components/search/SearchPanel"
 import { RBACPanel } from "@/components/rbac/RBACPanel"
+import { AssetsPanel } from "@/components/assets/AssetsPanel"
+import { ReviewInboxPage } from "@/components/assets/ReviewInboxPage"
 import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
 import { ThemeToggle } from "@/components/mora/ThemeToggle"
@@ -39,7 +43,7 @@ import { useParseStore } from "@/stores/parse"
 import { useCollabStore } from "@/stores/collab"
 import { useAuthStore } from "@/stores/auth"
 
-type SidePanel = "tree" | "search" | "rbac" | "history"
+type SidePanel = "tree" | "search" | "rbac" | "history" | "assets" | "review"
 
 export function MoraLayout({ children }: { children?: React.ReactNode }) {
   const {
@@ -99,6 +103,8 @@ export function MoraLayout({ children }: { children?: React.ReactNode }) {
     ),
     rbac: <RBACPanel />,
     history: <VersionHistory />,
+    assets: <AssetsPanel />,
+    review: <ReviewInboxPage />,
   }
 
   const panelLabels: Record<SidePanel, string> = {
@@ -106,6 +112,8 @@ export function MoraLayout({ children }: { children?: React.ReactNode }) {
     search: "搜索",
     rbac: "权限",
     history: "历史",
+    assets: "资产",
+    review: "审核",
   }
 
   const panelIcons: Record<SidePanel, React.ReactNode> = {
@@ -113,6 +121,8 @@ export function MoraLayout({ children }: { children?: React.ReactNode }) {
     search: <Search className="size-4" />,
     rbac: <Shield className="size-4" />,
     history: <Clock className="size-4" />,
+    assets: <Boxes className="size-4" />,
+    review: <Inbox className="size-4" />,
   }
 
   if (error) {
@@ -287,6 +297,10 @@ export function MoraLayout({ children }: { children?: React.ReactNode }) {
 
           {children ? (
             <div className="flex-1 overflow-hidden">{children}</div>
+          ) : activePanel === "assets" || activePanel === "review" ? (
+            // Full-area asset / review views — these are primary destinations,
+            // not sidebar sub-panels, so they take the main stage.
+            <div className="flex-1 overflow-hidden">{panelContent[activePanel]}</div>
           ) : monitoringOpen ? (
             <div className="relative flex-1 overflow-hidden">
               <Button
