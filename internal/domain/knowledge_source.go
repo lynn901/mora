@@ -49,6 +49,11 @@ type KnowledgeSource struct {
 	CreatedByID     UUID
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+
+	// ETagVersion is the optimistic-concurrency version the repository layer
+	// derives (updated_at epoch ms + revision). Not a DB column; surfaced on
+	// reads so PATCH can carry it back as If-Match (§4.4).
+	ETagVersion int64
 }
 
 // SyncRunStatus is the lifecycle of a source_sync_run (14 §2.1).

@@ -21,13 +21,16 @@ import (
 // engine's internal target resolution delegates to a CompositeLocator backed
 // by a DocLocator over the same repository — the doc path behavior is
 // unchanged (regression red line: Check/VisibleDocuments + engine_test.go).
-// Asset/agent locators are registered in a later PR.
-func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo, docs *postgres.DocumentRepo) *rbac.Engine {
+// Phase 1 adds the Source + Review locators (design-docs/14 §3.3/§8.2) so the
+// authz layer can resolve source/review targets the same way it resolves
+// documents — a missing/disabled source or missing review returns
+// ErrTargetNotFound, indistinguishable from a denial (existence never leaks).
+func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo, docs *postgres.DocumentRepo, authzDB *postgres.DB) *rbac.Engine {
 	repo := postgres.NewRBACAdapter(perms, dirs, docs)
 	eng := rbac.NewEngine(repo)
-	// Wire doc-family target resolution through the unified ResourceLocator
-	// port. AsLocator adapts authz.ResourceLocator -> rbac.Locator so the
-	// engine can delegate without importing authz (which imports rbac).
+	// Wire doc-family + source/review target resolution through the unified
+	// ResourceLocator port. AsLocator adapts authz.ResourceLocator -> rbac.Locator
+	// so the engine can delegate without importing authz (which imports rbac).
 	comp := authz.NewCompositeLocator(struct {
 		Type authz.TargetType
 		Loc  authz.ResourceLocator
@@ -40,6 +43,14 @@ func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo,
 			Type authz.TargetType
 			Loc  authz.ResourceLocator
 		}{Type: domain.TargetDocument, Loc: authz.NewDocLocator(repo)},
+		struct {
+			Type authz.TargetType
+			Loc  authz.ResourceLocator
+		}{Type: domain.TargetSource, Loc: authz.NewSourceLocator(postgres.NewAuthzSourceRepo(authzDB))},
+		struct {
+			Type authz.TargetType
+			Loc  authz.ResourceLocator
+		}{Type: domain.TargetReview, Loc: authz.NewReviewLocator(postgres.NewAuthzReviewRepo(authzDB))},
 	)
 	eng.SetLocator(authz.AsLocator(comp))
 	return eng

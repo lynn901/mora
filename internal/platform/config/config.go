@@ -73,6 +73,15 @@ type Config struct {
 
 	// --- rag worker ---
 	ConsumerName string
+
+	// --- Phase 1 egress / SSRF (design-docs/14 §6) ---
+	// URL/API/Git sources MUST route through the egress layer. Provider adapters
+	// (TEI/Qdrant/MinIO) on the trusted internal network do NOT (same-network).
+	EgressAllowDomains       []string // EGRESS_ALLOW_DOMAINS, comma-separated exact or *.suffix
+	EgressAllowPrivateRanges bool     // EGRESS_ALLOW_PRIVATE_RANGES; default false; internal trust_level may opt in
+	EgressMaxRedirects       int      // EGRESS_MAX_REDIRECTS, default 5
+	EgressMaxResponseBytes   int64    // EGRESS_MAX_RESPONSE_BYTES, default 100MB
+	EgressTimeout            time.Duration
 }
 
 // Load reads configuration from environment variables with safe defaults for
@@ -121,6 +130,11 @@ func Load() (*Config, error) {
 		ServerVersion:          getenv("MCP_SERVER_VERSION", "1.0.0"),
 		ConsumerName:           getenv("CONSUMER_NAME", "rag-worker-1"),
 		LogLevel:               strings.ToLower(getenv("LOG_LEVEL", "info")),
+
+		EgressAllowDomains:       parseCSV(getenv("EGRESS_ALLOW_DOMAINS", "")),
+		EgressAllowPrivateRanges: os.Getenv("EGRESS_ALLOW_PRIVATE_RANGES") == "true",
+		EgressMaxRedirects:       getenvInt("EGRESS_MAX_REDIRECTS", 5),
+		EgressMaxResponseBytes:   int64(getenvInt("EGRESS_MAX_RESPONSE_BYTES", 104857600)),
 	}
 	cfg.EmbeddingDim = getenvInt("EMBEDDING_DIM", 384)
 	cfg.PostgresDSN = cfg.DatabaseURL
@@ -140,6 +154,11 @@ func Load() (*Config, error) {
 	if cfg.FTSConfig == "" {
 		cfg.FTSConfig = "chinese_zh"
 	}
+	egressTimeout, err := time.ParseDuration(getenv("EGRESS_TIMEOUT", "30s"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid EGRESS_TIMEOUT: %w", err)
+	}
+	cfg.EgressTimeout = egressTimeout
 	return cfg, nil
 }
 
@@ -239,4 +258,22 @@ func getenvInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+// parseCSV splits a comma-separated env value into trimmed non-empty tokens.
+// Used for EGRESS_ALLOW_DOMAINS (empty → nil → "no allowlist enforced" is the
+// caller's decision; the egress layer treats nil as "allow any host but still
+// block private/metadata ranges").
+func parseCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
