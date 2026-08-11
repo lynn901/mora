@@ -108,6 +108,24 @@ type AgentInfo struct {
 	ServiceAccountID *uuid.UUID
 }
 
+// SourceInfo is the minimal projection authz.Service needs from
+// knowledge_sources (design-docs/14 §4.2 / §8.2). Only the two fields a
+// permission decision consults: the workspace it belongs to (cross-workspace
+// guard) and whether it is enabled (a disabled source is unreadable → the
+// locator returns ErrTargetNotFound so existence never leaks).
+type SourceInfo struct {
+	WorkspaceID uuid.UUID
+	Enabled     bool
+}
+
+// ReviewInfo is the minimal projection authz.Service needs from review_requests
+// (design-docs/14 §4.2 / §8.2). A review's permission target is the request
+// itself; only its workspace membership is resolved here. A missing request
+// returns an error the locator maps to ErrTargetNotFound (no existence leak).
+type ReviewInfo struct {
+	WorkspaceID uuid.UUID
+}
+
 // AssetRepo is the read port authz.Service needs over knowledge_assets.
 type AssetRepo interface {
 	Get(ctx context.Context, assetID uuid.UUID) (AssetInfo, error)
@@ -126,6 +144,24 @@ type AssetVersionRepo interface {
 // AgentRepo is the read port authz.Service needs over agents.
 type AgentRepo interface {
 	Get(ctx context.Context, agentID uuid.UUID) (AgentInfo, error)
+}
+
+// SourceRepo is the read port authz.Service needs over knowledge_sources
+// (design-docs/14 §4.2). A missing or disabled source returns an error the
+// locator maps to ErrTargetNotFound so existence never leaks (§8.2). This is
+// the authz-side minimal port — distinct from the source module's full
+// SourceRepo — so the authz layer depends on a narrow read shape, not the
+// whole CRUD interface (same precedent as AssetRepo vs the wiki module).
+type SourceRepo interface {
+	Get(ctx context.Context, sourceID uuid.UUID) (SourceInfo, error)
+}
+
+// ReviewRepo is the read port authz.Service needs over review_requests
+// (design-docs/14 §4.2). A missing request returns an error the locator maps
+// to ErrTargetNotFound (no existence leak). Distinct from the source module's
+// full ReviewRepo for the same narrow-port reason as SourceRepo.
+type ReviewRepo interface {
+	Get(ctx context.Context, reviewID uuid.UUID) (ReviewInfo, error)
 }
 
 // BindingRepo returns the active agent_bindings for an agent in a workspace

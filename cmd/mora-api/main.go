@@ -29,6 +29,7 @@ import (
 	wh "github.com/lynn901/mora/internal/module/mora/handler"
 	"github.com/lynn901/mora/internal/module/mora/parsewiring"
 	"github.com/lynn901/mora/internal/module/mora/service"
+	srcsvc "github.com/lynn901/mora/internal/module/knowledge/source/service"
 	ragsearch "github.com/lynn901/mora/internal/module/rag/search"
 	"github.com/lynn901/mora/internal/pkg/response"
 	auditpkg "github.com/lynn901/mora/internal/platform/audit"
@@ -73,7 +74,8 @@ func main() {
 
 	// RBAC engine backed by the permission repo (which also implements the
 	// engine's Repository: GrantsFor, DirectoryAncestors, DocumentLocation).
-	engine := newRBACEngine(permRepo, dirRepo, docRepo)
+	// Phase 1: the composite locator now also resolves source/review targets.
+	engine := newRBACEngine(permRepo, dirRepo, docRepo, db)
 
 	// Event publisher: Valkey Streams (real) when configured, else noop. The
 	// QueuePublisher maps service.DocumentEvent → domain.DocEvent and publishes
@@ -127,6 +129,24 @@ func main() {
 		cfg.ParseMaxFileMB,
 	)
 	parseH := wh.NewParseHandler(parseSvc)
+
+	// Source management (design-docs/14 §4.4 D13): the source repos, the
+	// transactional SyncRunSink (run + Knowledge Outbox event committed
+	// atomically, §6.3), and the application service. The service does NOT
+	// run the Connector — the knowledge-worker consumes the outbox event and
+	// dispatches (§5). Phase 1 wires the file connector path; the credential
+	// store is nil (file sources need no secret), so SetCredential stores the
+	// caller-supplied ref as-is.
+	srcRepo := postgres.NewSourceRepo(db)
+	srcRunRepo := postgres.NewSyncRunRepo(db)
+	srcTargetRepo := postgres.NewSourceTargetRepo(db)
+	srcReviewRepo := postgres.NewReviewRepo(db)
+	srcProjectionRepo := postgres.NewProjectionRepo(db)
+	srcSyncSink := postgres.NewSourceSyncSink(pool, outbox.NewStore())
+	srcSvc := srcsvc.NewService(srcRepo, srcRunRepo, srcReviewRepo, srcSyncSink, nil)
+	srcH := wh.NewSourceHandler(srcSvc)
+	_ = srcTargetRepo    // used by the knowledge-worker; reserved for the source-side list
+	_ = srcProjectionRepo // used by the worker's activation gate (§7); reserved
 
 	tm := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
 	userLookup := &pgUserLookup{db: db}
@@ -247,6 +267,19 @@ func main() {
 	// identity listing (04-api-contract §3.5): RBAC-scoped users + role dictionary.
 	authed.GET("/users", userH.List)
 	authed.GET("/roles", roleH.List)
+
+	// Source management REST API (design-docs/14 §4.4 D13). All batch lists
+	// are cursor-paginated; writes carry Idempotency-Key; PATCH carries ETag.
+	authed.GET("/workspaces/:workspace_id/knowledge/sources", srcH.List)
+	authed.POST("/workspaces/:workspace_id/knowledge/sources", srcH.Create)
+	authed.GET("/knowledge/sources/:id", srcH.Get)
+	authed.PATCH("/knowledge/sources/:id", srcH.Update)
+	authed.DELETE("/knowledge/sources/:id", srcH.Delete)
+	authed.PUT("/workspaces/:workspace_id/knowledge/sources/:id/credentials", srcH.SetCredential)
+	authed.GET("/knowledge/sources/:id/sync-runs", srcH.ListRuns)
+	authed.POST("/knowledge/sources/:id/sync-runs", srcH.TriggerSync)
+	authed.GET("/workspaces/:workspace_id/knowledge/reviews", srcH.ListReviews)
+	authed.POST("/knowledge/reviews/:id/decisions", srcH.PostDecision)
 
 	// health
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })

@@ -74,9 +74,80 @@ func (l *EvidenceLocator) Locate(_ context.Context, _ TargetType, _ uuid.UUID) (
 	return Location{}, ErrTargetNotFound
 }
 
+// SourceLocator resolves source targets into [source, workspace] chains
+// (design-docs/14 §3.3 / §8.2). It reads knowledge_sources.workspace_id +
+// enabled via the authz SourceRepo. A missing OR disabled source returns
+// ErrTargetNotFound so existence never leaks — a disabled source is, for
+// authorization purposes, invisible (§4.4 DELETE = soft-disable, and a
+// disabled source must not appear in any later decision).
+type SourceLocator struct {
+	sources SourceRepo
+}
+
+// NewSourceLocator builds a SourceLocator over an authz SourceRepo.
+func NewSourceLocator(sources SourceRepo) *SourceLocator {
+	return &SourceLocator{sources: sources}
+}
+
+func (l *SourceLocator) Locate(ctx context.Context, t TargetType, id uuid.UUID) (Location, error) {
+	if t != domain.TargetSource {
+		return Location{}, errors.New("source locator: wrong target type")
+	}
+	s, err := l.sources.Get(ctx, id)
+	if err != nil {
+		// Non-existent / unreadable / disabled source: indistinguishable from
+		// not-found so existence is never leaked (不变量: 存在性不泄露).
+		return Location{}, ErrTargetNotFound
+	}
+	if !s.Enabled {
+		// A disabled source is invisible to authorization — surface as
+		// not-found, not as "found but denied", so callers can't infer it.
+		return Location{}, ErrTargetNotFound
+	}
+	return Location{
+		WorkspaceID: s.WorkspaceID,
+		Chain: []Node{
+			{Type: domain.TargetSource, ID: id},
+			{Type: domain.TargetWorkspace, ID: s.WorkspaceID},
+		},
+	}, nil
+}
+
+// ReviewLocator resolves review targets into [review, workspace] chains
+// (design-docs/14 §3.3 / §8.2). It reads review_requests.workspace_id via the
+// authz ReviewRepo. A missing request returns ErrTargetNotFound so existence
+// never leaks.
+type ReviewLocator struct {
+	reviews ReviewRepo
+}
+
+// NewReviewLocator builds a ReviewLocator over an authz ReviewRepo.
+func NewReviewLocator(reviews ReviewRepo) *ReviewLocator {
+	return &ReviewLocator{reviews: reviews}
+}
+
+func (l *ReviewLocator) Locate(ctx context.Context, t TargetType, id uuid.UUID) (Location, error) {
+	if t != domain.TargetReview {
+		return Location{}, errors.New("review locator: wrong target type")
+	}
+	r, err := l.reviews.Get(ctx, id)
+	if err != nil {
+		return Location{}, ErrTargetNotFound
+	}
+	return Location{
+		WorkspaceID: r.WorkspaceID,
+		Chain: []Node{
+			{Type: domain.TargetReview, ID: id},
+			{Type: domain.TargetWorkspace, ID: r.WorkspaceID},
+		},
+	}, nil
+}
+
 // Compile-time checks.
 var (
 	_ ResourceLocator = (*AssetLocator)(nil)
 	_ ResourceLocator = (*AgentLocator)(nil)
 	_ ResourceLocator = (*EvidenceLocator)(nil)
+	_ ResourceLocator = (*SourceLocator)(nil)
+	_ ResourceLocator = (*ReviewLocator)(nil)
 )

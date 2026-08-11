@@ -303,6 +303,54 @@ func (r *decisionRepo) Record(ctx context.Context, d authz.DecisionRecord) (uuid
 	return id, err
 }
 
+// --- SourceRepo / ReviewRepo (authz.Service Phase 1 ports) ---
+
+// sourceRepo adapts knowledge_sources reads for authz.Service's SourceLocator
+// (design-docs/14 §4.2 / §8.2). It returns only (workspace_id, enabled) —
+// the two fields a permission decision consults. A missing source returns
+// errNotFound so the locator maps it to ErrTargetNotFound (existence never
+// leaks). A disabled source is returned with Enabled=false so the locator
+// surfaces it as not-found too (§4.4 DELETE = soft-disable).
+type sourceRepo struct{ db *DB }
+
+func NewAuthzSourceRepo(db *DB) authz.SourceRepo { return &sourceRepo{db: db} }
+
+func (r *sourceRepo) Get(ctx context.Context, sourceID uuid.UUID) (authz.SourceInfo, error) {
+	var s authz.SourceInfo
+	err := r.db.Pool.QueryRow(ctx,
+		`SELECT workspace_id, enabled FROM knowledge_sources WHERE id = $1`,
+		sourceID).Scan(&s.WorkspaceID, &s.Enabled)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return authz.SourceInfo{}, errNotFound
+		}
+		return authz.SourceInfo{}, err
+	}
+	return s, nil
+}
+
+// reviewRepo adapts review_requests reads for authz.Service's ReviewLocator
+// (design-docs/14 §4.2 / §8.2). It returns only workspace_id. A missing
+// request returns errNotFound so the locator maps it to ErrTargetNotFound
+// (no existence leak).
+type reviewRepo struct{ db *DB }
+
+func NewAuthzReviewRepo(db *DB) authz.ReviewRepo { return &reviewRepo{db: db} }
+
+func (r *reviewRepo) Get(ctx context.Context, reviewID uuid.UUID) (authz.ReviewInfo, error) {
+	var info authz.ReviewInfo
+	err := r.db.Pool.QueryRow(ctx,
+		`SELECT workspace_id FROM review_requests WHERE id = $1`, reviewID).
+		Scan(&info.WorkspaceID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return authz.ReviewInfo{}, errNotFound
+		}
+		return authz.ReviewInfo{}, err
+	}
+	return info, nil
+}
+
 // --- helpers ---
 
 // actionsToAny converts a domain.Action slice into the string slice pgx will
@@ -337,11 +385,13 @@ func scanActions(blob []byte) []domain.Action {
 
 // Compile-time checks.
 var (
-	_ authz.RevisionRepo    = (*revisionsRepo)(nil)
-	_ authz.SessionRepo     = (*sessionRepo)(nil)
-	_ authz.AssetRepo       = (*assetRepo)(nil)
+	_ authz.RevisionRepo     = (*revisionsRepo)(nil)
+	_ authz.SessionRepo      = (*sessionRepo)(nil)
+	_ authz.AssetRepo        = (*assetRepo)(nil)
 	_ authz.AssetVersionRepo = (*assetVersionRepo)(nil)
-	_ authz.AgentRepo       = (*agentRepo)(nil)
-	_ authz.BindingRepo     = (*bindingRepo)(nil)
-	_ authz.DecisionRepo    = (*decisionRepo)(nil)
+	_ authz.AgentRepo        = (*agentRepo)(nil)
+	_ authz.BindingRepo      = (*bindingRepo)(nil)
+	_ authz.DecisionRepo     = (*decisionRepo)(nil)
+	_ authz.SourceRepo       = (*sourceRepo)(nil)
+	_ authz.ReviewRepo       = (*reviewRepo)(nil)
 )
