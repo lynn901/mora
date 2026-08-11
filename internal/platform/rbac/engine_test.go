@@ -20,7 +20,7 @@ type fakeRepo struct {
 func (f *fakeRepo) GrantsFor(_ context.Context, subject uuid.UUID, groups []uuid.UUID, ws uuid.UUID) ([]domain.Grant, error) {
 	var out []domain.Grant
 	for _, g := range f.grants {
-		if g.SubjectType == domain.SubjectUser && g.SubjectID == subject {
+		if (g.SubjectType == domain.SubjectUser || g.SubjectType == domain.SubjectServiceAccount) && g.SubjectID == subject {
 			out = append(out, g)
 			continue
 		}

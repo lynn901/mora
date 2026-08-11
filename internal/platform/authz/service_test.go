@@ -96,7 +96,7 @@ type fakeRBACRepo struct {
 func (r *fakeRBACRepo) GrantsFor(_ context.Context, subject uuid.UUID, _ []uuid.UUID, _ uuid.UUID) ([]domain.Grant, error) {
 	var out []domain.Grant
 	for _, g := range r.grants {
-		if g.SubjectType == domain.SubjectUser && g.SubjectID == subject {
+		if (g.SubjectType == domain.SubjectUser || g.SubjectType == domain.SubjectServiceAccount) && g.SubjectID == subject {
 			out = append(out, g)
 		}
 	}

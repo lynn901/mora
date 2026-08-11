@@ -81,7 +81,7 @@ func Test_Positive_AdminImpliesUse(t *testing.T) {
 		grantOn(domain.SubjectUser, user, []domain.Action{domain.ActionAdmin},
 			domain.TargetWorkspace, ws, domain.EffectAllow),
 	}}
-	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), &fakeAgentRepo{}, &fakeBindingRepo{})
+	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), &fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: user,
@@ -96,7 +96,7 @@ func Test_Positive_AdminImpliesUse(t *testing.T) {
 func Test_Positive_UserWithUseAllowed(t *testing.T) {
 	ws, asset, user := uuid.New(), uuid.New(), uuid.New()
 	rbacRepo := &fakeRBACRepo{grants: []domain.Grant{workspaceUseGrant(user, ws)}}
-	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), &fakeAgentRepo{}, &fakeBindingRepo{})
+	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), &fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: user,
@@ -117,7 +117,7 @@ func Test_Positive_AgentOnBehalfWithUserUse(t *testing.T) {
 		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
 			ScopeKind: domain.BindingScopeAsset, AssetID: &asset, Effect: domain.BindingAllow}},
 	}}
-	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), agents, binds)
+	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), agents, binds, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
@@ -131,15 +131,13 @@ func Test_Positive_AgentOnBehalfWithUserUse(t *testing.T) {
 // Test_Positive_AgentSelfWithServiceAccountUse: agent (self) whose service
 // account HAS use on the workspace + binding allow → spec says allowed.
 //
-// PR2 DEFECT (D4): authz.Service.rbacSubject resolves agent-self to its
-// ServiceAccountID and asks rbac.Engine.Check for ActionUse. But the engine's
-// GrantsFor (both the fake here AND the real postgres PermissionRepo.GrantsFor
-// in internal/infra/postgres/rbac.go) only matches subject_type='user' or
-// 'group' — a 'service_account' grant is never returned, so the agent-self
-// principal always hits default-deny regardless of any use grant on the
-// service account. UC3 asserts binding-cannot-enlarge; this test shows the
-// flip side is also broken: a legitimately authorized service account is
-// denied. Recorded as PR2 defect #1 in the YS-94 report.
+// authz.Service.rbacSubject resolves agent-self to its ServiceAccountID and
+// asks rbac.Engine.Check for ActionUse. The engine's GrantsFor matches
+// subject_type='service_account' (PermissionRepo.GrantsFor in
+// internal/infra/postgres/rbac.go, plus the in-memory fakes), so the grant
+// row is returned and the decision is allow. UC3 asserts binding-cannot-enlarge;
+// this test asserts the flip side: a legitimately authorized service account
+// is permitted. Covers YS-106 / PR2 defect #1.
 func Test_Positive_AgentSelfWithServiceAccountUse(t *testing.T) {
 	ws, asset, agent, sa := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	rbacRepo := &fakeRBACRepo{grants: []domain.Grant{
@@ -152,21 +150,13 @@ func Test_Positive_AgentSelfWithServiceAccountUse(t *testing.T) {
 		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
 			ScopeKind: domain.BindingScopeAsset, AssetID: &asset, Effect: domain.BindingAllow}},
 	}}
-	svc := newTestService(t, rbacRepo, assets, agents, binds)
+	svc := newTestService(t, rbacRepo, assets, agents, binds, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
 		AgentID:    &agent, // no ActingUserID → self
 		TargetType: domain.TargetAsset, TargetID: asset, Action: domain.ActionUse,
 	})
-	// SPEC: allowed. ACTUAL: denied (ErrNotFound) because GrantsFor ignores
-	// subject_type='service_account'. This assertion documents the defect.
-	if errors.Is(err, ErrNotFound) && !dec.Allowed {
-		t.Skipf("PR2 defect #1: service_account grant invisible to GrantsFor — " +
-			"agent-self denied despite a valid use grant on the service account. " +
-			"Fix: extend PermissionRepo.GrantsFor (and the engine/fake) to match " +
-			"subject_type='service_account'. Recorded in YS-94 report.")
-	}
 	require.NoError(t, err)
 	assert.True(t, dec.Allowed, "agent self with service_account use + binding allow must be allowed")
 }
@@ -181,7 +171,7 @@ func Test_Positive_BindingScopeAssetTypeCoversAsset(t *testing.T) {
 		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
 			ScopeKind: domain.BindingScopeAssetType, Effect: domain.BindingAllow}},
 	}}
-	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), agents, binds)
+	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), agents, binds, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
@@ -202,7 +192,7 @@ func Test_Positive_BindingScopeWorkspaceCoversAsset(t *testing.T) {
 		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
 			ScopeKind: domain.BindingScopeWorkspace, Effect: domain.BindingAllow}},
 	}}
-	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), agents, binds)
+	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user), agents, binds, &fakeVersionRepo{})
 
 	dec, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectAgent, PrincipalID: agent,
@@ -223,7 +213,7 @@ func Test_Positive_DeprecatedAllowsSyncOnly(t *testing.T) {
 			domain.TargetWorkspace, ws, domain.EffectAllow),
 	}}
 	svc := newTestService(t, rbacRepo, assetWithStatus(asset, ws, user, domain.AssetDeprecated),
-		&fakeAgentRepo{}, &fakeBindingRepo{})
+		&fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 
 	// use on deprecated → blocked.
 	_, err := svc.Authorize(context.Background(), AuthzRequest{
@@ -248,7 +238,7 @@ func Test_Positive_LifecycleReviewingDraftAllowUse(t *testing.T) {
 	rbacRepo := &fakeRBACRepo{grants: []domain.Grant{workspaceUseGrant(user, ws)}}
 	for _, st := range []domain.AssetStatus{domain.AssetPublished, domain.AssetReviewing, domain.AssetDraft} {
 		asset := uuid.New()
-		svc := newTestService(t, rbacRepo, assetWithStatus(asset, ws, user, st), &fakeAgentRepo{}, &fakeBindingRepo{})
+		svc := newTestService(t, rbacRepo, assetWithStatus(asset, ws, user, st), &fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 		dec, err := svc.Authorize(context.Background(), AuthzRequest{
 			WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: user,
 			TargetType: domain.TargetAsset, TargetID: asset, Action: domain.ActionUse,
@@ -264,7 +254,7 @@ func Test_Lifecycle_RejectedBlocksUse(t *testing.T) {
 	ws, asset, user := uuid.New(), uuid.New(), uuid.New()
 	rbacRepo := &fakeRBACRepo{grants: []domain.Grant{workspaceUseGrant(user, ws)}}
 	svc := newTestService(t, rbacRepo, assetWithStatus(asset, ws, user, domain.AssetRejected),
-		&fakeAgentRepo{}, &fakeBindingRepo{})
+		&fakeAgentRepo{}, &fakeBindingRepo{}, &fakeVersionRepo{})
 
 	_, err := svc.Authorize(context.Background(), AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: user,

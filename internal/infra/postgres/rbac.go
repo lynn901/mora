@@ -88,7 +88,11 @@ func (r *PermissionRepo) Get(ctx context.Context, id domain.UUID) (*domain.Permi
 
 // GrantsFor resolves effective grants for a subject within a workspace.
 // It joins roles to expand role.permissions JSONB into individual actions,
-// and includes both direct user grants and group grants (via group_members).
+// and includes direct user grants, group grants (via group_members), and
+// service_account grants. A service_account subject is resolved upstream by
+// authz.Service.rbacSubject (agent-self → its ServiceAccountID), so it reaches
+// GrantsFor as subjectID — the matching grant row carries
+// subject_type='service_account' with the same id in subject_id.
 // Grants are scoped to the given workspace: workspace-level grants on OTHER
 // workspaces do not leak here (prevents cross-workspace RBAC bypass).
 func (r *PermissionRepo) GrantsFor(ctx context.Context, subjectID domain.UUID, groupIDs []domain.UUID, workspaceID domain.UUID) ([]domain.Grant, error) {
@@ -99,6 +103,7 @@ func (r *PermissionRepo) GrantsFor(ctx context.Context, subjectID domain.UUID, g
 		FROM permissions p
 		JOIN roles ro ON ro.id = p.role_id
 		WHERE ((p.subject_type = 'user' AND p.subject_id = $1)
+		    OR (p.subject_type = 'service_account' AND p.subject_id = $1)
 		    OR (p.subject_type = 'group' AND p.subject_id = ANY($2::uuid[])))
 		  AND (
 		    (p.target_type = 'workspace' AND p.target_id = $3)
