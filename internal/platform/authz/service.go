@@ -12,17 +12,17 @@ import (
 // Service is the authorization decision point (design-docs/12 §5.3, 13 §3.4).
 // It composes the decision pipeline:
 //
-//	1. lifecycle gate     — asset/version status permits the action?
-//	  1b. pinned-version gate — a pinned binding's version revoked? block,
-//	      no auto-fallback to latest (§8.2 用例 5 / §11.4).
-//	2. RBAC/ACL           — principal's read/write/admin/use grant on the
-//	                          target chain (legacy rbac.Engine for doc-family;
-//	                          workspace-level intersection for assets).
-//	3. Agent use           — if principal is an agent, agent_bindings allow?
-//	                          (intersection with RBAC — binding only narrows).
-//	4. Binding deny        — explicit deny wins over all allow.
-//	5. task scope          — Phase 0 placeholder (§19 #12 undecided).
-//	6. Provider capability — issued separately by IssueDecision (§4).
+//  1. lifecycle gate     — asset/version status permits the action?
+//     1b. pinned-version gate — a pinned binding's version revoked? block,
+//     no auto-fallback to latest (§8.2 用例 5 / §11.4).
+//  2. RBAC/ACL           — principal's read/write/admin/use grant on the
+//     target chain (legacy rbac.Engine for doc-family;
+//     workspace-level intersection for assets).
+//  3. Agent use           — if principal is an agent, agent_bindings allow?
+//     (intersection with RBAC — binding only narrows).
+//  4. Binding deny        — explicit deny wins over all allow.
+//  5. task scope          — Phase 0 placeholder (§19 #12 undecided).
+//  6. Provider capability — issued separately by IssueDecision (§4).
 //
 // Invariant (附录 A #4): a binding can only NARROW an agent's reachable set,
 // never grant the acting principal a capability it lacks. So step 3 takes the
@@ -75,9 +75,9 @@ func (s *Service) Authorize(ctx context.Context, req AuthzRequest) (AuthzContext
 		WorkspaceID:   req.WorkspaceID,
 		AuthzRevision: rev,
 		PrincipalType: req.PrincipalType,
-		PrincipalID:  req.PrincipalID,
-		ActingUserID: req.ActingUserID,
-		AgentID:      req.AgentID,
+		PrincipalID:   req.PrincipalID,
+		ActingUserID:  req.ActingUserID,
+		AgentID:       req.AgentID,
 	}
 
 	// Doc-family targets: delegate to legacy engine (read/write/admin only).
@@ -178,7 +178,8 @@ func (s *Service) VisibleAssets(ctx context.Context, scope ListScope, candidates
 		req := AuthzRequest{
 			WorkspaceID:   scope.WorkspaceID,
 			PrincipalType: scope.PrincipalType,
-			PrincipalID:  scope.PrincipalID,
+			PrincipalID:   scope.PrincipalID,
+			GroupIDs:      scope.GroupIDs,
 			ActingUserID:  scope.ActingUserID,
 			AgentID:       scope.AgentID,
 			TargetType:    domain.TargetAsset,
@@ -213,11 +214,11 @@ func (s *Service) IssueDecision(ctx context.Context, req AuthzRequest, audience 
 		WorkspaceID:   req.WorkspaceID,
 		AuthzRevision: dec.AuthzRevision,
 		PrincipalType: req.PrincipalType,
-		PrincipalID:  req.PrincipalID,
-		ActingUserID: req.ActingUserID,
-		AgentID:      req.AgentID,
-		Action:       req.Action,
-		Audience:     audience,
+		PrincipalID:   req.PrincipalID,
+		ActingUserID:  req.ActingUserID,
+		AgentID:       req.AgentID,
+		Action:        req.Action,
+		Audience:      audience,
 		// ScopeHash / NonceHash / ExpiresAt set by the delegated/decision manager
 		// that wraps this record — kept minimal here so the seam is explicit.
 	}
@@ -237,14 +238,23 @@ func (s *Service) rbacCheck(ctx context.Context, req AuthzRequest) (rbac.Decisio
 	return s.rbac.Check(ctx, subject, groups, domain.TargetType(req.TargetType), req.TargetID, req.Action)
 }
 
-// rbacSubject resolves the RBAC subject identity for a request:
-//   - agent acting on behalf of a user  → the user (their RBAC intersects the binding)
-//   - agent self (service account)      → the service account id (§8.2 用例 3)
-//   - user / service_account            → themselves
+// rbacSubject resolves the RBAC subject identity for a request, returning the
+// subject and its group memberships:
+//   - agent acting on behalf of a user  → the user + the user's groups (their
+//     RBAC intersects the binding)
+//   - agent self (service account)      → the service account id (§8.2 用例 3);
+//     a service account holds no group memberships → nil groups
+//   - user / service_account            → themselves + their groups
+//
+// GroupIDs is plumbed through so group-inherited grants (subject_type=group)
+// are visible on the Service path — handlers already pass the same groups to
+// rbac.Engine.Check via AuthState (PR2 gap #2). For an agent acting on behalf
+// of a user we forward req.GroupIDs (the acting user's groups); for agent self
+// the groups stay nil.
 func (s *Service) rbacSubject(ctx context.Context, req AuthzRequest) (uuid.UUID, []uuid.UUID) {
 	if req.PrincipalType == domain.SubjectAgent {
 		if req.ActingUserID != nil {
-			return *req.ActingUserID, nil
+			return *req.ActingUserID, req.GroupIDs
 		}
 		// agent self: surface the agent's service account as the RBAC subject.
 		// Looked up lazily; on miss the engine returns default-deny (no leak).
@@ -255,7 +265,7 @@ func (s *Service) rbacSubject(ctx context.Context, req AuthzRequest) (uuid.UUID,
 		}
 		return uuid.Nil, nil
 	}
-	return req.PrincipalID, nil
+	return req.PrincipalID, req.GroupIDs
 }
 
 // rbacForTarget evaluates RBAC over the resolved target chain. For asset/agent

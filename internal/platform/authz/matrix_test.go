@@ -408,7 +408,7 @@ func Test_UseCase5_FollowPublishedIgnoresVersionGate(t *testing.T) {
 		agent: {{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
 			ScopeKind: domain.BindingScopeAsset, AssetID: &asset,
 			VersionPolicy: domain.BindingFollowPublished,
-			Effect: domain.BindingAllow}},
+			Effect:        domain.BindingAllow}},
 	}}
 	versions := &fakeVersionRepo{versions: map[uuid.UUID]AssetVersionInfo{}}
 	svc := newTestService(t, rbacRepo, publishedAsset(asset, ws, user),
@@ -423,7 +423,6 @@ func Test_UseCase5_FollowPublishedIgnoresVersionGate(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, dec.Allowed, "follow_published binding must not trip the pinned-version gate")
 }
-
 
 // =====================================================================
 // §8.2 UC6 — revocation → next request synchronous deny.
@@ -595,12 +594,11 @@ func Test_UseCase9_RevokedDelegatedRefused(t *testing.T) {
 // rbac.Engine and produces the engine's decision unchanged. Guards the PR1
 // red line (Check/VisibleDocuments behavior identical pre/post delegation).
 //
-// Uses a DIRECT user grant (not group-inherited) because authz.Service's
-// rbacSubject currently drops group memberships (AuthzRequest has no GroupIDs
-// field) — see Test_Gap_ServiceDropsGroups for that forward-looking gap. The
-// §8.3 regression (existing handler behavior) is unaffected because handlers
-// still call rbac.Engine.Check directly with groups from AuthState; this test
-// only asserts the Service→Engine delegation agrees for direct user grants.
+// Group memberships are plumbed through AuthzRequest.GroupIDs (PR2 gap #2
+// resolved), so a Service doc-family check now agrees with the engine for
+// group-inherited grants as well as direct user grants. Group-inherited read
+// is asserted directly in Test_Gap_ServiceDropsGroups; this test stays a
+// direct-user-grant regression for the delegation seam.
 func Test_Regression_ServiceDocFamilyDelegatesToEngine(t *testing.T) {
 	ws, root, sub, doc, subj := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 
@@ -645,13 +643,18 @@ func Test_Regression_ServiceDocFamilyDelegatesToEngine(t *testing.T) {
 	assert.Equal(t, directRead.Allowed, svcRead.Allowed, "Service doc read must match engine Check")
 }
 
-// Test_Gap_ServiceDropsGroups: authz.Service.rbacSubject returns (subject, nil)
-// — AuthzRequest has no GroupIDs field, so group-inherited doc permissions are
-// invisible through authz.Service.Authorize. This is NOT a §8.3 regression
-// (existing handlers call rbac.Engine.Check directly with groups from
-// AuthState, unaffected), but it blocks authz.Service from serving as the
-// unified doc-family entry point until groups are plumbed through AuthzRequest.
-// Recorded as PR2 gap #2 in the YS-94 report.
+// Test_Gap_ServiceDropsGroups: authz.Service plumbs the principal's group
+// memberships through AuthzRequest.GroupIDs into rbac.Engine.Check, so
+// group-inherited doc permissions are visible on the Service path. This was
+// PR2 gap #2 (AuthzRequest had no GroupIDs field; rbacSubject returned nil
+// groups); the fix added GroupIDs to AuthzRequest/ListScope and made
+// rbacSubject forward them. The test now asserts the Service's decision
+// agrees with the engine's for a group-inherited read — the gap is closed.
+//
+// Existing handlers call rbac.Engine.Check directly with groups from
+// AuthState, so the §8.3 regression (handler behavior) was never affected;
+// this gap only blocked authz.Service from serving as the unified doc-family
+// entry point. Recorded as PR2 gap #2 in the YS-94 report.
 func Test_Gap_ServiceDropsGroups(t *testing.T) {
 	ws, root, sub, doc, subj, group := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	repo := &miniRepo{
@@ -672,23 +675,33 @@ func Test_Gap_ServiceDropsGroups(t *testing.T) {
 		&fakeRevisionRepo{rev: 1}, &fakeDecisionRepo{})
 
 	ctx := context.Background()
+	groups := []uuid.UUID{group}
+
 	// Engine directly: group read on root → doc visible (groups passed).
-	engDec, err := eng.Check(ctx, subj, []uuid.UUID{group}, domain.TargetDocument, doc, domain.ActionRead)
+	engDec, err := eng.Check(ctx, subj, groups, domain.TargetDocument, doc, domain.ActionRead)
 	require.NoError(t, err)
 	assert.True(t, engDec.Allowed, "engine with groups must allow group-inherited read")
 
-	// Service: AuthzRequest carries no groups → the same group grant is invisible.
+	// Service: AuthzRequest now carries GroupIDs → the same group grant is
+	// visible, and the Service's decision must agree with the engine's.
 	svcDec, err := svc.Authorize(ctx, AuthzRequest{
+		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: subj,
+		GroupIDs:   groups,
+		TargetType: domain.TargetDocument, TargetID: doc, Action: domain.ActionRead,
+	})
+	require.NoError(t, err)
+	assert.True(t, svcDec.Allowed, "Service with GroupIDs must allow group-inherited read")
+	assert.Equal(t, engDec.Allowed, svcDec.Allowed,
+		"Service doc read with groups must match engine Check")
+
+	// Sanity: without groups the Service denies (group grant invisible) —
+	// the gap behavior, now opt-in by omission rather than the only option.
+	noGroupDec, err := svc.Authorize(ctx, AuthzRequest{
 		WorkspaceID: ws, PrincipalType: domain.SubjectUser, PrincipalID: subj,
 		TargetType: domain.TargetDocument, TargetID: doc, Action: domain.ActionRead,
 	})
 	require.NoError(t, err)
-	if svcDec.Allowed {
-		t.Skip("Gap #2 resolved: authz.Service now plumbs groups through AuthzRequest — " +
-			"update this test to assert equality with the engine.")
-	}
-	assert.False(t, svcDec.Allowed, "GAP: Service drops groups so group-inherited read is denied; "+
-		"engine with the same groups allows. Fix: add GroupIDs to AuthzRequest + rbacSubject.")
+	assert.False(t, noGroupDec.Allowed, "omitting GroupIDs leaves the group grant invisible")
 }
 
 // Test_Regression_DocDenyAtSubdirBlocksViaService: the engine's
