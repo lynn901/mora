@@ -76,6 +76,14 @@ type FileConnector struct {
 	// MaxBytes caps a single file (default egress.DefaultPolicy().MaxResponseBytes
 	// when sync_policy.max_bytes absent).
 	MaxBytes int64
+
+	// AllowedRoot confines every file path to a directory tree the workspace
+	// owns (§6.4 "限制根目录", §7.1 isolation prefix). A path that escapes this
+	// root after filepath.Clean — including an absolute path like
+	// "/../etc/passwd" that Clean collapses to "/etc/passwd" (no literal "..")
+	// — is rejected as ErrPathTraversal. When empty, no path is confined and
+	// every path is rejected: a file source without a root cannot be made safe.
+	AllowedRoot string
 }
 
 // Compile-time check.
@@ -94,7 +102,7 @@ func (f *FileConnector) Health(ctx context.Context) error {
 // file:// URL with a host), the path must clean to within an allowed root, and
 // the file must exist and be within the size cap.
 func (f *FileConnector) Validate(ctx context.Context, req connector.ValidateRequest) error {
-	path, err := cleanFilePath(req.URINormalized)
+	path, err := f.cleanFilePath(req.URINormalized)
 	if err != nil {
 		return err
 	}
@@ -119,7 +127,7 @@ func (f *FileConnector) Validate(ctx context.Context, req connector.ValidateRequ
 // ResolveRevision returns the file's mtime_ns + size as the revision. If the
 // file is missing, returns ErrUnreachable.
 func (f *FileConnector) ResolveRevision(ctx context.Context, src connector.Source) (connector.Revision, error) {
-	path, err := cleanFilePath(src.URINormalized)
+	path, err := f.cleanFilePath(src.URINormalized)
 	if err != nil {
 		return connector.Revision{}, err
 	}
@@ -137,7 +145,7 @@ func (f *FileConnector) ResolveRevision(ctx context.Context, src connector.Sourc
 // and MIME/extension before writing. Decompression-bomb detection runs on the
 // streamed bytes (ratio threshold, §6.4).
 func (f *FileConnector) Fetch(ctx context.Context, src connector.Source, rev connector.Revision, sink connector.ContentSink) (connector.FetchManifest, error) {
-	path, err := cleanFilePath(src.URINormalized)
+	path, err := f.cleanFilePath(src.URINormalized)
 	if err != nil {
 		return connector.FetchManifest{}, err
 	}
@@ -195,10 +203,23 @@ func (f *FileConnector) maxBytes() int64 {
 	return egress.DefaultPolicy().MaxResponseBytes
 }
 
-// cleanFilePath normalizes the URI to a local path and rejects traversal.
-// Accepts either a bare path ("/data/x.md") or a file:// URL without a host.
-// Rejects `..` components (§6.4).
-func cleanFilePath(uri string) (string, error) {
+// cleanFilePath normalizes the URI to a local path and rejects traversal
+// (§6.4: "filepath.Clean + 拒绝 .. + 限制根目录"). Accepts either a bare
+// path ("/data/x.md") or a file:// URL without a host.
+//
+// It applies three guards, in order:
+//  1. Reject any path that still contains ".." after Clean (relative escapes).
+//  2. Require an AllowedRoot: a file source with no root is never safe, so an
+//     empty root rejects every path (§6.4 "限制根目录").
+//  3. Reject any cleaned path that does not fall WITHIN AllowedRoot — this is
+//     the guard that catches absolute-path traversal the ".."-substring check
+//     misses: filepath.Clean("/../etc/passwd") == "/etc/passwd" (no ".."),
+//     but it is not under the root, so it is rejected (§10.1 用例 13).
+//
+// The root check is path-boundary safe: "/data" does not count as within
+// "/dataevil", and "/data/sub" does. It cleans AllowedRoot the same way so a
+// trailing slash on the root does not defeat the boundary.
+func (f *FileConnector) cleanFilePath(uri string) (string, error) {
 	if uri == "" {
 		return "", connector.ErrInvalidConfig
 	}
@@ -217,7 +238,34 @@ func cleanFilePath(uri string) (string, error) {
 	if strings.Contains(cleaned, "..") {
 		return "", connector.ErrPathTraversal
 	}
+	if f.AllowedRoot == "" {
+		// No root configured → no path can be safely confined.
+		return "", connector.ErrPathTraversal
+	}
+	root := filepath.Clean(f.AllowedRoot)
+	if !isWithinRoot(cleaned, root) {
+		return "", connector.ErrPathTraversal
+	}
 	return cleaned, nil
+}
+
+// isWithinRoot reports whether path falls inside root, treating root == path
+// as inside. The comparison is path-boundary aware so "/dataevil" is NOT
+// considered inside "/data". It assumes both inputs are already filepath.Clean
+// (no ".." components, no redundant separators).
+func isWithinRoot(path, root string) bool {
+	if path == root {
+		return true
+	}
+	if root == "" {
+		return false
+	}
+	// On a cleaned path, a child is "root" + separator + suffix. Using
+	// strings.HasPrefix(root+sep, path) would be inverted; we want path to
+	// start with root+sep. Separator-boundary check prevents the
+	// "/data" vs "/dataevil" false positive.
+	sep := string(filepath.Separator)
+	return strings.HasPrefix(path, root+sep)
 }
 
 // checkMimeAndExt performs a MIME + extension double check (§6.4). It sniffs
