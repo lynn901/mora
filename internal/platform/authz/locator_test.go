@@ -24,7 +24,7 @@ type miniRepo struct {
 func (m *miniRepo) GrantsFor(_ context.Context, subject uuid.UUID, groups []uuid.UUID, _ uuid.UUID) ([]domain.Grant, error) {
 	var out []domain.Grant
 	for _, g := range m.grants {
-		if g.SubjectType == domain.SubjectUser && g.SubjectID == subject {
+		if (g.SubjectType == domain.SubjectUser || g.SubjectType == domain.SubjectServiceAccount) && g.SubjectID == subject {
 			out = append(out, g)
 			continue
 		}
