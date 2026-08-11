@@ -87,7 +87,8 @@ func main() {
 	}
 
 	docSvc := service.NewDocumentService(docRepo, verRepo, engine, pub).
-		WithSink(postgres.NewDocWriteSink(pool, outbox.NewStore())) // §6.3 double-write: doc + Knowledge Outbox event committed atomically.
+		WithSink(postgres.NewDocWriteSink(pool, outbox.NewStore()).
+			WithRegistry(postgres.NewAssetRegistry())) // §6.3 double-write + §3.1 Phase 1 dual-write: doc + version + asset + Knowledge Outbox event committed atomically.
 
 	// RAG index-status + embedding-model stores (shared with rag-worker; the
 	// mora-api exposes the admin/index-status HTTP routes the MCP + E2E expect).

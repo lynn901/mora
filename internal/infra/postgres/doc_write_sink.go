@@ -8,6 +8,14 @@ package postgres
 // committed in ONE database transaction, so the event is never lost relative
 // to the state change (the core outbox guarantee, §6.3).
 //
+// Phase 1 (design-docs/14 §3.1) extends the same transaction with a Document
+// Asset registration: when an asset.Registry is wired (WithRegistry), WriteDoc
+// also inserts knowledge_assets + knowledge_asset_versions for the document
+// version, CAS-activates current_version_id, and stamps asset_id/version_id
+// into the outbox event payload so the knowledge_events consumer can activate
+// projections. When the registry is nil (unit tests, Phase 0 fallback), the
+// behavior is byte-for-byte the Phase 0 path — the regression red line (§10.5).
+//
 // The sink owns the transaction (the service layer stays pgx-free). It reuses
 // the exact INSERT/UPDATE SQL of DocumentRepo/VersionRepo so behavior matches
 // the non-tx path byte-for-byte — the only addition is the outbox_events row.
@@ -23,21 +31,33 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/module/knowledge/asset"
 	"github.com/lynn901/mora/internal/module/mora/service"
 	"github.com/lynn901/mora/internal/platform/outbox"
 )
 
 // DocWriteSink is the postgres implementation of service.DocWriteSink. It
 // composes the existing document/version SQL with an outbox.Store so a doc
-// write and its Knowledge event commit atomically.
+// write and its Knowledge event commit atomically, and (when an asset.Registry
+// is attached) registers the document as a knowledge asset in the same tx.
 type DocWriteSink struct {
-	pool   *pgxpool.Pool
-	outbox *outbox.Store
+	pool     *pgxpool.Pool
+	outbox   *outbox.Store
+	registry asset.Registry // nil → Phase 0 behavior (no asset registration)
 }
 
 // NewDocWriteSink builds a sink over a pool and the (stateless) outbox.Store.
 func NewDocWriteSink(pool *pgxpool.Pool, store *outbox.Store) *DocWriteSink {
 	return &DocWriteSink{pool: pool, outbox: store}
+}
+
+// WithRegistry attaches an asset.Registry so WriteDoc also registers the
+// document as a knowledge asset inside the same transaction (14 §3.1 dual-write).
+// Without this call the sink keeps its Phase 0 behavior — documents + versions +
+// the outbox event, no asset rows (the §10.5 regression red line).
+func (s *DocWriteSink) WithRegistry(reg asset.Registry) *DocWriteSink {
+	s.registry = reg
+	return s
 }
 
 // Compile-time check.
@@ -47,10 +67,18 @@ var _ service.DocWriteSink = (*DocWriteSink)(nil)
 // records the Knowledge Outbox event in the SAME tx (§6.3). create=true →
 // INSERT documents; create=false → UPDATE with prevVersion CAS.
 //
+// When an asset.Registry is wired (§3.1 Phase 1 dual-write), the same tx also
+// registers knowledge_assets + knowledge_asset_versions for this document
+// version, CAS-activates current_version_id, and stamps asset_id + version_id
+// into ev.Payload for the knowledge_events consumer. Native document content is
+// never copied into the asset projection — the asset version only holds a
+// native_document_version_id reference (§3.3).
+//
 // On any error the tx is rolled back — neither the document write nor the
-// outbox row lands, preserving the atomic guarantee. The caller's *domain.
-// Document is mutated to reflect persisted state (VersionNo/UpdatedAt) so
-// downstream behavior matches the legacy non-tx path.
+// outbox row nor the asset rows land, preserving the atomic guarantee (no
+// "document without asset" or "asset without document" middle state, §3.1).
+// The caller's *domain.Document is mutated to reflect persisted state
+// (VersionNo/UpdatedAt) so downstream behavior matches the legacy non-tx path.
 func (s *DocWriteSink) WriteDoc(ctx context.Context, d *domain.Document, v *domain.DocumentVersion, prevVersion int, create bool, ev domain.KnowledgeEvent) (*domain.Document, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -70,6 +98,36 @@ func (s *DocWriteSink) WriteDoc(ctx context.Context, d *domain.Document, v *doma
 	if err := createVersionTx(ctx, tx, v); err != nil {
 		return nil, err
 	}
+	// Phase 1 dual-write (14 §3.1): register this document version as a Document
+	// asset inside the SAME tx, so doc + version + asset + outbox commit atomically.
+	// Skipped entirely when no registry is wired — the §10.5 regression red line.
+	if s.registry != nil {
+		res, err := s.registry.RegisterDocumentAsset(ctx, tx, asset.Registration{
+			DocumentID:    d.ID,
+			WorkspaceID:   d.WorkspaceID,
+			VersionID:     v.ID,
+			VersionNo:     int64(d.VersionNo),
+			Title:         d.Title,
+			CreatedByType: domain.SubjectUser,
+			CreatedByID:   d.CreatedBy,
+			// Dual-write of a user-authored doc: no migration service account, so
+			// no legacy review row is written (§3.4). Native documents are
+			// published by default (§3.1); review is recorded only on explicit
+			// governance actions, not on every write.
+			MigrationServiceAccountID: nil,
+		})
+		if err != nil {
+			return nil, err
+		}
+		// Stamp the asset ids into the outbox payload so the knowledge_events
+		// consumer can activate projections for this version (§3.1 不变量:
+		// ev.Payload 已带 asset_id/version_id，供消费者激活).
+		if ev.Payload == nil {
+			ev.Payload = map[string]any{}
+		}
+		ev.Payload["asset_id"] = res.AssetID.String()
+		ev.Payload["asset_version_id"] = res.AssetVersionID.String()
+	}
 	// Knowledge Outbox event — same tx. destinations = knowledge_events only;
 	// the legacy doc_events publish stays on the service's EventPublisher path
 	// (the sink does NOT publish to doc_events, avoiding double-delivery to RAG).
@@ -85,6 +143,13 @@ func (s *DocWriteSink) WriteDoc(ctx context.Context, d *domain.Document, v *doma
 // DeleteDoc soft-deletes a document + records the Knowledge Outbox event in
 // one tx (§6.3). A no-rows-affected (already deleted / missing) returns
 // service.ErrNotFound so the caller surfaces 404 (existence not leaked).
+//
+// Phase 1 note (14 §3.1): the soft-delete does NOT delete or deprecate the
+// knowledge_asset row — the design's deletion matrix (§12.2) freezes the asset
+// rather than removing it, and visibility is governed by the document's RBAC +
+// status. Reconciliation (§3.3) handles asset↔document consistency; the dual-
+// write delete path only emits the deprecation event so consumers can mark
+// projections stale. The asset row itself stays.
 func (s *DocWriteSink) DeleteDoc(ctx context.Context, id, userID domain.UUID, ev domain.KnowledgeEvent) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
