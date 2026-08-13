@@ -54,9 +54,9 @@ func (h *SourceHandler) List(c *gin.Context) {
 		b := strings.EqualFold(e, "true") || e == "1"
 		q.Enabled = &b
 	}
-	items, next, err := h.svc.ListSources(c.Request.Context(), q)
+	items, next, err := h.svc.ListSources(c.Request.Context(), srcAuth(MustAuth(c)), q)
 	if err != nil {
-		response.Fail(c, err)
+		response.Fail(c, mapSourceErr(err))
 		return
 	}
 	c.Header("X-Next-Cursor", next)
@@ -100,7 +100,7 @@ func (h *SourceHandler) Create(c *gin.Context) {
 		CreatedByType: principalSubjectType(auth),
 		CreatedByID:   principalID(auth),
 	}
-	src, err := h.svc.CreateSource(c.Request.Context(), in)
+	src, err := h.svc.CreateSource(c.Request.Context(), srcAuth(auth), in)
 	if err != nil {
 		response.Fail(c, err)
 		return
@@ -116,7 +116,7 @@ func (h *SourceHandler) Get(c *gin.Context) {
 		response.Fail(c, badRequestErr("invalid id"))
 		return
 	}
-	src, err := h.svc.GetSource(c.Request.Context(), id)
+	src, err := h.svc.GetSource(c.Request.Context(), srcAuth(MustAuth(c)), id)
 	if err != nil {
 		response.Fail(c, mapSourceErr(err))
 		return
@@ -153,7 +153,7 @@ func (h *SourceHandler) Update(c *gin.Context) {
 		License:    req.License,
 		Enabled:    req.Enabled,
 	}
-	src, err := h.svc.UpdateSource(c.Request.Context(), id, etag, patch)
+	src, err := h.svc.UpdateSource(c.Request.Context(), srcAuth(MustAuth(c)), id, etag, patch)
 	if err != nil {
 		response.Fail(c, mapSourceErr(err))
 		return
@@ -170,7 +170,7 @@ func (h *SourceHandler) Delete(c *gin.Context) {
 		response.Fail(c, badRequestErr("invalid id"))
 		return
 	}
-	if err := h.svc.DisableSource(c.Request.Context(), id); err != nil {
+	if err := h.svc.DisableSource(c.Request.Context(), srcAuth(MustAuth(c)), id); err != nil {
 		response.Fail(c, mapSourceErr(err))
 		return
 	}
@@ -206,7 +206,7 @@ func (h *SourceHandler) SetCredential(c *gin.Context) {
 		response.Fail(c, badRequestErr("invalid workspace_id"))
 		return
 	}
-	if err := h.svc.SetCredential(c.Request.Context(), id, wsID, req.PlaintextCredential, req.CredentialRef); err != nil {
+	if err := h.svc.SetCredential(c.Request.Context(), srcAuth(MustAuth(c)), id, wsID, req.PlaintextCredential, req.CredentialRef); err != nil {
 		response.Fail(c, mapSourceErr(err))
 		return
 	}
@@ -228,9 +228,9 @@ func (h *SourceHandler) ListRuns(c *gin.Context) {
 		PageSize: pageSize,
 		Status:   c.Query("status"),
 	}
-	items, next, err := h.svc.ListRuns(c.Request.Context(), q)
+	items, next, err := h.svc.ListRuns(c.Request.Context(), srcAuth(MustAuth(c)), q)
 	if err != nil {
-		response.Fail(c, err)
+		response.Fail(c, mapSourceErr(err))
 		return
 	}
 	c.Header("X-Next-Cursor", next)
@@ -266,7 +266,7 @@ func (h *SourceHandler) TriggerSync(c *gin.Context) {
 		RequestedByID:       principalID(auth),
 		IdempotencyKey:      c.GetHeader("Idempotency-Key"),
 	}
-	run, err := h.svc.TriggerSync(c.Request.Context(), in)
+	run, err := h.svc.TriggerSync(c.Request.Context(), srcAuth(auth), in)
 	if err != nil {
 		response.Fail(c, mapSourceErr(err))
 		return
@@ -283,9 +283,9 @@ func (h *SourceHandler) ListReviews(c *gin.Context) {
 		return
 	}
 	pageSize, _ := strconv.Atoi(c.Query("page_size"))
-	items, next, err := h.svc.ListPendingReviews(c.Request.Context(), wsID, c.Query("cursor"), pageSize)
+	items, next, err := h.svc.ListPendingReviews(c.Request.Context(), srcAuth(MustAuth(c)), wsID, c.Query("cursor"), pageSize)
 	if err != nil {
-		response.Fail(c, err)
+		response.Fail(c, mapSourceErr(err))
 		return
 	}
 	c.Header("X-Next-Cursor", next)
@@ -320,7 +320,7 @@ func (h *SourceHandler) PostDecision(c *gin.Context) {
 		PolicyVersion:    req.PolicyVersion,
 		RationaleRedacted: req.RationaleRedacted,
 	}
-	if err := h.svc.AppendReviewDecision(c.Request.Context(), in); err != nil {
+	if err := h.svc.AppendReviewDecision(c.Request.Context(), srcAuth(auth), in); err != nil {
 		response.Fail(c, mapSourceErr(err))
 		return
 	}
@@ -331,10 +331,15 @@ func (h *SourceHandler) PostDecision(c *gin.Context) {
 
 // mapSourceErr maps a source-service error to the §11.4 envelope. The key
 // invariant: a missing/unreadable resource returns NotFound (404 + 40400) —
-// the SAME shape a permission denial takes — so existence never leaks (§8.2).
+// the SAME shape a READ permission denial takes — so existence never leaks
+// (§8.2 / §10.4 用例 27). A WRITE/governance permission denial returns
+// Forbidden (403 + 40300) per §10.4 用例 25/29 (the caller is authenticated
+// and asked to mutate, so revealing "forbidden" does not leak existence).
 // An ETag / idempotency conflict returns Conflict (409 + 40900).
 func mapSourceErr(err error) error {
 	switch {
+	case errors.Is(err, srcsvc.ErrSourceForbidden):
+		return errors.Forbidden("forbidden")
 	case errors.Is(err, srcsvc.ErrSourceNotFound),
 		errors.Is(err, srcsvc.ErrRunNotFound),
 		errors.Is(err, srcsvc.ErrReviewNotFound):
@@ -344,6 +349,20 @@ func mapSourceErr(err error) error {
 		return errors.Conflict("conflict")
 	}
 	return err
+}
+
+// srcAuth maps the HTTP AuthState to the source service's AuthContext (mirrors
+// the mora/service.svcAuth helper). The rbac subject is the acting user
+// (principalID); a service-account caller resolves to its service account id
+// with no admin bypass. GroupIDs is plumbed so group-inherited grants apply.
+func srcAuth(s AuthState) srcsvc.AuthContext {
+	return srcsvc.AuthContext{
+		SubjectType:     principalSubjectType(s),
+		PrincipalID:     principalID(s),
+		GroupIDs:        s.Groups,
+		IsAdmin:         s.IsAdmin,
+		IsServiceCaller: s.IsServiceCaller,
+	}
 }
 
 // principalSubjectType resolves the acting principal's SubjectType, defaulting

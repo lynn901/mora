@@ -18,6 +18,7 @@ import (
 // Sentinel errors. Repositories return these so the service + handler can map
 // them to the §11.4 error envelope without leaking existence (§8.2):
 //   - ErrSourceNotFound: missing/unreadable source → 404 + 40400 (no leak).
+//     A read denial ALSO maps here so existence never leaks (§8.2 / §10.4 用例 27).
 //   - ErrRunNotFound: missing/unreadable sync run → 404 + 40400.
 //   - ErrSourceConflict: ETag mismatch / concurrent update → 409 + 40900.
 //   - ErrIdempotencyConflict: Idempotency-Key already used by a different body
@@ -25,6 +26,10 @@ import (
 //   - ErrIdempotentRetry: Idempotency-Key used again with the SAME payload;
 //     not an error at all — the sink signals it so the service can re-GET and
 //     return the original run (idempotent retry, §4.4).
+//   - ErrSourceForbidden: a write/governance RBAC denial → 403 + 40300
+//     (§10.4 用例 25/29). Distinct from not-found so a denied mutation is
+//     surfaced as forbidden (the caller is authenticated and asked to act),
+//     while a read denial stays not-found (no existence leak).
 var (
 	ErrSourceNotFound       = errors.New("source: not found")
 	ErrRunNotFound          = errors.New("source: sync run not found")
@@ -32,6 +37,7 @@ var (
 	ErrIdempotencyConflict  = errors.New("source: idempotency-key conflict")
 	ErrIdempotentRetry      = errors.New("source: idempotent retry")
 	ErrReviewNotFound       = errors.New("source: review not found")
+	ErrSourceForbidden      = errors.New("source: forbidden")
 )
 
 // SourceListQuery is the cursor-paginated list filter (§4.4 GET /sources).
