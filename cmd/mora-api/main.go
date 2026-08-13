@@ -143,7 +143,13 @@ func main() {
 	srcReviewRepo := postgres.NewReviewRepo(db)
 	srcProjectionRepo := postgres.NewProjectionRepo(db)
 	srcSyncSink := postgres.NewSourceSyncSink(pool, outbox.NewStore())
-	srcSvc := srcsvc.NewService(srcRepo, srcRunRepo, srcReviewRepo, srcSyncSink, nil)
+	// §8.5 / §10.4 用例 25/27/29: SourceService enforces resource-level RBAC
+	// via the same rbac.Engine wired above (its CompositeLocator already
+	// resolves source/review targets — a missing/disabled/cross-workspace
+	// source fails to resolve → ErrTargetNotFound, no existence leak). The
+	// audit logger records denied write/governance attempts (403 + 审计).
+	srcSvc := srcsvc.NewService(srcRepo, srcRunRepo, srcReviewRepo, srcSyncSink, nil).
+		WithAuthz(engine, auditLogger)
 	srcH := wh.NewSourceHandler(srcSvc)
 	_ = srcTargetRepo    // used by the knowledge-worker; reserved for the source-side list
 	_ = srcProjectionRepo // used by the worker's activation gate (§7); reserved

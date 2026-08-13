@@ -97,6 +97,15 @@ func (f *fakeRunSink) CreateRun(_ context.Context, run *domain.SourceSyncRun, ev
 
 // --- tests ---
 
+// adminAuth returns an AuthContext with IsAdmin=true. The legacy service tests
+// below construct the service via NewService (no WithAuthz), so authorize is
+// a no-op regardless; adminAuth mirrors the production admin-bypass shape and
+// keeps these tests focused on their non-RBAC invariants. The RBAC-specific
+// tests in service_authz_test.go use a real (fake) engine instead.
+func adminAuth() AuthContext {
+	return AuthContext{PrincipalID: uuid.New(), IsAdmin: true, SubjectType: domain.SubjectUser}
+}
+
 // TestCreateSource_StripsNoCredentials asserts Create stores what the caller
 // passed for URINormalized (the handler strips credentials before calling);
 // the service does not re-parse the URI. It defaults trust to untrusted and
@@ -106,7 +115,7 @@ func TestCreateSource_StripsNoCredentials(t *testing.T) {
 	svc := NewService(srcs, &fakeRunRepo{}, fakeReviewRepo{}, &fakeRunSink{}, nil)
 	ws := uuid.New()
 	creator := uuid.New()
-	src, err := svc.CreateSource(context.Background(), CreateSourceInput{
+	src, err := svc.CreateSource(context.Background(), adminAuth(), CreateSourceInput{
 		WorkspaceID:   ws,
 		SourceType:    domain.SourceGit,
 		Name:          "repo",
@@ -131,7 +140,7 @@ func TestCreateSource_StripsNoCredentials(t *testing.T) {
 func TestSetCredential_NoStoreStoresRef(t *testing.T) {
 	srcs := &fakeSourceRepo{}
 	svc := NewService(srcs, &fakeRunRepo{}, fakeReviewRepo{}, &fakeRunSink{}, nil)
-	err := svc.SetCredential(context.Background(), uuid.New(), uuid.New(), []byte("shh"), "secret:v1")
+	err := svc.SetCredential(context.Background(), adminAuth(), uuid.New(), uuid.New(), []byte("shh"), "secret:v1")
 	require.NoError(t, err)
 	assert.Equal(t, "secret:v1", srcs.credRef)
 }
@@ -152,7 +161,7 @@ func TestTriggerSync_IdempotentRetryReturnsOriginal(t *testing.T) {
 	sink := &fakeRunSink{err: ErrIdempotentRetry}
 	svc := NewService(srcs, runs, fakeReviewRepo{}, sink, nil)
 
-	out, err := svc.TriggerSync(context.Background(), TriggerSyncInput{
+	out, err := svc.TriggerSync(context.Background(), adminAuth(), TriggerSyncInput{
 		SourceID:           srcs.get.ID,
 		RequestedAssetType: domain.RequestedAssetDocument,
 		RequestedByType:   domain.SubjectUser,
@@ -179,7 +188,7 @@ func TestTriggerSync_IdempotencyConflictPropagates(t *testing.T) {
 	}
 	sink := &fakeRunSink{err: ErrIdempotencyConflict}
 	svc := NewService(srcs, &fakeRunRepo{}, fakeReviewRepo{}, sink, nil)
-	_, err := svc.TriggerSync(context.Background(), TriggerSyncInput{
+	_, err := svc.TriggerSync(context.Background(), adminAuth(), TriggerSyncInput{
 		SourceID:           srcs.get.ID,
 		RequestedAssetType: domain.RequestedAssetDocument,
 		RequestedByType:   domain.SubjectUser,
@@ -200,7 +209,7 @@ func TestTriggerSync_DisabledSourceIsNotFound(t *testing.T) {
 		},
 	}
 	svc := NewService(srcs, &fakeRunRepo{}, fakeReviewRepo{}, &fakeRunSink{}, nil)
-	_, err := svc.TriggerSync(context.Background(), TriggerSyncInput{
+	_, err := svc.TriggerSync(context.Background(), adminAuth(), TriggerSyncInput{
 		SourceID:           srcs.get.ID,
 		RequestedAssetType: domain.RequestedAssetDocument,
 		IdempotencyKey:    "k",
@@ -213,7 +222,7 @@ func TestTriggerSync_DisabledSourceIsNotFound(t *testing.T) {
 func TestTriggerSync_MissingSourceIsNotFound(t *testing.T) {
 	srcs := &fakeSourceRepo{getErr: ErrSourceNotFound}
 	svc := NewService(srcs, &fakeRunRepo{}, fakeReviewRepo{}, &fakeRunSink{}, nil)
-	_, err := svc.TriggerSync(context.Background(), TriggerSyncInput{
+	_, err := svc.TriggerSync(context.Background(), adminAuth(), TriggerSyncInput{
 		SourceID:           uuid.New(),
 		RequestedAssetType: domain.RequestedAssetDocument,
 		IdempotencyKey:    "k",
@@ -234,7 +243,7 @@ func TestTriggerSync_RetryRaceFallsBackToConflict(t *testing.T) {
 	runs := &fakeRunRepo{byKeyErr: ErrRunNotFound} // the original vanished
 	sink := &fakeRunSink{err: ErrIdempotentRetry}
 	svc := NewService(srcs, runs, fakeReviewRepo{}, sink, nil)
-	_, err := svc.TriggerSync(context.Background(), TriggerSyncInput{
+	_, err := svc.TriggerSync(context.Background(), adminAuth(), TriggerSyncInput{
 		SourceID:           srcs.get.ID,
 		RequestedAssetType: domain.RequestedAssetDocument,
 		RequestedByType:   domain.SubjectUser,
@@ -257,7 +266,7 @@ func TestTriggerSync_OutboxEventCarriesRunID(t *testing.T) {
 	srcs := &fakeSourceRepo{get: src}
 	sink := &fakeRunSink{}
 	svc := NewService(srcs, &fakeRunRepo{}, fakeReviewRepo{}, sink, nil)
-	_, err := svc.TriggerSync(context.Background(), TriggerSyncInput{
+	_, err := svc.TriggerSync(context.Background(), adminAuth(), TriggerSyncInput{
 		SourceID:           src.ID,
 		RequestedAssetType: domain.RequestedAssetCodebase,
 		RequestedByType:   domain.SubjectAgent,
