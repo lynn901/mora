@@ -52,42 +52,14 @@ func TestGitConnector_AllowedProtocols(t *testing.T) {
 	require.False(t, g.protocolAllowed("http"), "plain http git should be rejected by default")
 }
 
-// --- §10.1 用例 13: file path traversal ---
-
-// TestFileConnector_PathTraversal_AbsoluteWithDotDot asserts that an absolute
-// path containing `..` that filepath.Clean collapses to a path WITHOUT `..`
-// (e.g. `/../etc/passwd` → `/etc/passwd`) is rejected. The design (§6.4)
-// requires "filepath.Clean + 拒绝 .. + 限制根目录": the root confinement half
-// is the guard that must catch the cleaned-form traversal, because the
-// `..`-substring check alone misses it.
+// --- §10.1 用例 13: file path traversal (root confinement) ---
 //
-// DEFECT (§10.1 用例 13, reported to YS-109): as of commit 2569070,
-// cleanFilePath only rejects paths that still contain ".." AFTER Clean.
-// `/../etc/passwd` cleans to `/etc/passwd` (no ".."), so it is NOT rejected
-// — it falls through to os.Stat, which on a host with /etc/passwd succeeds
-// (Validate returns nil). The test is marked Skip pending the fix so the
-// suite stays green; remove the Skip once YS-109 lands root confinement.
-func TestFileConnector_PathTraversal_AbsoluteWithDotDot(t *testing.T) {
-	t.Skip("DEFECT §10.1 用例 13 (reported YS-109): /../etc/passwd cleans to /etc/passwd and escapes the ..-substring check — cleanFilePath lacks root confinement")
-	g := &FileConnector{MaxBytes: 1 << 20}
-	err := g.Validate(context.Background(), connport.ValidateRequest{
-		URINormalized:      "/../etc/passwd",
-		RequestedAssetType: "document",
-	})
-	assert.ErrorIs(t, err, connport.ErrPathTraversal)
-}
-
-// TestFileConnector_PathTraversal_RelativeConfirmed asserts the relative
-// form that filepath.Clean keeps containing ".." IS rejected (the baseline
-// behavior the existing test already pins, re-stated here for the §10.1 用例
-// 13 sub-matrix so the gap above is not masked by a green sibling test).
-func TestFileConnector_PathTraversal_RelativeConfirmed(t *testing.T) {
-	g := &FileConnector{}
-	err := g.Validate(context.Background(), connport.ValidateRequest{
-		URINormalized: "../../etc/passwd",
-	})
-	require.ErrorIs(t, err, connport.ErrPathTraversal)
-}
+// After #42 (fix(connector): confine file adapter paths to AllowedRoot,
+// §6.4/§10.1 用例 13) landed in connector_file_test.go, the regression guards
+// for absolute-path traversal / no-root-rejects-all / outside-root / boundary
+// safety live there. We do not duplicate them here; the absolute-form defect
+// this file originally pinned as t.Skip is now covered by
+// TestFileConnector_PathTraversal_AbsoluteWithDotDot in connector_file_test.go.
 
 // --- §10.1 用例 14: file MIME / extension mismatch ---
 
@@ -95,10 +67,11 @@ func TestFileConnector_PathTraversal_RelativeConfirmed(t *testing.T) {
 // binary (dangerous extension like .exe) is rejected with ErrMimeMismatch
 // (§6.4 MIME + extension double check, §10.1 用例 14). The extension
 // allowlist is the first guard: .exe/.bat/.sh/.dll etc. are always rejected
-// regardless of content.
+// regardless of content. AllowedRoot is set to the temp dir so the path passes
+// the §6.4 root-confinement guard (added in #42) and reaches the MIME check.
 func TestFileConnector_MimeMismatch_DangerousExtension(t *testing.T) {
-	p := writeTempFile(t, "disguise.exe", strings.Repeat("x", 64))
-	g := &FileConnector{MaxBytes: 1 << 20}
+	root, p := writeTempFileRooted(t, "disguise.exe", strings.Repeat("x", 64))
+	g := &FileConnector{MaxBytes: 1 << 20, AllowedRoot: root}
 	err := g.Validate(context.Background(), connport.ValidateRequest{
 		URINormalized:      p,
 		RequestedAssetType: "document",
@@ -112,13 +85,15 @@ func TestFileConnector_MimeMismatch_DangerousExtension(t *testing.T) {
 // whose content sniffs as an image (e.g. PNG) but is renamed to a text
 // extension (.md) is rejected — the MIME sniff catches the image type and
 // .md is not on the allowed-binary-extension list (§6.4 double check).
+// AllowedRoot is set to the temp dir so the path passes root confinement
+// and reaches the MIME check.
 func TestFileConnector_MimeMismatch_BinaryImageWithTextExt(t *testing.T) {
 	// A real PNG signature: http.DetectContentType returns "image/png", which
 	// is a binary MIME; .md is not in isAllowedBinaryExt → mismatch.
 	png := append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A},
 		make([]byte, 128)...)
-	p := writeTempFile(t, "trojan.md", string(png))
-	g := &FileConnector{MaxBytes: 1 << 20}
+	root, p := writeTempFileRooted(t, "trojan.md", string(png))
+	g := &FileConnector{MaxBytes: 1 << 20, AllowedRoot: root}
 	err := g.Validate(context.Background(), connport.ValidateRequest{
 		URINormalized:      p,
 		RequestedAssetType: "document",
@@ -155,10 +130,11 @@ func TestBombDetector_RatioThreshold(t *testing.T) {
 // for a non-compressed oversized file, the size cap in Fetch rejects it with
 // ErrContentTooLarge before any streaming (§6.4 size cap). This documents the
 // current behavior: the size cap is the first guard; the bomb detector only
-// runs on files that pass it.
+// runs on files that pass it. AllowedRoot is set so the path passes root
+// confinement and reaches the size-cap check.
 func TestFileConnector_DecompressionBomb_SizeCapGuardsOversizedFile(t *testing.T) {
-	p := writeTempFile(t, "toobig.md", strings.Repeat("a", 64*1024))
-	g := &FileConnector{MaxBytes: 1024} // file is 64KB, cap 1KB
+	root, p := writeTempFileRooted(t, "toobig.md", strings.Repeat("a", 64*1024))
+	g := &FileConnector{MaxBytes: 1024, AllowedRoot: root} // file is 64KB, cap 1KB
 	sink := &memSink{}
 	_, err := g.Fetch(context.Background(), connport.Source{
 		ID:            "src-1",
@@ -178,9 +154,10 @@ func TestFileConnector_DecompressionBomb_SizeCapGuardsOversizedFile(t *testing.T
 // checkMimeAndExt rejects it before the bomb detector runs. This documents
 // that §10.1 用例 12 is satisfied for disguised gzip bombs via the MIME
 // double-check (§6.4), and the bomb detector is defense-in-depth behind it.
+// AllowedRoot is set so the path passes root confinement and reaches MIME.
 func TestFileConnector_DecompressionBomb_GzipRejectedByMimeSniff(t *testing.T) {
-	p := writeGzipFile(t, strings.Repeat("a", 200*1024)) // 200KB uncompressed, tiny on disk
-	g := &FileConnector{MaxBytes: 1 << 20}              // cap 1MB; on-disk gzip is tiny
+	root, p := writeGzipFileRooted(t, strings.Repeat("a", 200*1024)) // 200KB uncompressed, tiny on disk
+	g := &FileConnector{MaxBytes: 1 << 20, AllowedRoot: root}        // cap 1MB; on-disk gzip is tiny
 	sink := &memSink{}
 	_, err := g.Fetch(context.Background(), connport.Source{
 		ID:            "src-1",
@@ -196,13 +173,14 @@ func TestFileConnector_DecompressionBomb_GzipRejectedByMimeSniff(t *testing.T) {
 		"gzip bomb must be rejected as mime_mismatch / compression_bomb / content_too_large; got %v", err)
 }
 
-// writeGzipFile writes a real gzip-compressed file of payload and returns its
-// path. The on-disk size is much smaller than len(payload) — the signature of
-// a decompression bomb.
-func writeGzipFile(t *testing.T, payload string) string {
+// writeGzipFileRooted writes a real gzip-compressed file of payload in a fresh
+// temp dir and returns (root, path). The on-disk size is much smaller than
+// len(payload) — the signature of a decompression bomb. root is the
+// connector's AllowedRoot so the path passes §6.4 root confinement.
+func writeGzipFileRooted(t *testing.T, payload string) (root, path string) {
 	t.Helper()
-	dir := t.TempDir()
-	p := dir + "/bomb.gz"
+	root = t.TempDir()
+	p := root + "/bomb.gz"
 	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	require.NoError(t, err)
 	defer f.Close()
@@ -210,7 +188,7 @@ func writeGzipFile(t *testing.T, payload string) string {
 	_, err = gw.Write([]byte(payload))
 	require.NoError(t, err)
 	require.NoError(t, gw.Close())
-	return p
+	return root, p
 }
 
 // memSink is an in-memory ContentSink for adapter unit tests. It records
