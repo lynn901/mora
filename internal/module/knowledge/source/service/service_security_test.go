@@ -48,7 +48,7 @@ func TestTriggerSync_SnapshotIsRedacted(t *testing.T) {
 	sink := &fakeRunSink{}
 	svc := NewService(srcs, &fakeRunRepo{}, fakeReviewRepo{}, sink, nil)
 
-	_, err := svc.TriggerSync(context.Background(), TriggerSyncInput{
+	_, err := svc.TriggerSync(context.Background(), AuthContext{SubjectType: domain.SubjectUser, PrincipalID: uuid.New()}, TriggerSyncInput{
 		SourceID:           src.ID,
 		RequestedAssetType: domain.RequestedAssetDocument,
 		RequestedByType:   domain.SubjectUser,
@@ -92,7 +92,7 @@ func TestTriggerSync_SnapshotIsFrozenAgainstLaterEdit(t *testing.T) {
 	sink := &fakeRunSink{}
 	svc := NewService(srcs, &fakeRunRepo{}, fakeReviewRepo{}, sink, nil)
 
-	_, err := svc.TriggerSync(context.Background(), TriggerSyncInput{
+	_, err := svc.TriggerSync(context.Background(), AuthContext{SubjectType: domain.SubjectUser, PrincipalID: uuid.New()}, TriggerSyncInput{
 		SourceID:           src.ID,
 		RequestedAssetType: domain.RequestedAssetDocument,
 		IdempotencyKey:    "snap-freeze",
@@ -135,7 +135,7 @@ func TestTriggerSync_CredentialVersionPinnedAtCreate(t *testing.T) {
 	svc := NewService(srcs, &fakeRunRepo{}, fakeReviewRepo{}, sink, nil)
 
 	// Run #1 created while the source points at v1.
-	_, err := svc.TriggerSync(context.Background(), TriggerSyncInput{
+	_, err := svc.TriggerSync(context.Background(), AuthContext{SubjectType: domain.SubjectUser, PrincipalID: uuid.New()}, TriggerSyncInput{
 		SourceID:           src.ID,
 		RequestedAssetType: domain.RequestedAssetDocument,
 		RequestedByType:   domain.SubjectUser,
@@ -153,7 +153,7 @@ func TestTriggerSync_CredentialVersionPinnedAtCreate(t *testing.T) {
 	src.CredentialRef = "secret:backend/v2"
 
 	// Run #2 created after the rotation picks up the new v2.
-	_, err = svc.TriggerSync(context.Background(), TriggerSyncInput{
+	_, err = svc.TriggerSync(context.Background(), AuthContext{SubjectType: domain.SubjectUser, PrincipalID: uuid.New()}, TriggerSyncInput{
 		SourceID:           src.ID,
 		RequestedAssetType: domain.RequestedAssetDocument,
 		RequestedByType:   domain.SubjectUser,

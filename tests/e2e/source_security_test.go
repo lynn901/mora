@@ -11,32 +11,31 @@ package e2e
 // contract the design intends.
 //
 // SUT STATUS (verified against cmd/mora-api/main.go + service/service.go at
-// commit e9e2042, 2026-08-13):
-//  - 用例 28 (disabled source → next sync rejected): IMPLEMENTED. The
-//    service's TriggerSync checks `!src.Enabled` and returns ErrSourceNotFound
-//    (handler maps to 404/409). This is the one §10.4 case with a real SUT,
-//    so it is asserted live.
-//  - 用例 25 (no sync permission → 403 + audit): SUT GAP. SourceService has
-//    no rbac.Engine and CreateSource/TriggerSync perform no workspace-write
-//    Check — the authed route group carries AuthMiddleware + AuditMiddleware
-//    only, no per-source permission gate. Skipped pending RBAC wiring.
+// commit e9e2042, 2026-08-13, rebased onto PR #45 SourceService.WithAuthz):
+//  - 用例 28 (disabled source → next sync rejected): IMPLEMENTED. TriggerSync
+//    checks `!src.Enabled` and returns ErrSourceNotFound → 404/409. Asserted live.
+//  - 用例 25 (no sync permission → 403): IMPLEMENTED. WithAuthz authorizes
+//    CreateSource (ActionWrite) + TriggerSync (ActionSync) with leak=true →
+//    ErrSourceForbidden → 403/40300 for a viewer. Asserted live.
+//  - 用例 27 (cross-workspace source GET → 404): IMPLEMENTED. GetSource
+//    authorizes ActionRead (leak=false); a cross-workspace source resolves
+//    as not-found → ErrSourceNotFound → 404/40400, byte-identical to
+//    not-found. Source leg asserted live; asset/relation legs still
+//    unmounted (see 用例 26).
+//  - 用例 29 (review by non-review-role → 403): IMPLEMENTED. AppendReviewDecision
+//    authorizes ActionReview (leak=true) → ErrSourceForbidden → 403/40300 for
+//    a caller whose role lacks ActionReview. Asserted live (seeded review chain).
 //  - 用例 26 (cross-workspace GET /knowledge/assets/{id} → 404): SUT GAP.
-//    The asset endpoints are NOT mounted in main.go at all (no
-//    /knowledge/assets routes). Skipped pending the asset read API.
-//  - 用例 27 (cross-workspace source/asset/relation → 404): PARTIAL GAP.
-//    GET /knowledge/sources/:id is mounted but has no RBAC (see 用例 25);
-//    /knowledge/assets/* and relations are not mounted. Skipped.
-//  - 用例 29 (review by non-review-role → 403): SUT GAP. AppendReviewDecision
-//    appends the decision with no review_roles membership check. Skipped.
-//
-// The skipped cases carry a code-level gap note so the wiring task (tracked
-// against YS-110) can flip the Skip off once RBAC is added to SourceService.
+//    The asset endpoints are NOT mounted in main.go (no /knowledge/assets
+//    routes). Skipped pending the asset read API.
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -124,23 +123,20 @@ func (s *Suite) TestSourceSecurity_DisabledSourceRejectsSync() {
 		"disabled-source sync must be rejected with 4xx (404/409); got %d", syncSt)
 }
 
-// --- §10.4 用例 25: no sync permission → 403 + audit (SUT GAP) ---
+// --- §10.4 用例 25: no sync permission → 403 + audit ---
 
 // TestSourceSecurity_NoSyncPermissionRejected asserts the §10.4 用例 25
-// invariant: a workspace read-only member (no sync permission) calling
-// POST /workspaces/{ws}/knowledge/sources or POST /knowledge/sources/{id}/sync-runs
-// is rejected with 403 (code=40300) and the attempt is recorded as a denied
-// audit event.
+// invariant: a workspace read-only member (viewer = ["read"], no write/sync)
+// calling POST /workspaces/{ws}/knowledge/sources or
+// POST /knowledge/sources/{id}/sync-runs is rejected with 403 (code=40300).
 //
-// SUT GAP (§10.4 用例 25, blocked pending YS-110): SourceService has no
-// rbac.Engine; CreateSource and TriggerSync perform no workspace-write Check.
-// The /workspaces/:ws/knowledge/sources and /knowledge/sources/:id/sync-runs
-// routes sit on the authed group (AuthMiddleware + AuditMiddleware only) with
-// no per-source permission gate, so a read-only member can create a source and
-// trigger a sync today — the 403 this case requires is not enforced. Marked
-// Skip until RBAC is wired into SourceService.CreateSource / TriggerSync.
+// SourceService.WithAuthz (PR #45, YS-115) now authorizes CreateSource with
+// ActionWrite (leak=true → ErrSourceForbidden) and TriggerSync with
+// ActionSync (leak=true → ErrSourceForbidden); the handler's mapSourceErr
+// routes ErrSourceForbidden to 403 + 40300. The viewer role grants only
+// ActionRead, so both writes deny. This is the e2e (black-box HTTP) leg of
+// the contract the backend pins at service/service_authz_test.go.
 func (s *Suite) TestSourceSecurity_NoSyncPermissionRejected() {
-	s.T().Skip("DEFECT §10.4 用例 25 (SUT GAP, blocked YS-110): SourceService has no RBAC — CreateSource/TriggerSync perform no workspace-write permission Check, so a read-only member is not rejected with 403")
 	s.requireDB("read-only workspace member for 用例 25")
 	admin := s.adminClient()
 	ws := s.createWorkspace(admin, "E2E §10.4 用例25 WS", "e2e-c25-"+randHex(4))
@@ -150,16 +146,20 @@ func (s *Suite) TestSourceSecurity_NoSyncPermissionRejected() {
 	s.grantPermission(admin, "user", s.aliceUserID, s.viewerRoleID, "workspace", ws.ID, "allow")
 
 	// §10.4 用例 25 red line: alice (read-only) must NOT create a source.
-	_, env := alice.post("/api/v1/workspaces/"+ws.ID+"/knowledge/sources",
+	createSt, createEnv := alice.post("/api/v1/workspaces/"+ws.ID+"/knowledge/sources",
 		map[string]any{
 			"source_type": "url_api", "name": "c25-leak", "uri": "https://example.com/c25.json",
 			"requested_asset_type": "document",
 		}, nil)
-	require.Equal(s.T(), 40300, env.Code, "read-only member must be denied source create (40300)")
+	require.Equalf(s.T(), http.StatusForbidden, createSt,
+		"read-only member must be denied source create (403); got %d", createSt)
+	require.Equal(s.T(), 40300, createEnv.Code, "read-only member must be denied source create (40300)")
 
 	// And must NOT trigger a sync on a source admin created.
 	src := s.createKnowledgeSource(admin, ws.ID, "c25-admin-src", "https://example.com/c25-admin.json")
-	_, syncEnv, _ := s.triggerSync(alice, src.ID)
+	syncSt, syncEnv, _ := s.triggerSync(alice, src.ID)
+	require.Equalf(s.T(), http.StatusForbidden, syncSt,
+		"read-only member must be denied sync trigger (403); got %d", syncSt)
 	require.Equal(s.T(), 40300, syncEnv.Code, "read-only member must be denied sync trigger (40300)")
 }
 
@@ -179,38 +179,182 @@ func (s *Suite) TestSourceSecurity_CrossWorkspaceAssetNotFound() {
 	s.T().Skip("DEFECT §10.4 用例 26 (SUT GAP, blocked YS-108/109): GET /knowledge/assets/:id is not mounted — no AssetHandler / route exists in main.go")
 }
 
-// --- §10.4 用例 27: cross-workspace source/asset/relation → 404 (PARTIAL GAP) ---
+// --- §10.4 用例 27: cross-workspace source → 404 (no existence leak) ---
 
 // TestSourceSecurity_CrossWorkspaceSourceNotFound asserts the §10.4 用例 27
 // invariant for the source leg: a workspace-B read user calling
-// GET /knowledge/sources/{id} for a source in workspace A gets 404 (40400),
-// indistinguishable from not-found, with no 403 that leaks existence.
+// GET /knowledge/sources/{id} for a source that lives in workspace A gets 404
+// (code=40400), byte-identical to a not-found — no 403 that leaks existence.
 //
-// PARTIAL SUT GAP (§10.4 用例 27): GET /knowledge/sources/:id IS mounted, but
-// SourceService.GetSource → SourceRepo.Get is a pure SQL lookup by id with no
-// RBAC membership check — a cross-workspace caller currently receives 200 +
-// the source body (existence leak), not the 404 this case requires. The
-// asset + relation legs are not mounted at all (see 用例 26). Marked Skip
-// until SourceService.GetSource gains an RBAC workspace-membership Check
-// (returning ErrSourceNotFound for an out-of-scope source).
+// SourceService.WithAuthz (PR #45, YS-115) authorizes GetSource with
+// ActionRead (leak=false): the CompositeLocator resolves a cross-workspace
+// source as not-resolvable → ErrSourceNotFound → 404. The asset + relation
+// legs of 用例 27 are still unmounted (see 用例 26), so this case covers the
+// source leg that IS wired. This is the e2e leg of the contract the backend
+// pins at service/service_authz_test.go::TestAuthz_GetSource_CrossWorkspaceIsNotFound.
 func (s *Suite) TestSourceSecurity_CrossWorkspaceSourceNotFound() {
-	s.T().Skip("DEFECT §10.4 用例 27 (SUT GAP, blocked YS-110): SourceService.GetSource has no RBAC — cross-workspace GET /knowledge/sources/:id returns 200 (existence leak), not 404; asset/relation legs unmounted")
+	s.requireDB("cross-workspace read caller for 用例 27")
+	admin := s.adminClient()
+	// Workspace A: admin creates a source here.
+	wsA := s.createWorkspace(admin, "E2E §10.4 用例27 WS-A", "e2e-c27a-"+randHex(4))
+	src := s.createKnowledgeSource(admin, wsA.ID, "c27-src-a", "https://example.com/c27a.json")
+	require.NotEmpty(s.T(), src.ID, "source in wsA must exist")
+
+	// Workspace B: bob is a read-only member. He has NO grant on wsA.
+	wsB := s.createWorkspace(admin, "E2E §10.4 用例27 WS-B", "e2e-c27b-"+randHex(4))
+	bob := s.jwtClient(s.bobJWT)
+	s.grantPermission(admin, "user", s.bobUserID, s.viewerRoleID, "workspace", wsB.ID, "allow")
+
+	// §10.4 用例 27 red line: bob (wsB member) GETs wsA's source → 404, not 200/403.
+	var out knowledgeSource
+	st, env := bob.get("/api/v1/knowledge/sources/"+src.ID, &out)
+	require.Equalf(s.T(), http.StatusNotFound, st,
+		"cross-workspace source GET must be 404 (no existence leak); got %d", st)
+	require.Equal(s.T(), 40400, env.Code, "cross-workspace source must return 40400 (not 40300, which would leak existence)")
+	require.Empty(s.T(), out.ID, "no source body must be returned for a cross-workspace source")
+
+	// Control: a source that genuinely does not exist must return the SAME
+	// 404/40400 — bob cannot distinguish cross-workspace from not-found.
+	st2, env2 := bob.get("/api/v1/knowledge/sources/00000000-0000-0000-0000-000000000000", &out)
+	require.Equal(s.T(), http.StatusNotFound, st2, "non-existent source must be 404")
+	require.Equal(s.T(), 40400, env2.Code, "non-existent source must be 40400, same as cross-workspace")
 }
 
-// --- §10.4 用例 29: review by non-review-role → 403 (SUT GAP) ---
+// --- §10.4 用例 29: review by non-review-role → 403 ---
+
+// seedReviewRequest inserts the minimal FK chain a review_requests row needs
+// (governance_profile + knowledge_asset + knowledge_asset_version + the
+// review_request itself) inside one transaction. It mirrors the shape the
+// service's own CreateRequest writes. Deleting the workspace CASCADES to all
+// four, so the e2e workspace-cleanup covers this seed.
+//
+// The governance_profile is created with review_roles=[] (no role is a
+// reviewer) — mirroring the 014 migration's legacy_migration system profile.
+// That makes the RBAC ActionReview grant the deciding factor: a caller whose
+// role grants ActionReview may review; a viewer (only ActionRead) may not.
+// The system roles seeded by 005_rbac grant read/write/admin/sync — none grant
+// "review" — so a non-admin viewer is always denied ActionReview → 403.
+func (s *Suite) seedReviewRequest(wsIDStr, userIDStr string) uuid.UUID {
+	ctx := context.Background()
+	wsID, err := uuid.Parse(wsIDStr)
+	require.NoError(s.T(), err, "parse workspace id")
+	userID, err := uuid.Parse(userIDStr)
+	require.NoError(s.T(), err, "parse user id")
+	tx, err := s.pool.Begin(ctx)
+	require.NoError(s.T(), err, "begin review-seed tx")
+	defer tx.Rollback(ctx) // safe: Commit commits the committed state.
+
+	// governance_profile (workspace-scoped; review_roles=[]).
+	var govID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO governance_profiles
+		  (workspace_id, name, asset_type, transition_rules, review_roles,
+		   auto_publish, required_projections, is_system)
+		VALUES ($1,'e2e-c29-gov','document','{}'::jsonb,'[]'::jsonb,
+		        '{}'::jsonb,'["fts"]'::jsonb,false)
+		RETURNING id`, wsID).Scan(&govID)
+	require.NoError(s.T(), err, "seed governance_profile")
+
+	// knowledge_asset (document, published, points at gov profile).
+	var assetID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO knowledge_assets
+		  (workspace_id, asset_type, name, owner_type, owner_id, status,
+		   governance_profile_id)
+		VALUES ($1,'document','e2e-c29-asset','user',$2,'published',$3)
+		RETURNING id`, wsID, userID, govID).Scan(&assetID)
+	require.NoError(s.T(), err, "seed knowledge_asset")
+
+	// knowledge_asset_version (ready+published so it is the usable current).
+	var versionID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO knowledge_asset_versions
+		  (asset_id, version_no, content_origin, dedupe_key,
+		   build_status, governance_status, created_by_type, created_by_id)
+		VALUES ($1,1,'human',$2,'ready','published','user',$3)
+		RETURNING id`, assetID, "seed:"+assetID.String(), userID).Scan(&versionID)
+	require.NoError(s.T(), err, "seed knowledge_asset_version")
+	_, err = tx.Exec(ctx, `UPDATE knowledge_assets SET current_version_id=$2 WHERE id=$1`, assetID, versionID)
+	require.NoError(s.T(), err, "link current_version_id")
+
+	// review_request (pending) referencing asset + version + gov profile.
+	var reviewID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO review_requests
+		  (workspace_id, asset_id, asset_version_id, governance_profile_id,
+		   requested_by_type, requested_by_id, status, rationale)
+		VALUES ($1,$2,$3,$4,'user',$5,'pending','e2e-c29 pending review')
+		RETURNING id`, wsID, assetID, versionID, govID, userID).Scan(&reviewID)
+	require.NoError(s.T(), err, "seed review_request")
+
+	require.NoError(s.T(), tx.Commit(ctx), "commit review-seed tx")
+	return reviewID
+}
+
+// postDecision POSTs /knowledge/reviews/{id}/decisions (§4.2 governance). The
+// handler binds decision + policy_version (required). Returns status + envelope.
+func (s *Suite) postDecision(cl *Client, reviewID uuid.UUID) (int, *envelope) {
+	return cl.post("/api/v1/knowledge/reviews/"+reviewID.String()+"/decisions",
+		map[string]any{
+			"decision":       "approve",
+			"policy_version": "e2e-c29-v1",
+			"rationale":      "e2e approve",
+		}, nil)
+}
+
+// reviewDecisionCount reads back review_decisions for a request (audit trail
+// invariant: a denied caller must not append a decision row).
+func (s *Suite) reviewDecisionCount(reviewID uuid.UUID) int {
+	var n int
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM review_decisions WHERE review_request_id=$1`, reviewID).Scan(&n)
+	require.NoError(s.T(), err, "count review_decisions")
+	return n
+}
 
 // TestSourceSecurity_ReviewByNonReviewRoleRejected asserts the §10.4 用例 29
-// invariant: a principal whose role is NOT in the governance Profile's
-// review_roles calling POST /knowledge/reviews/{id}/decisions is rejected
-// with 403 (40300), no review_decisions row is created, and a denied audit
-// event is recorded.
+// invariant against the WithAuthz SUT: a caller whose role does NOT grant
+// ActionReview (a workspace viewer — only ActionRead) calling
+// POST /knowledge/reviews/{id}/decisions is rejected with 403 (40300), and no
+// review_decisions row is appended.
 //
-// SUT GAP (§10.4 用例 29, blocked pending YS-110): SourceService.AppendReviewDecision
-// appends the ReviewDecisionRecord with no review_roles membership check —
-// any authed caller can post a decision today. Marked Skip until the review
-// gate enforces review_roles membership before AppendDecision.
+// WithAuthz (PR #45, YS-115) authorizes AppendReviewDecision with ActionReview
+// (leak=true): the CompositeLocator resolves a workspace-local review; the
+// viewer role (005_rbac: ["read"]) holds no "review" grant → default deny →
+// ErrSourceForbidden → 403/40300. The positive control (admin, who bypasses
+// RBAC via auth.IsAdmin) appending a decision on the SAME review → 204 proves
+// the review genuinely exists and is reviewable, so bob's 403 is a real
+// permission denial, not a not-found masked as 403.
 func (s *Suite) TestSourceSecurity_ReviewByNonReviewRoleRejected() {
-	s.T().Skip("DEFECT §10.4 用例 29 (SUT GAP, blocked YS-110): AppendReviewDecision has no review_roles RBAC — any authed caller can post a review decision, no 403")
+	s.requireDB("seeded review chain for 用例 29")
+	admin := s.adminClient()
+	ws := s.createWorkspace(admin, "E2E §10.4 用例29 WS", "e2e-c29-"+randHex(4))
+
+	// Bob is a read-only (viewer) member of this workspace — NO ActionReview.
+	bob := s.jwtClient(s.bobJWT)
+	s.grantPermission(admin, "user", s.bobUserID, s.viewerRoleID, "workspace", ws.ID, "allow")
+
+	// Seed a pending review_request in this workspace (admin as requester).
+	reviewID := s.seedReviewRequest(ws.ID, s.adminUserID())
+
+	// §10.4 用例 29 red line: bob (viewer, not a reviewer) must be denied 403.
+	st, env := s.postDecision(bob, reviewID)
+	require.Equalf(s.T(), http.StatusForbidden, st,
+		"a non-reviewer must be denied review decision (403); got %d", st)
+	require.Equal(s.T(), 40300, env.Code, "a non-reviewer must get 40300 (not 40400, which would leak existence)")
+	// No decision row was appended by the denied caller.
+	require.Equal(s.T(), 0, s.reviewDecisionCount(reviewID),
+		"a denied review caller must not append a review_decisions row")
+
+	// Positive control: admin (IsAdmin bypass) posts a decision on the SAME
+	// review → 204, proving the review exists + is reviewable, so bob's 403 is
+	// a permission denial rather than a masked not-found.
+	st2, env2 := s.postDecision(admin, reviewID)
+	require.Equalf(s.T(), http.StatusNoContent, st2,
+		"admin must be able to post a review decision (positive control); got %d code=%d msg=%s",
+		st2, env2.Code, env2.Message)
+	require.Equal(s.T(), 1, s.reviewDecisionCount(reviewID),
+		"admin's decision must append exactly one review_decisions row")
 }
 
 // keep testing import referenced.
