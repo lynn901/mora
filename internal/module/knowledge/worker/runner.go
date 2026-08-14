@@ -196,12 +196,18 @@ func (r *Runner) runOne(ctx context.Context, job domain.Job) {
 
 // classifyCode returns a short, non-sensitive error code for the job row.
 // It must not leak credentials or full paths — operators read this column.
+// The message is run through redact() first so the same credential-hint
+// masking that guards error_detail_redacted also guards error_code (§10.2
+// 用例 18: error_code must not carry plaintext credentials).
 func classifyCode(err error, class domain.RetryClass) string {
 	if err == nil {
 		return ""
 	}
-	// Prefer a sentinel-prefix; fall back to the first line of the message.
-	msg := err.Error()
+	// Mask any credential hints before composing the code — a handler that
+	// wraps a credential into its error must not leak it into error_code.
+	msg := redact(err)
+	// Keep only the first line (error_code is a short classification, not a
+	// stack trace) and cap the length so a verbose message can't overflow.
 	if i := strings.IndexByte(msg, '\n'); i >= 0 {
 		msg = msg[:i]
 	}

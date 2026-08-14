@@ -80,10 +80,10 @@ func main() {
 
 	// --- Ports ---
 	jobStore := postgres.NewJobRepo(pool)
-	// AssetRegistry (§6 CAS / §3.3 reconcile) lands in a later Phase 1 slice;
-	// the projection_build / asset_activate / reconcile_scan handlers stub out
-	// until then. Wire it here when the port gains MarkProjectionReady /
-	// Activate / ReconcileScan.
+	// AssetRegistry (§6 CAS / §3.3 reconcile). The tx-scoped write methods
+	// (MarkProjectionReady / Activate) run inside the handler's transaction;
+	// ReconcileScan needs a pool, wired via WithPool.
+	assets := postgres.NewAssetRegistry().WithPool(pool)
 	publisher := outbox.NewValkeyPublisher(rdb, 100000)
 	// *pgxpool.Pool satisfies outbox.DB (BeginTx); pass the pool directly.
 	dispatcher := outbox.NewDispatcher(pool, map[string]outbox.StreamPublisher{
@@ -92,13 +92,15 @@ func main() {
 	}, dispatcherBatch, dispatcherInterval)
 
 	// Job handlers (§5.2 dispatch table). Each handler owns one job_type's
-	// business logic; the dispatcher loop drives acquire→run→mark.
+	// business logic; the runner loop drives acquire→run→mark. Handlers open
+	// their own short transactions via the shared pool (JobTxStarter), so an
+	// acquired job is not held inside one long tx (§6.5 long-running).
 	handlers := worker.Handlers{
-		worker.JobSourceSync:      &worker.SourceSyncHandler{Pool: pool, Jobs: jobStore},
-		worker.JobProjectionBuild: &worker.ProjectionBuildHandler{Pool: pool, Jobs: jobStore},
-		worker.JobAssetActivate:   &worker.AssetActivateHandler{},
-		worker.JobReconcileScan:   &worker.ReconcileHandler{Pool: pool},
-		worker.JobLegacyBackfill:  &worker.LegacyBackfillHandler{Pool: pool},
+		worker.JobSourceSync:      &worker.SourceSyncHandler{Tx: pool, Jobs: jobStore},
+		worker.JobProjectionBuild: &worker.ProjectionBuildHandler{Tx: pool, Jobs: jobStore, Assets: assets},
+		worker.JobAssetActivate:   &worker.AssetActivateHandler{Tx: pool, Assets: assets},
+		worker.JobReconcileScan:   &worker.ReconcileHandler{Assets: assets},
+		worker.JobLegacyBackfill:  &worker.LegacyBackfillHandler{Tx: pool},
 	}
 	runner := worker.NewRunner(worker.RunnerConfig{
 		Jobs:      jobStore,
