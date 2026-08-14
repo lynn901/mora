@@ -101,12 +101,19 @@ func (r *DocumentRepo) Create(ctx context.Context, d *domain.Document) error {
 		d.VersionNo = 1
 	}
 	content, _ := json.Marshal(d.Content)
+	// parse_status is NOT NULL with DEFAULT 'parsed'; honor that default in Go
+	// so a Document{} seeded without ParseStatus (Block-authored, already
+	// parsed — see chunk.go) doesn't insert NULL and violate the constraint.
+	parseStatus := d.ParseStatus
+	if parseStatus == "" {
+		parseStatus = domain.ParseParsed
+	}
 	return r.db.Pool.QueryRow(ctx, `
 		INSERT INTO documents (id, workspace_id, directory_id, title, content, content_text, format, status, index_status, version_no, created_by, updated_by, created_at, updated_at, storage_key, source_format, parse_status)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
 		d.ID, d.WorkspaceID, d.DirectoryID, d.Title, content, d.ContentText, d.Format,
 		d.Status, d.IndexStatus, d.VersionNo, d.CreatedBy, d.UpdatedBy, d.CreatedAt, d.UpdatedAt,
-		nullIfEmpty(d.StorageKey), d.SourceFormat, nullIfEmpty(string(d.ParseStatus))).Scan(&d.ID)
+		nullIfEmpty(d.StorageKey), d.SourceFormat, nullIfEmpty(string(parseStatus))).Scan(&d.ID)
 }
 
 func (r *DocumentRepo) Update(ctx context.Context, d *domain.Document, prevVersion int) error {

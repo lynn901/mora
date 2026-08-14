@@ -7,11 +7,13 @@
 // fails transiently returns (RetryTransient, err); the Runner's MarkFailed
 // handles the attempt/max_attempt math and dead-letters at the cap.
 //
-// §7 CAS wired: projection_build calls AssetRegistry.MarkProjectionReady (the
-// rag-worker ready write-back), asset_activate calls AssetRegistry.Activate
-// (the CAS gate), and reconcile_scan calls AssetRegistry.ReconcileScan (the
-// §3.3 self-healing ticker). source_sync and legacy_backfill remain validated
-// no-ops pending the Connector (§4.1) and batch-backfill (§3.2) deliverables.
+// The §6 CAS + §3.3 reconcile deliverable is wired here:
+//   - ProjectionBuildHandler → AssetRegistry.MarkProjectionReady (§7 step
+//     "projection ready"; flips build_status when the last required projection
+//     lands, §10.3 用例 20).
+//   - AssetActivateHandler   → AssetRegistry.Activate (§7 CAS; §10.3 用例 22
+//     old version CAS-stale / 用例 24 expected_current mismatch).
+//   - ReconcileHandler       → AssetRegistry.ReconcileScan (§3.3 sweep).
 package worker
 
 import (
@@ -21,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/module/knowledge/asset"
@@ -28,8 +31,8 @@ import (
 
 // ErrNotWired marks a job_type whose backing port has not landed yet. It is
 // permanent so the Runner dead-letters the job instead of retrying forever.
-// (Currently unused — all five handlers are wired — retained for the next
-// deferred port.)
+// (Kept for the Source/Backfill handlers still pending the Connector/migration
+// deliverables; the CAS/reconcile path no longer returns it.)
 var ErrNotWired = errors.New("worker: handler not wired for this job_type")
 
 // --- §5.2 row 1: source_sync -------------------------------------------------
@@ -44,7 +47,7 @@ var ErrNotWired = errors.New("worker: handler not wired for this job_type")
 // SourceSyncHandler drives a Source ingest run. It owns the source_events →
 // projection_build fan-out.
 type SourceSyncHandler struct {
-	Tx  JobTxStarter
+	Pool *pgxpool.Pool
 	Jobs JobStore
 }
 
@@ -70,13 +73,12 @@ func (h *SourceSyncHandler) Run(ctx context.Context, j domain.Job) (domain.Retry
 // ProjectionBuildHandler marks a single projection ready once its build is
 // done. The actual build (FTS indexing, Qdrant upsert) is rag-worker's /
 // the Provider's job; this handler is the write-back to asset_projections.
-//
-// Job fields it reads: AssetVersionID, TargetKey (the projection_kind),
-// BuildRevision, LeaseOwner (used as the provider label), Progress.locator.
+// §10.3 用例 20: a missing required projection blocks build_status='ready' —
+// MarkProjectionReady only flips it when the LAST required projection lands.
 type ProjectionBuildHandler struct {
-	Tx     JobTxStarter
+	Pool   *pgxpool.Pool
 	Jobs   JobStore
-	Assets asset.Registry
+	Assets asset.ActivationRegistry
 }
 
 func (h *ProjectionBuildHandler) Run(ctx context.Context, j domain.Job) (domain.RetryClass, error) {
@@ -87,28 +89,28 @@ func (h *ProjectionBuildHandler) Run(ctx context.Context, j domain.Job) (domain.
 	if kind == "" {
 		return domain.RetryPermanent, fmtErr(JobProjectionBuild, fmt.Errorf("missing projection_kind target_key"))
 	}
-	if j.BuildRevision == "" {
-		return domain.RetryPermanent, fmtErr(JobProjectionBuild, fmt.Errorf("missing build_revision"))
-	}
-	// provider = the builder identity (rag-worker / tei / qdrant). The job's
-	// lease owner is a stable consumer name, usable as the provider label when
-	// the caller didn't put an explicit one in Progress.
-	provider := stringFromJobProgress(j, "provider")
-	if provider == "" {
-		provider = j.LeaseOwner
-	}
-	locator, _ := j.Progress["locator"].(map[string]any)
-
-	// MarkProjectionReady is idempotent: re-marking an already-ready projection
-	// is a no-op, so a crash-retry after a partial completion is safe. It runs
-	// inside a short tx so the projection row + build_status flip commit
-	// together (§6.4 atomic).
-	tx, err := h.Tx.BeginTx(ctx, pgx.TxOptions{})
+	// Run the projection write-back inside a short tx. A transient DB failure
+	// retries; a missing version (ErrVersionNotFound) is permanent (existence
+	// leak guard — the version will not appear by retrying).
+	tx, err := h.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return domain.RetryTransient, fmtErr(JobProjectionBuild, err)
 	}
-	defer tx.Rollback(ctx) // safe on success (committed) — pgx no-op on a spent tx
-	if err := h.Assets.MarkProjectionReady(ctx, tx, *j.AssetVersionID, kind, provider, j.BuildRevision, locator); err != nil {
+	defer tx.Rollback(ctx)
+	_, err = h.Assets.MarkProjectionReady(ctx, tx, asset.ProjectionReady{
+		AssetVersionID:  *j.AssetVersionID,
+		Kind:            kind,
+		BuildRevision:   j.BuildRevision,
+		Provider:        stringFromJobProgress(j, "provider"),
+		ProviderVersion: stringFromJobProgress(j, "provider_version"),
+		Locator:         mapFromJobProgress(j, "locator"),
+	})
+	if err != nil {
+		if errors.Is(err, asset.ErrVersionNotFound) {
+			_ = tx.Rollback(ctx)
+			return domain.RetryPermanent, fmtErr(JobProjectionBuild, err)
+		}
+		_ = tx.Rollback(ctx)
 		return domain.RetryTransient, fmtErr(JobProjectionBuild, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -120,65 +122,60 @@ func (h *ProjectionBuildHandler) Run(ctx context.Context, j domain.Job) (domain.
 // --- §5.2 row 3: asset_activate ---------------------------------------------
 //
 // "CAS 激活 current_version_id（§6）". This handler performs the CAS under the
-// job's fence, with expected_current read from the job's progress (set by the
-// caller that requested the version). Failed/CAS-stale are surfaced as job
-// failure but the asset is untouched (the CAS is the final authority, §7
-// red-line). The sentinel errors classify retry vs dead:
-//   - ErrCASVersionStale / ErrCASExpectedMismatch → permanent (CAS decided)
-//   - ErrNotPublished → permanent (governance won't change by retrying)
-//   - ErrProjectionsNotReady → transient (projections may still be building)
-//   - other → transient
+// job's fence, with expected_current read from the asset row. Failed/CAS-stale
+// are surfaced as job failure but the asset is untouched (the CAS is the
+// final authority, §7 red-line).
 
 // AssetActivateHandler runs the §7 CAS activation. It is the async counterpart
 // to mora-api's activation write: mora-api requests the version (writes the
 // fence + outbox event); the worker performs the CAS once projections are ready.
+// §10.3 用例 22: a late-completing old version fails the CAS (stale) and is
+// marked ready-only — current_version_id is NOT rewound. §10.3 用例 24: a
+// rollback without the correct expected_current is rejected.
 type AssetActivateHandler struct {
-	Tx     JobTxStarter
-	Assets asset.Registry
+	Pool   *pgxpool.Pool
+	Assets asset.ActivationRegistry
 }
 
 func (h *AssetActivateHandler) Run(ctx context.Context, j domain.Job) (domain.RetryClass, error) {
 	if j.AssetID == nil || j.AssetVersionID == nil {
 		return domain.RetryPermanent, fmtErr(JobAssetActivate, fmt.Errorf("missing asset_id/asset_version_id"))
 	}
-	// fence = the latest_requested_version_no the caller observed when it
-	// requested the version. The CAS WHERE latest_requested_version_no = fence
-	// rejects if a newer version was requested after this build started (§7
-	// 单调栅栏). Fall back to the job's own version fence if absent.
-	fence := int64FromJobProgress(j, "fence")
-	if fence == 0 {
-		fence = int64FromJobProgress(j, "latest_requested_version_no")
-	}
-	if fence == 0 {
-		return domain.RetryPermanent, fmtErr(JobAssetActivate, fmt.Errorf("missing fence in progress"))
-	}
-	// expected_current: the current_version_id the caller expected, so a
-	// concurrent activation is detected. nil = initial activation (CAS matches
-	// the NULL pointer). Parsed from a string in Progress because JSON round-trips.
-	var expected *uuid.UUID
-	if s := stringFromJobProgress(j, "expected_current"); s != "" {
-		if e, err := uuid.Parse(s); err == nil && e != uuid.Nil {
-			expected = &e
+	fence := int64FromJobProgress(j, "latest_requested_version_no")
+	expectedCurrentStr := stringFromJobProgress(j, "expected_current")
+	expectedCurrent := uuid.Nil
+	if expectedCurrentStr != "" {
+		if parsed, err := uuid.Parse(expectedCurrentStr); err == nil {
+			expectedCurrent = parsed
 		}
 	}
-
-	tx, err := h.Tx.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := h.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return domain.RetryTransient, fmtErr(JobAssetActivate, err)
 	}
 	defer tx.Rollback(ctx)
-	err = h.Assets.Activate(ctx, tx, *j.AssetID, *j.AssetVersionID, fence, expected)
+	_, err = h.Assets.Activate(ctx, tx, asset.Activation{
+		AssetID:         *j.AssetID,
+		VersionID:       *j.AssetVersionID,
+		Fence:           fence,
+		ExpectedCurrent: expectedCurrent,
+	})
 	if err != nil {
-		switch {
-		case errors.Is(err, domain.ErrCASVersionStale), errors.Is(err, domain.ErrCASExpectedMismatch):
+		// CAS-already-decided + governance errors are permanent — the asset
+		// state won't change by retrying. ErrProjectionsNotReady is also
+		// permanent from Activate's standpoint (the build path should have
+		// gated on projections); the build handler re-enqueues. Everything
+		// else (transient DB) retries.
+		if errors.Is(err, asset.ErrCASVersionStale) ||
+			errors.Is(err, asset.ErrCASExpectedMismatch) ||
+			errors.Is(err, asset.ErrNotPublished) ||
+			errors.Is(err, asset.ErrVersionNotFound) ||
+			errors.Is(err, asset.ErrProjectionsNotReady) {
+			_ = tx.Rollback(ctx)
 			return domain.RetryPermanent, fmtErr(JobAssetActivate, err)
-		case errors.Is(err, domain.ErrNotPublished), errors.Is(err, domain.ErrAssetVersionNotFound):
-			return domain.RetryPermanent, fmtErr(JobAssetActivate, err)
-		case errors.Is(err, domain.ErrProjectionsNotReady):
-			return domain.RetryTransient, fmtErr(JobAssetActivate, err)
-		default:
-			return domain.RetryTransient, fmtErr(JobAssetActivate, err)
 		}
+		_ = tx.Rollback(ctx)
+		return domain.RetryTransient, fmtErr(JobAssetActivate, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.RetryTransient, fmtErr(JobAssetActivate, err)
@@ -188,12 +185,13 @@ func (h *AssetActivateHandler) Run(ctx context.Context, j domain.Job) (domain.Re
 
 // --- §5.2 row 4: reconcile_scan ----------------------------------------------
 //
-// "对账扫描（§3.3）". Runs AssetRegistry.ReconcileScan for one workspace. The
-// scan is self-healing: it CAS-repairs unset/stale current_version_id and
-// re-queues stuck projections. It does not auto-publish (governance is human).
+// "对账扫描（§3.3）". Runs AssetRegistry.ReconcileScan for one workspace.
+// §3.3: CAS-fix drifted current_version_id pointers and mark superseded
+// versions' projections 'stale'. The sweep runs its own short transactions.
 
 type ReconcileHandler struct {
-	Assets asset.Registry
+	Pool   *pgxpool.Pool
+	Assets asset.ActivationRegistry
 }
 
 func (h *ReconcileHandler) Run(ctx context.Context, j domain.Job) (domain.RetryClass, error) {
@@ -201,14 +199,9 @@ func (h *ReconcileHandler) Run(ctx context.Context, j domain.Job) (domain.RetryC
 	if err != nil {
 		return domain.RetryPermanent, fmtErr(JobReconcileScan, fmt.Errorf("missing workspace_id in target_key: %w", err))
 	}
-	// ReconcileScan opens its own short transactions internally; no caller tx.
-	if _, err := h.Assets.ReconcileScan(ctx, wsID); err != nil {
-		// Reconcile is a background safety net — a transient DB error is
-		// retryable; a misconfiguration (no pool) is permanent (dead-letter so
-		// the operator fixes the worker wiring, not silent spin).
-		if errors.Is(err, domain.ErrAssetVersionNotFound) {
-			return domain.RetryPermanent, fmtErr(JobReconcileScan, err)
-		}
+	// ReconcileScan opens its own tx(s) over the pool; the handler does not
+	// need to manage a tx. A transient DB failure retries.
+	if _, err := h.Assets.ReconcileScan(ctx, h.Pool, domain.UUID(wsID)); err != nil {
 		return domain.RetryTransient, fmtErr(JobReconcileScan, err)
 	}
 	return domain.RetryTransient, nil
@@ -223,7 +216,7 @@ func (h *ReconcileHandler) Run(ctx context.Context, j domain.Job) (domain.RetryC
 // dispatch table is complete.
 
 type LegacyBackfillHandler struct {
-	Tx JobTxStarter
+	Pool *pgxpool.Pool
 }
 
 func (h *LegacyBackfillHandler) Run(ctx context.Context, j domain.Job) (domain.RetryClass, error) {
@@ -267,4 +260,18 @@ func stringFromJobProgress(j domain.Job, key string) string {
 		}
 	}
 	return ""
+}
+
+// mapFromJobProgress reads a map[string]any field from j.Progress (e.g. a
+// projection locator). Returns nil when absent.
+func mapFromJobProgress(j domain.Job, key string) map[string]any {
+	if j.Progress == nil {
+		return nil
+	}
+	if v, ok := j.Progress[key]; ok {
+		if m, ok := v.(map[string]any); ok {
+			return m
+		}
+	}
+	return nil
 }

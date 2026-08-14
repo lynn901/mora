@@ -21,15 +21,16 @@ import (
 // engine's internal target resolution delegates to a CompositeLocator backed
 // by a DocLocator over the same repository — the doc path behavior is
 // unchanged (regression red line: Check/VisibleDocuments + engine_test.go).
-// Phase 1 adds the Source + Review locators (design-docs/14 §3.3/§8.2) so the
-// authz layer can resolve source/review targets the same way it resolves
-// documents — a missing/disabled source or missing review returns
-// ErrTargetNotFound, indistinguishable from a denial (existence never leaks).
+// Phase 1 adds the Asset + Source + Review locators (design-docs/14 §3.3/§8.2)
+// so the authz layer can resolve asset/source/review targets the same way it
+// resolves documents — a missing/cross-workspace asset or source, or missing
+// review, returns ErrTargetNotFound, indistinguishable from a denial
+// (existence never leaks).
 func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo, docs *postgres.DocumentRepo, authzDB *postgres.DB) *rbac.Engine {
 	repo := postgres.NewRBACAdapter(perms, dirs, docs)
 	eng := rbac.NewEngine(repo)
-	// Wire doc-family + source/review target resolution through the unified
-	// ResourceLocator port. AsLocator adapts authz.ResourceLocator -> rbac.Locator
+	// Wire doc-family + asset/source/review target resolution through the
+	// unified ResourceLocator port. AsLocator adapts authz.ResourceLocator -> rbac.Locator
 	// so the engine can delegate without importing authz (which imports rbac).
 	comp := authz.NewCompositeLocator(struct {
 		Type authz.TargetType
@@ -43,6 +44,10 @@ func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo,
 			Type authz.TargetType
 			Loc  authz.ResourceLocator
 		}{Type: domain.TargetDocument, Loc: authz.NewDocLocator(repo)},
+		struct {
+			Type authz.TargetType
+			Loc  authz.ResourceLocator
+		}{Type: domain.TargetAsset, Loc: authz.NewAssetLocator(postgres.NewAuthzAssetRepo(authzDB))},
 		struct {
 			Type authz.TargetType
 			Loc  authz.ResourceLocator

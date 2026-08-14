@@ -196,9 +196,9 @@ func (r *Runner) runOne(ctx context.Context, job domain.Job) {
 
 // classifyCode returns a short, non-sensitive error code for the job row.
 // It must not leak credentials or full paths — operators read this column.
-// The message is run through redact() first so the same credential-hint
-// masking that guards error_detail_redacted also guards error_code (§10.2
-// 用例 18: error_code must not carry plaintext credentials).
+// §10.2 用例 18: the error_code column goes through the SAME credential-hint
+// masking as redact() does for error_detail_redacted, so a credential that
+// slipped into an error message is masked before it reaches this column too.
 func classifyCode(err error, class domain.RetryClass) string {
 	if err == nil {
 		return ""
@@ -211,6 +211,7 @@ func classifyCode(err error, class domain.RetryClass) string {
 	if i := strings.IndexByte(msg, '\n'); i >= 0 {
 		msg = msg[:i]
 	}
+	msg = maskCredentialHints(msg)
 	if len(msg) > 120 {
 		msg = msg[:120]
 	}
@@ -225,7 +226,18 @@ func redact(err error) string {
 	if err == nil {
 		return ""
 	}
-	s := err.Error()
+	s := maskCredentialHints(err.Error())
+	if len(s) > 500 {
+		s = s[:500]
+	}
+	return s
+}
+
+// maskCredentialHints replaces the segment following any credential-hint marker
+// with "***" (up to the next whitespace or string end). Shared by classifyCode
+// (error_code) and redact (error_detail_redacted) so both columns apply the
+// §6.5 / §10.2 用例 18 masking uniformly.
+func maskCredentialHints(s string) string {
 	for _, token := range credentialHints {
 		if i := strings.Index(s, token); i >= 0 {
 			// mask the segment after the marker up to the next whitespace
@@ -237,9 +249,6 @@ func redact(err error) string {
 			}
 			s = s[:j] + "***" + s[end:]
 		}
-	}
-	if len(s) > 500 {
-		s = s[:500]
 	}
 	return s
 }

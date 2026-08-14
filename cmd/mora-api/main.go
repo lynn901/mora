@@ -24,6 +24,7 @@ import (
 	"github.com/lynn901/mora/internal/infra/postgres"
 	"github.com/lynn901/mora/internal/infra/qdrant"
 	"github.com/lynn901/mora/internal/infra/ragwiring"
+	"github.com/lynn901/mora/internal/module/knowledge/asset"
 	"github.com/lynn901/mora/internal/module/mora/collab"
 	"github.com/lynn901/mora/internal/module/mora/event"
 	wh "github.com/lynn901/mora/internal/module/mora/handler"
@@ -153,6 +154,16 @@ func main() {
 	srcH := wh.NewSourceHandler(srcSvc)
 	_ = srcTargetRepo    // used by the knowledge-worker; reserved for the source-side list
 	_ = srcProjectionRepo // used by the worker's activation gate (§7); reserved
+
+	// Asset read API (design-docs/14 §4.4 D13): GET /knowledge/assets/:id,
+	// /:id/versions, /:id/relations, GET /workspaces/:ws/knowledge/assets.
+	// §8.5 / §10.4 用例 26/27: resource-level RBAC via the same rbac.Engine
+	// (its CompositeLocator resolves TargetAsset → workspace; a missing or
+	// cross-workspace asset fails to resolve → ErrAssetNotFound → 404, no
+	// existence leak). Content is never read (§3.3).
+	assetReadSvc := asset.NewReadService(postgres.NewAssetReadRepo(db)).
+		WithAuthz(engine, auditLogger)
+	assetH := wh.NewAssetHandler(assetReadSvc)
 
 	tm := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
 	userLookup := &pgUserLookup{db: db}
@@ -286,6 +297,13 @@ func main() {
 	authed.POST("/knowledge/sources/:id/sync-runs", srcH.TriggerSync)
 	authed.GET("/workspaces/:workspace_id/knowledge/reviews", srcH.ListReviews)
 	authed.POST("/knowledge/reviews/:id/decisions", srcH.PostDecision)
+
+	// Asset read API (§4.4 D13). Reads only; no rate-limit group (same light
+	// read budget as the source list). RBAC enforced in the service layer.
+	authed.GET("/workspaces/:workspace_id/knowledge/assets", assetH.List)
+	authed.GET("/knowledge/assets/:id", assetH.Get)
+	authed.GET("/knowledge/assets/:id/versions", assetH.ListVersions)
+	authed.GET("/knowledge/assets/:id/relations", assetH.ListRelations)
 
 	// health
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })

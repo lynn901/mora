@@ -75,41 +75,9 @@ type Registry interface {
 	// a separate lookup. Runs inside tx so the profile row commits with the
 	// caller's batch.
 	LegacyMigrationProfileID(ctx context.Context, tx pgx.Tx, workspaceID domain.UUID) (domain.UUID, error)
-
-	// MarkProjectionReady flips an asset_projections row to status='ready' and,
-	// when all required projections for that asset version are ready, flips
-	// knowledge_asset_versions.build_status='ready' (§7). It is the rag-worker /
-	// Provider write-back bridge: the build itself runs out-of-band, this is
-	// the ready-marker that the activation CAS gates on. Idempotent: re-marking
-	// an already-ready projection is a no-op.
-	//
-	// provider identifies the builder (e.g. "rag-worker", "tei"); buildRevision
-	// pins the build artifact (so a rebuild produces a new row, never overwrites
-	// in place — §2.1); locator carries non-executable placement info
-	// (Qdrant collection/prefix, FTS table, MinIO key). Runs inside tx so the
-	// projection row + the build_status flip commit together.
-	MarkProjectionReady(ctx context.Context, tx pgx.Tx, assetVersionID domain.UUID, kind domain.ProjectionKind, provider, buildRevision string, locator map[string]any) error
-
-	// Activate performs the §7 CAS activation of current_version_id. It is the
-	// async counterpart to RegisterDocumentAsset: a connector-sourced version
-	// starts candidate/pending, projections build, then this is called to
-	// atomically switch the pointer. The CAS gate enforces:
-	//   - latest_requested_version_no = fence  (monotonic barrier; an old
-	//     version completing late must NOT overwrite a newer pointer)
-	//   - current_version_id IS NOT DISTINCT FROM expected  (expected_current;
-	//     a concurrent activation is detected and rejected)
-	//   - build_status='ready'  (all required projections done — no partial)
-	//   - governance_status='published'  (governance approved)
-	// Failure leaves current_version_id UNTOUCHED (§7 失败不覆盖). The sentinel
-	// errors (ErrCASVersionStale/ErrCASExpectedMismatch/ErrProjectionsNotReady/
-	// ErrNotPublished) let the worker classify retry vs dead. Runs inside tx.
-	Activate(ctx context.Context, tx pgx.Tx, assetID, assetVersionID domain.UUID, fence int64, expectedCurrent *domain.UUID) error
-
-	// ReconcileScan runs the §3.3 consistency scan for one workspace: it
-	// CAS-repairs assets whose current_version_id is unset/stale (a crashed
-	// activation) to their latest ready+published version, marks
-	// superseded-version projections stale for async cleanup, and re-queues
-	// stuck building/pending projections. Returns a tally of what it fixed.
-	// Does NOT run inside a caller tx — it opens its own short transactions.
-	ReconcileScan(ctx context.Context, workspaceID domain.UUID) (domain.ReconcileReport, error)
 }
+
+// The async activation methods — MarkProjectionReady, Activate, ReconcileScan
+// — live on asset.ActivationRegistry (activation.go), layered on top of this
+// dual-write Registry. They are the knowledge-worker's surface; the dual-write
+// Registry stays the document-write port.
