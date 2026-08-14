@@ -348,25 +348,46 @@ func (r *AssetRegistry) MarkProjectionReady(ctx context.Context, tx pgx.Tx, asse
 		return fmt.Errorf("asset: read activation snapshot: %w", err)
 	}
 	required := requiredProjectionsFromSnapshot(snapshotJSON)
+	// Dedupe: a malformed snapshot listing the same kind twice would inflate
+	// len(required) past the achievable count(DISTINCT …) and wedge the build.
+	required = dedupeKinds(required)
 
-	// Count required projections that are NOT yet ready for this version.
-	// A version is build-complete only when every required projection has a
-	// 'ready' row (§7: 部分投影就绪不得覆盖). Non-required projections
-	// (e.g. summary, non-blocking) don't gate.
-	var blocked int
+	// §7 red-line gate: a version is build-complete ONLY when EVERY required
+	// projection has a 'ready' row. The earlier form counted non-ready rows
+	// (status <> 'ready') and treated count=0 as "all ready" — but a required
+	// projection that has NO row at all also yields count=0, so a version
+	// missing, say, its 'vector' projection would flip to ready and then
+	// activate with no vector index (P0 D4-1). The fix is an assertion: count
+	// the DISTINCT required kinds that have a ready row and require it to equal
+	// the number of required kinds. Missing rows (no ready row for that kind)
+	// therefore block ready, as do pending/building/failed rows.
+	if len(required) == 0 {
+		// No required projections configured — nothing gates the build. This
+		// path is not expected (the helper defaults to ["fts","vector"]) but is
+		// guarded so a malformed empty snapshot can't wedge the build forever.
+		_, err = tx.Exec(ctx,
+			`UPDATE knowledge_asset_versions SET build_status='ready' WHERE id=$1`,
+			assetVersionID)
+		if err != nil {
+			return fmt.Errorf("asset: flip build_status ready: %w", err)
+		}
+		return nil
+	}
+	var readyKinds int
 	err = tx.QueryRow(ctx, `
-		SELECT count(*) FROM asset_projections
+		SELECT count(DISTINCT projection_kind) FROM asset_projections
 		WHERE asset_version_id = $1
 		  AND projection_kind = ANY($2)
-		  AND status <> 'ready'`,
-		assetVersionID, required).Scan(&blocked)
+		  AND status = 'ready'`,
+		assetVersionID, required).Scan(&readyKinds)
 	if err != nil {
-		return fmt.Errorf("asset: count non-ready projections: %w", err)
+		return fmt.Errorf("asset: count ready required projections: %w", err)
 	}
-	if blocked > 0 {
-		// Some required projections still pending/building/failed — leave
-		// build_status alone. The activation CAS will be rejected by the
-		// build_status='ready' gate until all required land.
+	if readyKinds < len(required) {
+		// At least one required projection has no ready row (missing entirely,
+		// or still pending/building/failed). Leave build_status alone — the
+		// activation CAS will be rejected by the build_status='ready' gate
+		// until all required kinds have a ready row (§7 部分投影就绪不得覆盖).
 		return nil
 	}
 	// All required projections ready → flip build_status='ready'. Idempotent
@@ -392,14 +413,16 @@ func (r *AssetRegistry) Activate(ctx context.Context, tx pgx.Tx, assetID, assetV
 		return domain.ErrAssetVersionNotFound
 	}
 
-	// 1. Read the version's build_status + governance_status to enforce the
-	//    gate BEFORE the CAS. This read is inside the same tx so it sees the
-	//    MarkProjectionReady flip (if it ran in this tx) and is consistent with
-	//    the CAS UPDATE below.
+	// 1. Read the version's build_status + governance_status + the activation
+	//    policy snapshot. The gate is enforced BEFORE the CAS, inside the same
+	//    tx so it sees a MarkProjectionReady flip (if it ran in this tx) and is
+	//    consistent with the CAS UPDATE below.
 	var buildStatus, govStatus string
+	var snapshotJSON []byte
 	err := tx.QueryRow(ctx,
-		`SELECT build_status, governance_status FROM knowledge_asset_versions WHERE id=$1`,
-		assetVersionID).Scan(&buildStatus, &govStatus)
+		`SELECT build_status, governance_status, activation_policy_snapshot
+		 FROM knowledge_asset_versions WHERE id=$1`,
+		assetVersionID).Scan(&buildStatus, &govStatus, &snapshotJSON)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrAssetVersionNotFound
@@ -411,6 +434,31 @@ func (r *AssetRegistry) Activate(ctx context.Context, tx pgx.Tx, assetID, assetV
 	}
 	if govStatus != domain.VersionGovPublished {
 		return domain.ErrNotPublished
+	}
+	// §7 defense-in-depth: do NOT trust build_status alone. Re-assert that
+	// EVERY required projection has a 'ready' row at activation time. The
+	// MarkProjectionReady gate is supposed to have enforced this before
+	// flipping build_status, but a future reconcile-repair or a manual SQL
+	// edit could set build_status='ready' without all projections actually
+	// ready — the CAS must still refuse (§7 失败不覆盖 / 部分就绪不得覆盖).
+	// Same assertion shape as MarkProjectionReady: count DISTINCT ready
+	// required kinds and require == len(required). A missing required
+	// projection (no row) blocks activation here too, not just at build time.
+	required := dedupeKinds(requiredProjectionsFromSnapshot(snapshotJSON))
+	if len(required) > 0 {
+		var readyKinds int
+		err := tx.QueryRow(ctx, `
+			SELECT count(DISTINCT projection_kind) FROM asset_projections
+			WHERE asset_version_id = $1
+			  AND projection_kind = ANY($2)
+			  AND status = 'ready'`,
+			assetVersionID, required).Scan(&readyKinds)
+		if err != nil {
+			return fmt.Errorf("asset: count ready required projections (activate): %w", err)
+		}
+		if readyKinds < len(required) {
+			return domain.ErrProjectionsNotReady
+		}
 	}
 
 	// 2. The CAS UPDATE. The WHERE clause encodes the §7 invariants:
@@ -585,6 +633,23 @@ func requiredProjectionsFromSnapshot(snapshotJSON []byte) []string {
 	}
 	if len(out) == 0 {
 		return []string{"fts", "vector"}
+	}
+	return out
+}
+
+// dedupeKinds returns kinds with duplicates removed, preserving order. Guards
+// the build_status gate against a malformed activation_policy_snapshot that
+// lists the same projection_kind twice (which would inflate len(required)
+// past the achievable count(DISTINCT projection_kind) and wedge the build).
+func dedupeKinds(kinds []string) []string {
+	seen := make(map[string]struct{}, len(kinds))
+	out := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, k)
 	}
 	return out
 }
