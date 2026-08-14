@@ -153,6 +153,9 @@ func TestToolWriteFlags(t *testing.T) {
 	assert.False(t, NewGetTagsTool(m).IsWrite())
 	assert.True(t, NewCreateDraftTool(m).IsWrite())
 	assert.True(t, NewUpdateDocumentTool(m).IsWrite())
+	// Wiki tools (design doc 16 §7.3): wiki_status is read-only, wiki_page_propose is a write.
+	assert.False(t, NewWikiStatusTool(m).IsWrite())
+	assert.True(t, NewWikiPageProposeTool(m).IsWrite())
 }
 
 // Tool definitions carry the expected names + input schemas.
@@ -165,6 +168,8 @@ func TestToolDefinitions(t *testing.T) {
 		"get_tags":              false,
 		"create_draft":          false,
 		"update_document":       false,
+		"wiki_status":           false,
+		"wiki_page_propose":     false,
 	}
 	// Each tool's Definition() returns a server.ToolDef whose .Name we check.
 	check := func(name string, got string) {
@@ -179,7 +184,104 @@ func TestToolDefinitions(t *testing.T) {
 	check("get_tags", NewGetTagsTool(m).Definition().Name)
 	check("create_draft", NewCreateDraftTool(m).Definition().Name)
 	check("update_document", NewUpdateDocumentTool(m).Definition().Name)
+	check("wiki_status", NewWikiStatusTool(m).Definition().Name)
+	check("wiki_page_propose", NewWikiPageProposeTool(m).Definition().Name)
 	for name, seen := range expected {
 		assert.True(t, seen, "tool %s not registered", name)
 	}
+}
+
+// wiki_status with read permission returns the Space directory + status.
+func TestWikiStatusSuccess(t *testing.T) {
+	m, ac := newTestClient(t)
+	const wikiSpace = "wiki-t-eng-0001"
+	m.AddWikiSpace(moraclient.WikiSpaceStatus{
+		WikiSpaceID: wikiSpace, WorkspaceID: twsEng, Name: "工程 Wiki", Status: "active",
+		Pages: []moraclient.WikiPageSummary{{PageKey: "api", PageKind: "managed"}},
+	})
+	tool := NewWikiStatusTool(m)
+	res, err := tool.Execute(withAuth(context.Background(), ac), map[string]any{"wiki_space_id": wikiSpace})
+	require.NoError(t, err)
+	assert.False(t, res.IsError)
+	assert.Contains(t, res.Content[0].Text, wikiSpace)
+	assert.Contains(t, res.Content[0].Text, "工程 Wiki")
+}
+
+// wiki_status without read permission returns EMPTY success (existence leak
+// prevention — a missing Space is indistinguishable from a denied one).
+func TestWikiStatusNoPermissionEmpty(t *testing.T) {
+	m, ac := newTestClient(t)
+	const wikiSpace = "wiki-t-eng-0001"
+	m.AddWikiSpace(moraclient.WikiSpaceStatus{
+		WikiSpaceID: wikiSpace, WorkspaceID: twsEng, Name: "工程 Wiki", Status: "active",
+	})
+	m.RevokeRead(tuser, twsEng)
+	tool := NewWikiStatusTool(m)
+	res, err := tool.Execute(withAuth(context.Background(), ac), map[string]any{"wiki_space_id": wikiSpace})
+	require.NoError(t, err, "no-permission must NOT be an error")
+	assert.False(t, res.IsError)
+	assert.Equal(t, "", res.Content[0].Text)
+}
+
+// wiki_status for a missing Space returns empty (no existence hint).
+func TestWikiStatusMissingEmpty(t *testing.T) {
+	m, ac := newTestClient(t)
+	tool := NewWikiStatusTool(m)
+	res, err := tool.Execute(withAuth(context.Background(), ac), map[string]any{"wiki_space_id": "no-such-space"})
+	require.NoError(t, err)
+	assert.False(t, res.IsError)
+	assert.Equal(t, "", res.Content[0].Text)
+}
+
+// wiki_status missing required param → invalid params error.
+func TestWikiStatusInvalidParams(t *testing.T) {
+	m, ac := newTestClient(t)
+	tool := NewWikiStatusTool(m)
+	_, err := tool.Execute(withAuth(context.Background(), ac), map[string]any{})
+	assert.ErrorIs(t, err, domainerr.ErrInvalidParams)
+}
+
+// wiki_page_propose with write permission lands a candidate run (never
+// publishes directly — only a run_id is returned).
+func TestWikiPageProposeSuccess(t *testing.T) {
+	m, ac := newTestClient(t)
+	const wikiSpace = "wiki-t-eng-0001"
+	m.AddWikiSpace(moraclient.WikiSpaceStatus{
+		WikiSpaceID: wikiSpace, WorkspaceID: twsEng, Name: "工程 Wiki", Status: "active",
+	})
+	tool := NewWikiPageProposeTool(m)
+	res, err := tool.Execute(withAuth(context.Background(), ac), map[string]any{
+		"wiki_space_id": wikiSpace, "page_key": "api-conventions",
+	})
+	require.NoError(t, err)
+	assert.False(t, res.IsError)
+	assert.Contains(t, res.Content[0].Text, "run_id")
+	assert.Contains(t, res.Content[0].Text, "api-conventions")
+}
+
+// wiki_page_propose with readonly scope → scope denied (write tool).
+func TestWikiPageProposeScopeDenied(t *testing.T) {
+	m, ac := newTestClient(t)
+	const wikiSpace = "wiki-t-eng-0001"
+	m.AddWikiSpace(moraclient.WikiSpaceStatus{
+		WikiSpaceID: wikiSpace, WorkspaceID: twsEng, Name: "工程 Wiki", Status: "active",
+	})
+	ac.Scope = rbac.ScopeReadOnly
+	tool := NewWikiPageProposeTool(m)
+	_, err := tool.Execute(withAuth(context.Background(), ac), map[string]any{
+		"wiki_space_id": wikiSpace, "page_key": "api",
+	})
+	assert.ErrorIs(t, err, domainerr.ErrScopeDenied)
+}
+
+// wiki_page_propose missing required params → invalid params error.
+func TestWikiPageProposeInvalidParams(t *testing.T) {
+	m, ac := newTestClient(t)
+	const wikiSpace = "wiki-t-eng-0001"
+	m.AddWikiSpace(moraclient.WikiSpaceStatus{
+		WikiSpaceID: wikiSpace, WorkspaceID: twsEng, Name: "工程 Wiki", Status: "active",
+	})
+	tool := NewWikiPageProposeTool(m)
+	_, err := tool.Execute(withAuth(context.Background(), ac), map[string]any{"wiki_space_id": wikiSpace})
+	assert.ErrorIs(t, err, domainerr.ErrInvalidParams)
 }

@@ -101,6 +101,10 @@ func main() {
 	srv.RegisterTool(tool.NewGetTagsTool(moraClient))
 	srv.RegisterTool(tool.NewCreateDraftTool(moraClient))
 	srv.RegisterTool(tool.NewUpdateDocumentTool(moraClient))
+	// Wiki maintenance tools (design doc 16 §7.3): read-only status + the
+	// propose-write that lands a candidate (never publishes directly).
+	srv.RegisterTool(tool.NewWikiStatusTool(moraClient))
+	srv.RegisterTool(tool.NewWikiPageProposeTool(moraClient))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -179,6 +183,20 @@ func buildMock() (moraclient.MoraClient, auth.TokenStore, *auth.TokenRecord) {
 		[]moraclient.VersionSummary{{VersionNo: 2, DiffSummary: "更新环境清单", AuthorID: "user-1", CreatedAt: "2026-07-25T08:00:00Z"}},
 	)
 	mock.AddTags(wsEng, []moraclient.Tag{{ID: "tag-api", Name: "api"}, {ID: "tag-guide", Name: "guide"}})
+
+	// Wiki Space seed (design doc 16 §7.3) for wiki_status / wiki_page_propose
+	// dev. user-1 has write on the eng workspace (granted below) so both tools
+	// are exercisable with the dev token.
+	mock.AddWikiSpace(moraclient.WikiSpaceStatus{
+		WikiSpaceID: "wiki-eng-0001",
+		WorkspaceID: wsEng,
+		Name:         "工程 Wiki",
+		Status:       "active",
+		Pages: []moraclient.WikiPageSummary{
+			{PageKey: "api-conventions", PageKind: "managed"},
+			{PageKey: "onboarding", PageKind: "manual"},
+		},
+	})
 
 	// ACL: user-1 has read+write on eng, read only on sales.
 	mock.GrantWrite("user-1", wsEng)

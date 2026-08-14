@@ -368,6 +368,41 @@ func (c *HTTPClient) UpdateDocument(ctx context.Context, auth *AuthContext, req 
 	}, nil
 }
 
+// WikiStatus calls GET /api/v1/wiki-spaces/{id}/status (design doc 16 §7.3).
+// Read-only: a missing or unauthorized Space maps to ErrNotExist so the
+// wiki_status tool yields an empty result (§8.2 — no existence leak).
+func (c *HTTPClient) WikiStatus(ctx context.Context, auth *AuthContext, wikiSpaceID string) (*WikiSpaceStatus, error) {
+	var st WikiSpaceStatus
+	if err := c.get(ctx, auth, "/api/v1/wiki-spaces/"+wikiSpaceID+"/status", &st); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &st, nil
+}
+
+// WikiPagePropose calls POST /api/v1/wiki-spaces/{id}/maintenance-runs with
+// trigger=ingest (design doc 16 §7.3 / §11.3). It lands a candidate proposal
+// asynchronously — never publishes directly. Write: ErrForbidden on missing
+// write perm. An idempotent retry surfaces the existing run id (200 envelope).
+func (c *HTTPClient) WikiPagePropose(ctx context.Context, auth *AuthContext, req WikiPageProposeRequest) (*WikiPageProposeResult, error) {
+	body := map[string]any{
+		"trigger":  "ingest",
+		"page_key": req.PageKey,
+	}
+	if req.AnswerRef != nil {
+		body["answer_ref"] = req.AnswerRef
+	}
+	var run WikiPageProposeResult
+	// trigger=maintenance-run returns 201 (new) or 200 (idempotent retry); both
+	// unwrap to a run object via the standard envelope.
+	if err := c.post(ctx, auth, "/api/v1/wiki-spaces/"+req.WikiSpaceID+"/maintenance-runs", body, &run); err != nil {
+		return nil, err
+	}
+	return &run, nil
+}
+
 func isNotExist(err error) bool {
 	return domainerr.Is(err, domainerr.ErrNotFound)
 }

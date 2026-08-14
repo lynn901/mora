@@ -149,6 +149,72 @@ type DraftResult struct {
 	DocumentID string `json:"document_id,omitempty"`
 }
 
+// WikiSpaceStatus is the aggregated status returned by wiki_status (design
+// doc 16 §7.3 / §7.2). It surfaces the Space's directory (pages), the most
+// recent maintenance run, and visible pending proposals — all RBAC-filtered
+// upstream so an unauthorized caller gets an empty result, not an error
+// (existence-leak prevention, §8.2).
+type WikiSpaceStatus struct {
+	WikiSpaceID   string            `json:"wiki_space_id"`
+	WorkspaceID   string            `json:"workspace_id"`
+	Name          string            `json:"name"`
+	Status        string            `json:"status"`
+	Pages         []WikiPageSummary `json:"pages"`
+	LastRun       *MaintenanceRun   `json:"last_run,omitempty"`
+	Proposals     []PageProposal    `json:"proposals"`
+}
+
+// WikiPageSummary is one page in the wiki_status directory listing.
+type WikiPageSummary struct {
+	PageKey       string `json:"page_key"`
+	PageKind      string `json:"page_kind"`
+	StaleReason   string `json:"stale_reason,omitempty"`
+	LastMaintained string `json:"last_maintained,omitempty"`
+}
+
+// MaintenanceRun is the projection of a wiki_maintenance_runs row surfaced
+// by wiki_status (design doc 16 §2.4).
+type MaintenanceRun struct {
+	ID           string         `json:"id"`
+	TriggerType  string         `json:"trigger_type"`
+	Status       string         `json:"status"`
+	InputSetHash string         `json:"input_set_hash,omitempty"`
+	StartedAt    string         `json:"started_at,omitempty"`
+	FinishedAt   string         `json:"finished_at,omitempty"`
+	ErrorCode    string         `json:"error_code,omitempty"`
+}
+
+// PageProposal is one pending/recent proposal surfaced by wiki_status (§2.4).
+// Only proposals visible to the caller are returned.
+type PageProposal struct {
+	ID          string `json:"id"`
+	PageKey     string `json:"page_key"`
+	Action      string `json:"action"`
+	Status      string `json:"status"`
+	IsBypass    bool   `json:"is_bypass"`
+	ContentHash string `json:"content_hash,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+}
+
+// WikiPageProposeRequest is the wiki_page_propose input (design doc 16 §7.3 /
+// §11.3). It triggers a maintenance run that lands a candidate proposal for
+// the named page — it never publishes directly.
+type WikiPageProposeRequest struct {
+	WikiSpaceID string         `json:"wiki_space_id"`
+	PageKey     string         `json:"page_key"`
+	AnswerRef   map[string]any `json:"answer_ref,omitempty"`
+}
+
+// WikiPageProposeResult is the wiki_page_propose response: the created (or
+// existing, on idempotent retry) maintenance run id. The actual proposal
+// lands asynchronously via the wiki_maintain job; the caller polls
+// wiki_status.
+type WikiPageProposeResult struct {
+	RunID    string `json:"run_id"`
+	Status   string `json:"status"`
+	PageKey  string `json:"page_key,omitempty"`
+}
+
 // ListDocumentsParams filters the document listing.
 type ListDocumentsParams struct {
 	WorkspaceID string
@@ -187,6 +253,14 @@ type MoraClient interface {
 	CreateDraft(ctx context.Context, auth *AuthContext, req CreateDraftRequest) (*DraftResult, error)
 	// UpdateDocument updates a document into a new draft version (write perm).
 	UpdateDocument(ctx context.Context, auth *AuthContext, req UpdateDocumentRequest) (*DraftResult, error)
+	// WikiStatus returns a Wiki Space's directory, last run, and visible
+	// proposals (design doc 16 §7.3). Read-only: no-permission/absent Space
+	// returns ErrNotExist so the tool layer yields an empty result (§8.2).
+	WikiStatus(ctx context.Context, auth *AuthContext, wikiSpaceID string) (*WikiSpaceStatus, error)
+	// WikiPagePropose triggers a maintenance run that lands a candidate
+	// proposal for a page (§7.3/§11.3). Write: returns ErrForbidden on
+	// missing write perm; never publishes directly.
+	WikiPagePropose(ctx context.Context, auth *AuthContext, req WikiPageProposeRequest) (*WikiPageProposeResult, error)
 }
 
 // ErrNotExist is returned by read methods when the resource is absent or the
