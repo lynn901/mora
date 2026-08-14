@@ -25,14 +25,13 @@ import (
 // therefore leaks the plaintext into the code column even though the sibling
 // detail column is masked.
 //
-// DEFECT (§10.2 用例 18, reported to YS-110): classifyCode does not apply
-// redact()'s credential-hint masking to the error_code column. As of commit
-// 4c5ccfe, a transient error like "fetch failed: password=hunter2 upstream"
-// persists code="transient:fetch failed: password=hunter2 upstream" — the
-// plaintext password survives. The test is marked Skip pending the fix so the
-// suite stays green; remove the Skip once YS-110 lands classifyCode masking.
+// DEFECT FIXED (§10.2 用例 18, YS-110): classifyCode now runs its message
+// through redact() before composing the code string, so a credential that
+// slips into an error message is masked in error_code just as it is in
+// error_detail_redacted. As of the YS-110 D1 fix, "fetch failed:
+// password=hunter2 upstream" persists code="transient:fetch failed: password=***
+// upstream" — the plaintext password no longer survives.
 func TestClassifyCode_NeverLeaksCredential(t *testing.T) {
-	t.Skip("DEFECT §10.2 用例 18 (reported YS-110): classifyCode does not mask credential hints in the error_code column — plaintext survives despite the redact() guard on error_detail_redacted")
 	cases := []struct {
 		name string
 		err  error
