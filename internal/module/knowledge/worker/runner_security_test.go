@@ -17,20 +17,10 @@ import (
 )
 
 // TestClassifyCode_NeverLeaksCredential asserts the error_code column
-// (classifyCode) does not carry plaintext credential values. The docstring on
-// classifyCode states "It must not leak credentials or full paths — operators
-// read this column", but the implementation only truncates the first line to
-// 120 chars — it does NOT run the credential-hint masking that redact() runs
-// for error_detail_redacted. A handler that wraps a credential into an error
-// therefore leaks the plaintext into the code column even though the sibling
-// detail column is masked.
-//
-// DEFECT FIXED (§10.2 用例 18, YS-110): classifyCode now runs its message
-// through redact() before composing the code string, so a credential that
-// slips into an error message is masked in error_code just as it is in
-// error_detail_redacted. As of the YS-110 D1 fix, "fetch failed:
-// password=hunter2 upstream" persists code="transient:fetch failed: password=***
-// upstream" — the plaintext password no longer survives.
+// (classifyCode) does not carry plaintext credential values. classifyCode now
+// runs the same maskCredentialHints sweep redact() uses for
+// error_detail_redacted, so a credential that slipped into an error message is
+// masked before it reaches the code column too (§10.2 用例 18).
 func TestClassifyCode_NeverLeaksCredential(t *testing.T) {
 	cases := []struct {
 		name string
