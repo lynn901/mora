@@ -102,7 +102,7 @@ func (h *SourceHandler) Create(c *gin.Context) {
 	}
 	src, err := h.svc.CreateSource(c.Request.Context(), srcAuth(auth), in)
 	if err != nil {
-		response.Fail(c, err)
+		response.Fail(c, mapSourceErr(err))
 		return
 	}
 	response.Created(c, src)
