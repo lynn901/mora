@@ -76,6 +76,18 @@ func (f *fakeWikiRepo) UpdateProposalStatus(context.Context, uuid.UUID, string, 
 func (f *fakeWikiRepo) ListPages(_ context.Context, _ uuid.UUID) ([]*WikiPage, error) {
 	return f.pages, nil
 }
+func (f *fakeWikiRepo) AffectedPages(_ context.Context, _ uuid.UUID, _ string) ([]AffectedPage, error) {
+	return nil, nil
+}
+func (f *fakeWikiRepo) UpdatePageStaleReason(context.Context, uuid.UUID, string, string) error {
+	return nil
+}
+func (f *fakeWikiRepo) GetRunByIdempotencyKey(_ context.Context, _ string) (*MaintenanceRun, error) {
+	return nil, ErrWikiRunNotFound
+}
+func (f *fakeWikiRepo) UpdateIndexManifest(context.Context, uuid.UUID, []byte, string) error {
+	return nil
+}
 func (f *fakeWikiRepo) ApplyProposalCAS(context.Context, pgx.Tx, uuid.UUID) (AutomationState, bool, error) {
 	return AutomationManaged, false, nil
 }

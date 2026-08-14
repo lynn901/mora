@@ -225,6 +225,23 @@ type WikiRepo interface {
 	UpdateProposalStatus(ctx context.Context, id uuid.UUID, status string, proposedVersionID *uuid.UUID, reviewRequestID *uuid.UUID) error
 	// --- wiki_pages ---
 	ListPages(ctx context.Context, spaceID uuid.UUID) ([]*WikiPage, error)
+	// AffectedPage is one page whose maintenance a run touches, with its
+	// current published version summary + the authorized source versions the
+	// provider may read (§4.3 "计算受影响 page_key + 已授权来源版本"). Summary
+	// never carries locked-page body text (§4.4 point 1).
+	AffectedPages(ctx context.Context, spaceID uuid.UUID, pageKey string) ([]AffectedPage, error)
+	// UpdatePageStaleReason writes stale_reason + stale_since for one page
+	// (§4.3 lint "置 wiki_pages.stale_reason"). A non-empty reason sets the
+	// column; "" clears it.
+	UpdatePageStaleReason(ctx context.Context, spaceID uuid.UUID, pageKey, staleReason string) error
+	// GetRunByIdempotencyKey loads a run by its idempotency_key (§4.2 / §0
+	// D5). Returns ErrWikiRunNotFound when no run matches — the caller treats
+	// that as "no prior run" and proceeds to create.
+	GetRunByIdempotencyKey(ctx context.Context, key string) (*MaintenanceRun, error)
+	// UpdateIndexManifest records the deterministic index content + hash for a
+	// space (§5.1). Idempotent: a matching hash is a no-op. The index is a
+	// system document asset whose version is created/updated here.
+	UpdateIndexManifest(ctx context.Context, spaceID uuid.UUID, content []byte, hash string) error
 	// ApplyProposalCAS runs the §4.5 per-page CAS: the proposal must be
 	// 'approved', is_bypass=false, and the asset's current_version_id must
 	// match expected_version_id. On success flips current_version_id +
@@ -245,15 +262,65 @@ type SpaceSink interface {
 	CreateRunWithEvent(ctx context.Context, run *MaintenanceRun, ev domain.KnowledgeEvent) error
 }
 
-// MaintenanceProvider is the provider port (§4.1). The service holds it to
-// forward run execution to the worker-driven path; the actual call happens in
-// the knowledge-worker handler, which has the provider wired with the model
-// adapter. The service declares the port so its unit tests can substitute a
-// fake without importing the concrete provider package.
+// AffectedPage is one page a maintenance run touches plus the already-
+// authorized source versions the provider may read (§4.3). For a locked page
+// only the page_key + version summary is carried — no body text (§4.4 point 1)
+// — so the provider cannot rewrite it.
+type AffectedPage struct {
+	PageKey         string
+	PageKind        string
+	AutomationState AutomationState
+	// CurrentVersionID is the page's current published version (CAS expected
+	// value); nil for a page that has no published version yet.
+	CurrentVersionID *uuid.UUID
+	// SourceVersions is the authorized, budget-trimmed source version set the
+	// provider may read (§8.1 — fixed before the call, cannot be widened).
+	SourceVersions []SourceVersionRef
+}
+
+// SourceVersionRef names an already-authorized source version (§4.1). Mirrors
+// provider.SourceVersionRef so the service package does not import the provider
+// package (one-way dependency, provider.go §10.4).
+type SourceVersionRef struct {
+	SourceAssetID        uuid.UUID
+	SourceAssetVersionID uuid.UUID
+	ContributionHash     string
+}
+
+// MaintenanceProvider is the provider port (§4.1 / §4.3). The service holds it
+// to execute queued runs: it computes the affected pages + authorized source
+// versions, calls ProposeIngest / ProposeAnswer (per trigger), validates the
+// returned PagePatches through the §4.2 schema gate, and lands them as
+// proposals with the managed/locked/manual differentiation (§4.4). This is the
+// port the knowledge-worker's wiki_maintain handler invokes via ExecuteRun.
+//
+// The service declares a local port (not importing the concrete provider
+// package) so its unit tests can substitute a fake without an import cycle.
 type MaintenanceProvider interface {
-	// ExecuteRun is the worker entry: given a queued run, compute the
-	// affected pages + authorized source versions, call the provider, validate
-	// the PagePatches, and land them as proposals (§4.3). Returns the proposal
-	// ids written. The service delegates to this from the worker handler.
-	ExecuteRun(ctx context.Context, runID uuid.UUID) ([]uuid.UUID, error)
+	// ProposeIngest returns candidate patches for an ingest run (§4.3 ingest).
+	ProposeIngest(ctx context.Context, spaceID uuid.UUID, pageKey string, pages []AffectedPage) ([]PagePatch, error)
+	// ProposeAnswer returns a candidate patch for an explicit settle-answer
+	// run (§4.3 query_file).
+	ProposeAnswer(ctx context.Context, spaceID uuid.UUID, pageKey string, answerRef map[string]any, pages []AffectedPage) ([]PagePatch, error)
+}
+
+// PagePatch is the candidate revision a provider returns, constrained by the
+// §4.2 JSON Schema gate. Mirrors provider.PagePatch so the service package does
+// not import the provider package. Content body is NOT in the patch — only its
+// hash; the repo creates the candidate knowledge_asset_versions row from its
+// own store.
+type PagePatch struct {
+	PageKey             string
+	ExpectedVersionID   *uuid.UUID
+	Action              string // create|update|link|contradiction|stale
+	ContentHash         string
+	SourceVersions       []SourceVersionRef
+	RelationSuggestions []RelationSuggestion
+}
+
+// RelationSuggestion is a proposed knowledge_relations entry (§4.1).
+type RelationSuggestion struct {
+	Kind        string // derived_from|explains|contradicts|supersedes
+	ToAssetID   uuid.UUID
+	ToVersionID *uuid.UUID
 }

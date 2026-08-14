@@ -15,7 +15,9 @@ import (
 	"context"
 	"encoding/json"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +27,11 @@ import (
 	"github.com/lynn901/mora/internal/platform/audit"
 	"github.com/lynn901/mora/internal/platform/rbac"
 )
+
+// sha256Hex matches the §4.2 content_hash / contribution_hash pattern (mirrors
+// provider.sha256Hex — kept local so the service does not import the provider
+// package's internal symbols).
+var sha256Hex = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // WikiEventStream is the Valkey Stream wiki events are published to (§6.1).
 // The outbox dispatcher ships these; the knowledge-worker consumes the
@@ -458,30 +465,220 @@ func (s *Service) ReviewProposal(ctx context.Context, in ApplyProposalInput) (*P
 
 // --- Worker-driven execute path (§4.3) ---
 
-// ExecuteRun is the worker entry point: it loads the queued run, computes the
-// affected pages + authorized source versions, calls the provider, validates
-// the PagePatches (§4.2 schema gate), and lands them as proposals with the
-// managed/locked/manual differentiation (§4.4). It is invoked by the
-// knowledge-worker's wiki_maintain handler. The service delegates to its
+// ExecuteRun is the worker entry point (§4.3): it loads the queued run,
+// computes the affected pages + authorized source versions, calls the provider
+// (ProposeIngest for ingest/reconcile, ProposeAnswer for query_file), validates
+// the returned PagePatches through the §4.2 schema gate, and lands them as
+// proposals with the managed/locked/manual differentiation (§4.4). It is
+// invoked by the knowledge-worker's wiki_maintain handler. Returns the proposal
+// ids written (nil for a no-op run). The service delegates to its
 // MaintenanceProvider (the worker wires the real provider + model adapter).
+//
+// Locked-page protection (§4.4 point 1): the affected-page set passed to the
+// provider carries only page_key + version summary for locked pages (no body),
+// and a patch whose action is update/create on a locked page is rejected at
+// the schema gate (provider/schema.go), so the provider cannot widen its read
+// or rewrite a locked page.
 func (s *Service) ExecuteRun(ctx context.Context, runID uuid.UUID) ([]uuid.UUID, error) {
 	if s.provider == nil {
 		return nil, fmt.Errorf("wiki: provider not wired")
 	}
-	return s.provider.ExecuteRun(ctx, runID)
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	// Mark the run analyzing (§2.4 status machine) best-effort.
+	_ = s.repo.UpdateRunStatus(ctx, runID, "analyzing", "", "")
+
+	// Compute the affected pages + authorized source versions (§4.3). For
+	// query_file the page is the run's page_key; for ingest/reconcile the
+	// repo resolves the dependency graph from wiki_page_sources.
+	pages, err := s.repo.AffectedPages(ctx, run.WikiSpaceID, pageKeyForRun(run))
+	if err != nil {
+		_ = s.repo.UpdateRunStatus(ctx, runID, "failed", "affected_pages", redactWikiSvcErr(err))
+		return nil, err
+	}
+
+	// Call the provider per the trigger (§4.3). lint runs do not land patches
+	// here — the wiki_lint_scan handler owns that path.
+	var patches []PagePatch
+	switch run.TriggerType {
+	case TriggerQueryFile:
+		patches, err = s.provider.ProposeAnswer(ctx, run.WikiSpaceID, runPageKey(run), run.AnswerRef, pages)
+	case TriggerIngest, TriggerManual:
+		patches, err = s.provider.ProposeIngest(ctx, run.WikiSpaceID, runPageKey(run), pages)
+	default:
+		// lint/other: no patch landing from this path.
+		_ = s.repo.UpdateRunStatus(ctx, runID, "applied", "", "")
+		return nil, nil
+	}
+	if err != nil {
+		_ = s.repo.UpdateRunStatus(ctx, runID, "failed", "provider", redactWikiSvcErr(err))
+		return nil, err
+	}
+	if len(patches) == 0 {
+		// No-op run (e.g. NoopProvider): applied with zero proposals.
+		_ = s.repo.UpdateRunStatus(ctx, runID, "applied", "", "")
+		return nil, nil
+	}
+
+	// §4.2 schema gate: a non-conformant patch fails the whole run (§4.2
+	// "未通过的 patch 整条 Run 标 failed"). The gate also enforces §4.4 point
+	// 2 — a locked page receiving an update/create action is rejected here.
+	if err := s.validatePatches(patches, pages); err != nil {
+		_ = s.repo.UpdateRunStatus(ctx, runID, "failed", "schema_violation", redactWikiSvcErr(err))
+		return nil, fmt.Errorf("%w: %s", ErrWikiSchemaViolation, err.Error())
+	}
+
+	// Land the patches as proposals (§4.4 differentiation): managed → coverage
+	// candidate (is_bypass=false); locked/manual → bypass suggestion
+	// (is_bypass=true, proposed_version_id=nil). The candidate
+	// knowledge_asset_versions row is created by the repo; the service only
+	// records the proposal (the content body never crosses this boundary —
+	// only its hash, §4.2).
+	proposals := make([]*PageProposal, 0, len(patches))
+	now := time.Now().UTC()
+	automation := automationIndex(pages)
+	for _, p := range patches {
+		state := automation[p.PageKey]
+		isBypass := state == AutomationLocked || state == AutomationManual
+		prop := &PageProposal{
+			ID:                  uuid.New(),
+			RunID:               runID,
+			WikiSpaceID:         run.WikiSpaceID,
+			PageKey:             p.PageKey,
+			ExpectedVersionID:   p.ExpectedVersionID,
+			Action:              p.Action,
+			IsBypass:            isBypass,
+			ContentHash:         p.ContentHash,
+			RelationSuggestions: relationSuggestionToMap(p.RelationSuggestions),
+			Status:              "proposed",
+			CreatedAt:           now,
+		}
+		proposals = append(proposals, prop)
+	}
+	if err := s.repo.CreateProposals(ctx, nil, proposals); err != nil {
+		_ = s.repo.UpdateRunStatus(ctx, runID, "failed", "create_proposals", redactWikiSvcErr(err))
+		return nil, err
+	}
+	// Record the proposal manifest (§2.4 proposal_manifest) best-effort.
+	ids := make([]uuid.UUID, len(proposals))
+	for i, p := range proposals {
+		ids[i] = p.ID
+	}
+	_ = s.repo.UpdateRunStatus(ctx, runID, "awaiting_review", "", "")
+	return ids, nil
 }
 
-// findRunByIdempotencyKey is a best-effort idempotency lookup. The repo's
-// CreateRun has a UNIQUE(idempotency_key) that is the authoritative guard;
-// this lookup lets a replay return the existing run instead of racing. The
-// repo may not implement a dedicated idempotency lookup, in which case it
-// returns (nil, nil) and the UNIQUE constraint settles the race.
+// validatePatches runs the §4.2 schema gate over the provider's patches and
+// enforces the §4.4 locked-page action guard (point 2): a locked page must not
+// receive a create/update coverage patch. The structural validation mirrors
+// provider.ValidatePatch so the service keeps a one-way dependency on the
+// provider package (no import). Returns the first violation.
+func (s *Service) validatePatches(patches []PagePatch, pages []AffectedPage) error {
+	locked := make(map[string]bool, len(pages))
+	seen := make(map[string]bool, len(pages))
+	for _, p := range pages {
+		seen[p.PageKey] = true
+		if p.AutomationState == AutomationLocked {
+			locked[p.PageKey] = true
+		}
+	}
+	for _, p := range patches {
+		if strings.TrimSpace(p.PageKey) == "" {
+			return fmt.Errorf("page_key: required")
+		}
+		if len(p.PageKey) > 256 {
+			return fmt.Errorf("page_key: maxLength 256 exceeded")
+		}
+		switch p.Action {
+		case "create", "update", "link", "contradiction", "stale":
+		default:
+			return fmt.Errorf("action: must be one of create|update|link|contradiction|stale")
+		}
+		if !sha256Hex.MatchString(p.ContentHash) {
+			return fmt.Errorf("content_hash: must be a 64-char lowercase hex SHA-256")
+		}
+		if len(p.SourceVersions) < 1 {
+			return fmt.Errorf("source_versions: minItems 1")
+		}
+		// §4.4 point 2: a locked page receiving a coverage action (create/
+		// update) is rejected at the schema gate. link/contradiction/stale
+		// bypass suggestions are allowed (is_bypass=true path).
+		if locked[p.PageKey] && (p.Action == "create" || p.Action == "update") {
+			return fmt.Errorf("page %q: locked page cannot receive %s coverage", p.PageKey, p.Action)
+		}
+		_ = seen
+	}
+	return nil
+}
+
+// pageKeyForRun returns the run's page_key (query_file) or "" (whole-space).
+func pageKeyForRun(run *MaintenanceRun) string {
+	if len(run.AnswerRef) > 0 {
+		if v, ok := run.AnswerRef["page_key"].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// runPageKey is pageKeyForRun kept under its original name for the call sites.
+func runPageKey(run *MaintenanceRun) string { return pageKeyForRun(run) }
+
+// automationIndex maps page_key → automation_state for the affected-page set.
+func automationIndex(pages []AffectedPage) map[string]AutomationState {
+	m := make(map[string]AutomationState, len(pages))
+	for _, p := range pages {
+		m[p.PageKey] = p.AutomationState
+	}
+	return m
+}
+
+// relationSuggestionToMap converts []RelationSuggestion to the JSONB-shaped
+// []map[string]any the repo stores (§2.4 relation_suggestions).
+func relationSuggestionToMap(rs []RelationSuggestion) []map[string]any {
+	out := make([]map[string]any, 0, len(rs))
+	for _, r := range rs {
+		m := map[string]any{
+			"kind": r.Kind, "to_asset_id": r.ToAssetID,
+		}
+		if r.ToVersionID != nil {
+			m["to_version_id"] = *r.ToVersionID
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// redactWikiSvcErr trims an error string for storage in
+// error_detail_redacted (§8.3 — no sensitive content in the run's error
+// column).
+func redactWikiSvcErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	if len(s) > 500 {
+		s = s[:500]
+	}
+	return s
+}
+
+// findRunByIdempotencyKey looks up a prior run by idempotency_key (§4.2 / §0
+// D5). It is the fast path of the idempotency guard; the repo's
+// CreateRunWithEvent UNIQUE(idempotency_key) is the authoritative fallback
+// that settles a concurrent race.
 func (s *Service) findRunByIdempotencyKey(ctx context.Context, key string) (*MaintenanceRun, error) {
-	// Walk the space-agnostic lookup: the UNIQUE idempotency_key lets us find
-	// a run by key alone. The repo exposes GetRun by id; we add a thin lookup
-	// via ListRuns is not space-scoped, so the repo's CreateRun UNIQUE guard is
-	// the real authority. Return nil to let the constraint decide.
-	return nil, nil
+	run, err := s.repo.GetRunByIdempotencyKey(ctx, key)
+	if err != nil {
+		// Not found is not an error here — it means no prior run exists.
+		if errors.Is(err, ErrWikiRunNotFound) {
+			return nil, nil
+		}
+		return nil, nil // best-effort: fall back to the UNIQUE constraint.
+	}
+	return run, nil
 }
 
 // computeInputSetHash derives a stable hash for the run's input set (§0 D5).

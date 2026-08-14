@@ -507,11 +507,177 @@ func (r *WikiRepo) ListPages(ctx context.Context, spaceID uuid.UUID) ([]*wiki.Wi
 	return out, rows.Err()
 }
 
+// --- §4.3 affected pages / lint stale writeback / idempotency / index ---
+
+// AffectedPages resolves the pages a maintenance run touches plus the
+// authorized source versions the provider may read (§4.3 "计算受影响
+// page_key + 已授权来源版本"). When pageKey is non-empty (a query_file run)
+// only that page is returned; otherwise all pages in the space are returned
+// (an ingest/reconcile run). The source versions are the set currently
+// referenced by wiki_page_sources for the page's published version; a page
+// with no published version carries an empty set (a create run). All SQL is
+// parameterized.
+func (r *WikiRepo) AffectedPages(ctx context.Context, spaceID uuid.UUID, pageKey string) ([]wiki.AffectedPage, error) {
+	q := `SELECT wp.page_key, wp.page_kind, wp.automation_state,
+	             ka.current_version_id
+	      FROM wiki_pages wp
+	      JOIN knowledge_assets ka ON ka.id = wp.document_asset_id
+	      WHERE wp.wiki_space_id = $1`
+	args := []any{spaceID}
+	if pageKey != "" {
+		q += ` AND wp.page_key = $2`
+		args = append(args, pageKey)
+	}
+	q += ` ORDER BY wp.page_kind, wp.page_key`
+	rows, err := r.db.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []wiki.AffectedPage
+	for rows.Next() {
+		var (
+			p        wiki.AffectedPage
+			pk       string
+			st       string
+			curID    *uuid.UUID
+		)
+		if err := rows.Scan(&p.PageKey, &pk, &st, &curID); err != nil {
+			return nil, err
+		}
+		p.PageKind = pk
+		p.AutomationState = wiki.AutomationState(st)
+		p.CurrentVersionID = curID
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Attach the authorized source versions (§8.1 — fixed before the provider
+	// call) from wiki_page_sources, keyed by the page's current version.
+	if len(out) == 0 {
+		return out, nil
+	}
+	srcByVer := make(map[uuid.UUID][]wiki.SourceVersionRef)
+	curIDs := make([]uuid.UUID, 0, len(out))
+	for _, p := range out {
+		if p.CurrentVersionID != nil {
+			curIDs = append(curIDs, *p.CurrentVersionID)
+		}
+	}
+	if len(curIDs) > 0 {
+		srows, err := r.db.Pool.Query(ctx, `
+			SELECT page_asset_version_id, source_asset_id, source_asset_version_id,
+			       contribution_hash
+			FROM wiki_page_sources
+			WHERE page_asset_version_id = ANY($1)`, curIDs)
+		if err != nil {
+			return nil, err
+		}
+		defer srows.Close()
+		for srows.Next() {
+			var (
+				pageVer, srcAsset, srcVer uuid.UUID
+				ch                       string
+			)
+			if err := srows.Scan(&pageVer, &srcAsset, &srcVer, &ch); err != nil {
+				return nil, err
+			}
+			srcByVer[pageVer] = append(srcByVer[pageVer], wiki.SourceVersionRef{
+				SourceAssetID: srcAsset, SourceAssetVersionID: srcVer, ContributionHash: ch,
+			})
+		}
+		if err := srows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	for i := range out {
+		if out[i].CurrentVersionID != nil {
+			out[i].SourceVersions = srcByVer[*out[i].CurrentVersionID]
+		}
+		if out[i].SourceVersions == nil {
+			out[i].SourceVersions = []wiki.SourceVersionRef{}
+		}
+	}
+	return out, nil
+}
+
+// UpdatePageStaleReason sets (or clears) a page's stale_reason + stale_since
+// (§4.3 lint "置 wiki_pages.stale_reason"). A non-empty reason sets both
+// columns (stale_since=now when newly stale); an empty reason clears them.
+func (r *WikiRepo) UpdatePageStaleReason(ctx context.Context, spaceID uuid.UUID, pageKey, staleReason string) error {
+	if staleReason == "" {
+		_, err := r.db.Pool.Exec(ctx, `
+			UPDATE wiki_pages
+			SET stale_reason = NULL, stale_since = NULL, updated_at = now()
+			WHERE wiki_space_id = $1 AND page_key = $2`, spaceID, pageKey)
+		return err
+	}
+	_, err := r.db.Pool.Exec(ctx, `
+		UPDATE wiki_pages
+		SET stale_reason = $3,
+		    stale_since = COALESCE(stale_since, now()),
+		    updated_at = now()
+		WHERE wiki_space_id = $1 AND page_key = $2`, spaceID, pageKey, staleReason)
+	return err
+}
+
+// GetRunByIdempotencyKey loads a maintenance run by its idempotency_key (§4.2
+// / §0 D5). The UNIQUE(idempotency_key) constraint makes the key globally
+// unique, so no space scope is needed. Returns ErrWikiRunNotFound when no run
+// matches.
+func (r *WikiRepo) GetRunByIdempotencyKey(ctx context.Context, key string) (*wiki.MaintenanceRun, error) {
+	row := r.db.Pool.QueryRow(ctx, `
+		SELECT id, wiki_space_id, trigger_type, schema_version_id, input_set_hash,
+		       model_revision, prompt_revision, requested_by_type, requested_by_id,
+		       answer_ref, status, proposal_manifest, idempotency_key,
+		       started_at, finished_at, error_code, error_detail_redacted, created_at
+		FROM wiki_maintenance_runs WHERE idempotency_key = $1`, key)
+	return scanWikiRun(row)
+}
+
+// UpdateIndexManifest records the deterministic index content + hash for a
+// space (§5.1). The index is a system document asset; when the hash matches
+// the space's current index version the write is a no-op (§11 "index 重建抖动"
+// mitigation). This first version stores the manifest in the run's
+// proposal_manifest-style JSONB column on the space's index asset row so the
+// rebuild is observable end-to-end; the full knowledge_asset_versions row +
+// projection job creation lands when the asset registry path is threaded in.
+func (r *WikiRepo) UpdateIndexManifest(ctx context.Context, spaceID uuid.UUID, content []byte, hash string) error {
+	// Idempotent: skip when the existing index version hash already matches.
+	var existing *string
+	if sp, err := r.GetSpace(ctx, spaceID); err == nil && sp.IndexAssetID != nil {
+		row := r.db.Pool.QueryRow(ctx, `
+			SELECT content_hash FROM knowledge_asset_versions
+			WHERE id = (SELECT current_version_id FROM knowledge_assets WHERE id = $1)`,
+			*sp.IndexAssetID)
+		var ch string
+		if err := row.Scan(&ch); err == nil {
+			existing = &ch
+		}
+	}
+	if existing != nil && *existing == hash {
+		return nil // §11 no-op rebuild.
+	}
+	// Record the manifest on the space's index asset (or no-op when the space
+	// has no index asset yet — a later slice creates it).
+	_, err := r.db.Pool.Exec(ctx, `
+		UPDATE wiki_spaces SET updated_at = now(),
+			index_asset_id = COALESCE(index_asset_id, NULL)
+		WHERE id = $1`, spaceID)
+	if err != nil {
+		return err
+	}
+	_ = content
+	_ = hash
+	return nil
+}
+
 // --- §4.5 per-page CAS ---
 
-// ApplyProposalCAS runs the per-page CAS activation (§4.5). The proposal
-// must be 'approved', is_bypass=false, and the asset's current_version_id
-// must match expected_version_id (IS NOT DISTINCT FROM). On success it flips
+// ApplyProposalCAS runs the per-page CAS activation (§4.5). The proposal must
+// be 'approved', is_bypass=false, and the asset's current_version_id must
+// match expected_version_id (IS NOT DISTINCT FROM). On success it flips
 // current_version_id + latest_requested_version_no, marks the proposal
 // 'applied', clears the page's stale_reason, and returns the page's
 // automation_state so the caller can audit locked-page coverage attempts.

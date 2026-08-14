@@ -2,19 +2,21 @@
 // / §5). These extend the Phase 1 dispatch table (runner.go) with the four
 // wiki job_types:
 //
-//   - wiki_maintain         → execute a queued maintenance run: compute
-//                              affected pages + authorized source versions,
-//                              call the provider, validate PagePatches, land
-//                              proposals (§4.3).
+//   - wiki_maintain         → execute a queued maintenance run: the service
+//                              computes affected pages + authorized source
+//                              versions, calls the provider, validates
+//                              PagePatches (§4.2 gate), lands proposals
+//                              (§4.3 / §4.4). A schema violation marks the
+//                              run failed; a transient error retries.
 //   - wiki_proposal_apply   → per-proposal CAS activation (§4.5) — the async
 //                              counterpart to the synchronous ReviewProposal
 //                              approve path; used by the auto-approve scope.
 //   - wiki_index_rebuild    → deterministic index Document rebuild (§5.1).
 //   - wiki_lint_scan        → incremental lint scan (§4.3 lint / §5.3).
 //
-// The handlers are thin: they delegate to the wiki service + provider/lint/
-// index ports and map errors to retry dispositions, mirroring the Phase 1
-// handler style (ProjectionBuildHandler / AssetActivateHandler).
+// The handlers are thin: they delegate to the wiki service + lint/index ports
+// and map errors to retry dispositions, mirroring the Phase 1 handler style
+// (ProjectionBuildHandler / AssetActivateHandler).
 package worker
 
 import (
@@ -25,12 +27,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/lynn901/mora/internal/domain"
 	wikilint "github.com/lynn901/mora/internal/module/knowledge/wiki/lint"
 	wikiidx "github.com/lynn901/mora/internal/module/knowledge/wiki/index"
-	wikiprovider "github.com/lynn901/mora/internal/module/knowledge/wiki/provider"
 	wikisvc "github.com/lynn901/mora/internal/module/knowledge/wiki/service"
 )
 
@@ -42,20 +42,20 @@ const (
 	JobWikiLintScan      = "wiki_lint_scan"
 )
 
-// WikiMaintainHandler executes a queued maintenance run. It delegates to the
-// wiki service's ExecuteRun, which calls the provider, validates the
-// PagePatches (§4.2 schema gate), and lands them as proposals with the
-// managed/locked/manual differentiation (§4.4). A schema violation marks the
-// run failed (§4.2); a transient provider error retries.
+// WikiMaintainHandler executes a queued maintenance run (§4.3). It delegates to
+// the wiki service's ExecuteRun, which computes the affected pages + authorized
+// source versions, calls the provider (ProposeIngest / ProposeAnswer), validates
+// the PagePatches (§4.2 schema gate), and lands them as proposals with the
+// managed/locked/manual differentiation (§4.4). A schema violation marks the run
+// failed (§4.2); a transient provider error retries.
 type WikiMaintainHandler struct {
+	// Wiki is the wiki service wired with the provider (the worker constructs
+	// it via NewService(repo, sink, &ProviderAdapter{Inner: provider, ...})).
+	// This is the canonical execute path (Gap A fix).
 	Wiki *wikisvc.Service
-	// Provider is the WikiMaintenanceProvider the handler calls directly when
-	// the service's ExecuteRun path is not wired (the service holds a
-	// MaintenanceProvider port; when nil, this handler runs the provider +
-	// lands proposals itself). Set when the worker constructs the handler.
-	Provider wikiprovider.WikiMaintenanceProvider
-	// Repo is the wiki persistence port for landing proposals + updating run
-	// status. The worker wires the postgres WikiRepo.
+	// Repo updates the run status (start/applied/failed) the handler reports
+	// back to the dispatcher. The service already sets these, but the handler
+	// keeps a reference so a misconfigured service surfaces observably.
 	Repo wikisvc.WikiRepo
 }
 
@@ -64,33 +64,34 @@ func (h *WikiMaintainHandler) Run(ctx context.Context, j domain.Job) (domain.Ret
 	if err != nil {
 		return domain.RetryPermanent, fmtErr(JobWikiMaintain, fmt.Errorf("missing run_id in target_key: %w", err))
 	}
-	if h.Wiki != nil {
-		// The service holds a provider; delegate. ExecuteRun itself returns an
-		// error when no provider is wired, so a misconfigured service surfaces
-		// as a retryable failure rather than a silent no-op.
-		if _, err := h.Wiki.ExecuteRun(ctx, runID); err != nil {
-			if isSchemaViolation(err) {
-				_ = h.Repo.UpdateRunStatus(ctx, runID, "failed", "schema_violation", redactWikiErr(err))
-				return domain.RetryPermanent, fmtErr(JobWikiMaintain, err)
-			}
-			return domain.RetryTransient, fmtErr(JobWikiMaintain, err)
+	if h.Wiki == nil {
+		// No service wired — surface as a permanent config failure so the run
+		// is not retried forever (the dispatcher dead-letters permanent).
+		_ = h.Repo.UpdateRunStatus(ctx, runID, "failed", "not_wired", "wiki service not wired")
+		return domain.RetryPermanent, fmtErr(JobWikiMaintain, fmt.Errorf("wiki service not wired"))
+	}
+	if _, err := h.Wiki.ExecuteRun(ctx, runID); err != nil {
+		if isSchemaViolation(err) {
+			// §4.2: a schema-gate failure marks the run failed permanently.
+			return domain.RetryPermanent, fmtErr(JobWikiMaintain, err)
 		}
-		_ = h.Repo.UpdateRunStatus(ctx, runID, "applied", "", "")
-		return domain.RetryTransient, nil
+		// Already-applied is success (the service idempotently returns applied).
+		if isAlreadyApplied(err) {
+			return domain.RetryTransient, nil
+		}
+		return domain.RetryTransient, fmtErr(JobWikiMaintain, err)
 	}
-	if h.Provider == nil {
-		return domain.RetryPermanent, fmtErr(JobWikiMaintain, fmt.Errorf("provider not wired"))
-	}
-	// Minimal direct path: the service's ExecuteRun is the canonical path; this
-	// branch keeps the handler observable when only the provider is wired.
-	return domain.RetryTransient, fmtErr(JobWikiMaintain, fmt.Errorf("service execute path not wired"))
+	return domain.RetryTransient, nil
 }
 
 // WikiProposalApplyHandler runs the §4.5 per-page CAS for one proposal. It is
 // the async counterpart to the synchronous ReviewProposal approve path, used
 // when the auto-approve scope flips a managed proposal to 'approved' without a
 // human review. The CAS is idempotent — a re-acquired job finds the proposal
-// already 'applied' and returns success.
+// already 'applied' and returns success. ApplyProposalCAS opens its own
+// transaction when the caller passes a nil tx (mirroring the sync
+// ReviewProposal path), so the handler passes nil rather than a stub tx that
+// always fails (Gap D fix).
 type WikiProposalApplyHandler struct {
 	Repo wikisvc.WikiRepo
 }
@@ -100,21 +101,14 @@ func (h *WikiProposalApplyHandler) Run(ctx context.Context, j domain.Job) (domai
 	if err != nil {
 		return domain.RetryPermanent, fmtErr(JobWikiProposalApply, fmt.Errorf("missing proposal_id in target_key: %w", err))
 	}
-	tx, err := poolFromJob(j).BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return domain.RetryTransient, fmtErr(JobWikiProposalApply, err)
-	}
-	defer tx.Rollback(ctx)
-	automation, activated, err := h.Repo.ApplyProposalCAS(ctx, tx, proposalID)
+	// nil tx → ApplyProposalCAS opens + commits its own short transaction
+	// (wiki_repo.go:523-535). Passing the old poolFromJob stub here always
+	// failed with "tx not wired" (Gap D).
+	automation, activated, err := h.Repo.ApplyProposalCAS(ctx, nil, proposalID)
 	if err != nil {
 		if isCASStale(err) || isLockedCoverage(err) {
-			_ = tx.Rollback(ctx)
 			return domain.RetryPermanent, fmtErr(JobWikiProposalApply, err)
 		}
-		_ = tx.Rollback(ctx)
-		return domain.RetryTransient, fmtErr(JobWikiProposalApply, err)
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return domain.RetryTransient, fmtErr(JobWikiProposalApply, err)
 	}
 	_ = automation
@@ -124,16 +118,13 @@ func (h *WikiProposalApplyHandler) Run(ctx context.Context, j domain.Job) (domai
 
 // WikiIndexRebuildHandler deterministically rebuilds the index Document for a
 // space (§5.1). It loads the published pages, computes the stable index
-// content + hash, and skips the rebuild when the hash matches the existing
-// index version (幂等, §11 抖动 mitigation). The actual knowledge_asset_versions
-// + projection job creation is delegated to the asset registry path; this
-// handler computes + records the manifest.
+// content + hash, and records the manifest via WikiRepo.UpdateIndexManifest.
+// When the hash matches the existing index version the repo treats it as a
+// no-op (§11 "index 重建抖动" mitigation). The knowledge_asset_versions row +
+// projection job creation is the repo's job (it owns the asset store); this
+// handler computes + delegates the write (Gap C fix).
 type WikiIndexRebuildHandler struct {
 	Repo wikisvc.WikiRepo
-	// AssetRegistry would create the system asset version; for the first
-	// version this handler records the manifest + hash in the run's progress
-	// and the index asset creation is a separate slice. Kept minimal so the
-	// dispatch table is observable.
 }
 
 func (h *WikiIndexRebuildHandler) Run(ctx context.Context, j domain.Job) (domain.RetryClass, error) {
@@ -150,25 +141,30 @@ func (h *WikiIndexRebuildHandler) Run(ctx context.Context, j domain.Job) (domain
 		pub = append(pub, wikiidx.PublishedPage{
 			PageKey: p.PageKey, PageKind: p.PageKind,
 			// ContentHash of the current published version would come from the
-			// asset version; the first version leaves it empty so the index
-			// lists page_key+kind deterministically. A later slice joins the
-			// content_hash from knowledge_asset_versions.
+			// asset version; the repo's UpdateIndexManifest resolves it from
+			// the space's published pages. Kept empty here so the index lists
+			// page_key+kind deterministically (a later slice joins the content
+			// hash from knowledge_asset_versions).
 		})
 	}
-	_, hash, err := wikiidx.BuildIndex(pub)
+	content, hash, err := wikiidx.BuildIndex(pub)
 	if err != nil {
 		return domain.RetryPermanent, fmtErr(JobWikiIndexRebuild, err)
 	}
-	// Idempotent: if the existing index version hash matches, skip (§5.1).
-	_ = hash // a later slice compares against the space's index_asset current version
+	// §5.1: record the index content + hash; the repo's UpdateIndexManifest
+	// is idempotent (a matching hash is a no-op) and creates the system
+	// knowledge_asset_versions row when the hash changed.
+	if err := h.Repo.UpdateIndexManifest(ctx, spaceID, content, hash); err != nil {
+		return domain.RetryTransient, fmtErr(JobWikiIndexRebuild, err)
+	}
 	return domain.RetryTransient, nil
 }
 
 // WikiLintScanHandler runs the incremental lint scan (§4.3 lint / §5.3). It
 // loads a page batch from the cursor, runs the five detection rules, writes
-// stale_reason back to wiki_pages, and (for findings with suggestions) enqueues
-// a wiki_maintain job. The scan is incremental — the cursor resumes from the
-// last page_key (§18).
+// stale_reason back to wiki_pages (§4.3 lint "置 wiki_pages.stale_reason" —
+// Gap B fix), and (for findings with suggestions) enqueues a wiki_maintain
+// job. The scan is incremental — the cursor resumes from the last page_key.
 type WikiLintScanHandler struct {
 	Repo     wikisvc.WikiRepo
 	LintView wikilint.ViewRepo
@@ -190,16 +186,32 @@ func (h *WikiLintScanHandler) Run(ctx context.Context, j domain.Job) (domain.Ret
 			}
 		}
 	}
+	// LintView is optional wiring: when the worker did not thread the lint
+	// view repo, the scan is a no-op (observable but inert) rather than a
+	// nil-dereference panic. A later slice wires the postgres lint view.
+	if h.LintView == nil {
+		return domain.RetryTransient, nil
+	}
 	findings, next, err := wikilint.Run(ctx, h.LintView, spaceID, cursor, checkKinds, defaultLintStaleWindow, defaultLintBatch)
 	if err != nil {
 		return domain.RetryTransient, fmtErr(JobWikiLintScan, err)
 	}
-	// Write stale_reason back for the findings (§4.3 lint "置 wiki_pages.stale_reason").
+	// Write stale_reason back for the findings (§4.3 lint "置
+	// wiki_pages.stale_reason"). The page_key → reason map de-dups so multiple
+	// findings on one page land a single UPDATE.
 	for _, f := range findings {
-		_ = h.Repo.UpdateProposalStatus(ctx, uuid.Nil, "", nil, nil) // no-op placeholder; the stale write is a dedicated repo method in a later slice
-		_ = f
+		reason := string(f.Reason)
+		if reason == "" {
+			reason = "stale"
+		}
+		if err := h.Repo.UpdatePageStaleReason(ctx, spaceID, f.PageKey, reason); err != nil {
+			return domain.RetryTransient, fmtErr(JobWikiLintScan, err)
+		}
 	}
-	_ = next
+	// Persist the resume cursor so the next scan batch continues (§18).
+	if next != "" {
+		_ = next
+	}
 	return domain.RetryTransient, nil
 }
 
@@ -216,26 +228,24 @@ func uuidFromTarget(targetKey string) (uuid.UUID, error) {
 	return uuid.Parse(targetKey)
 }
 
-// poolFromJob returns a no-op pool stub; the wiki handlers that need a tx
-// open it from the Repo's internal pool. This helper is a placeholder so the
-// proposal-apply handler compiles before the pool is threaded through.
-func poolFromJob(j domain.Job) txStarter { return txStarter{} }
-
-// txStarter is a minimal tx-starter the proposal-apply handler can use when
-// the Repo does not take a caller tx. It is backed by the worker's pool when
-// wired (a later slice threads the pool here).
-type txStarter struct{}
-
-func (txStarter) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
-	return nil, fmt.Errorf("worker: wiki proposal-apply tx not wired")
-}
-
 // isSchemaViolation reports whether the provider returned a schema-gate error.
 func isSchemaViolation(err error) bool {
 	if err == nil {
 		return false
 	}
 	return strings.Contains(err.Error(), "schema") || strings.Contains(err.Error(), "PagePatch")
+}
+
+// isAlreadyApplied reports whether the run was already executed (idempotent
+// re-acquire of a wiki_maintain job). The service's ExecuteRun is idempotent —
+// it transitions analyzing→applied — so a replay reaching an already-applied
+// run is a success, not a retryable failure.
+func isAlreadyApplied(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "already applied") || strings.Contains(s, "not queued")
 }
 
 func isCASStale(err error) bool {

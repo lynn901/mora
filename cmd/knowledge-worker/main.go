@@ -105,17 +105,19 @@ func main() {
 	assets := postgres.NewAssetRegistry()
 
 	// Wiki maintenance ports (16 §3.3 / §4.3). The worker owns the provider
-	// call path: it constructs the wiki service with the provider port, the
-	// postgres WikiRepo, and the transactional WikiSpaceSink. The wiki_events
-	// stream consumer (16 §6.1) maps wiki.ingest/query_file/lint events to
-	// wiki_maintain jobs. RBAC trimming of the source-version set the provider
-	// reads happens in the execute path, not at the worker process level — the
-	// worker runs with the workspace's authz revision resolved per-run.
+	// call path: it constructs the wiki service with the provider adapter
+	// (which bridges provider.WikiMaintenanceProvider → the service's local
+	// MaintenanceProvider port), the postgres WikiRepo, and the transactional
+	// WikiSpaceSink. The wiki_events stream consumer (16 §6.1) maps
+	// wiki.ingest/query_file/lint events to wiki_maintain jobs. RBAC trimming
+	// of the source-version set the provider reads happens in the execute path,
+	// not at the worker process level — the worker runs with the workspace's
+	// authz revision resolved per-run.
 	wikiRepo := postgres.NewWikiRepo(postgres.NewDB(pool))
 	wikiSink := postgres.NewWikiSpaceSink(pool, outbox.NewStore())
 	wikiProvider := wikiprovider.NewNoopProvider()
-	wikiSvc := wikisvc.NewService(wikiRepo, wikiSink, nil)
-	_ = wikiSvc // the worker's execute path is wired when the provider adapter lands
+	wikiAdapter := &worker.ProviderAdapter{Inner: wikiProvider}
+	wikiSvc := wikisvc.NewService(wikiRepo, wikiSink, wikiAdapter)
 
 	handlers := worker.Handlers{
 		worker.JobSourceSync:      &worker.SourceSyncHandler{Pool: pool, Jobs: jobStore},
@@ -123,8 +125,9 @@ func main() {
 		worker.JobAssetActivate:   &worker.AssetActivateHandler{Pool: pool, Assets: assets},
 		worker.JobReconcileScan:   &worker.ReconcileHandler{Pool: pool, Assets: assets},
 		worker.JobLegacyBackfill:  &worker.LegacyBackfillHandler{Pool: pool},
-		// Wiki maintenance handlers (16 §3.3).
-		worker.JobWikiMaintain:      &worker.WikiMaintainHandler{Wiki: nil, Provider: wikiProvider, Repo: wikiRepo},
+		// Wiki maintenance handlers (16 §3.3). The maintain handler now uses
+		// the service's canonical ExecuteRun (Gap A wired).
+		worker.JobWikiMaintain:      &worker.WikiMaintainHandler{Wiki: wikiSvc, Repo: wikiRepo},
 		worker.JobWikiProposalApply:  &worker.WikiProposalApplyHandler{Repo: wikiRepo},
 		worker.JobWikiIndexRebuild:   &worker.WikiIndexRebuildHandler{Repo: wikiRepo},
 		worker.JobWikiLintScan:       &worker.WikiLintScanHandler{Repo: wikiRepo},
