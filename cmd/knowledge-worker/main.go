@@ -34,18 +34,23 @@ import (
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/infra/postgres"
 	"github.com/lynn901/mora/internal/module/knowledge/worker"
+	wikiprovider "github.com/lynn901/mora/internal/module/knowledge/wiki/provider"
+	wikisvc "github.com/lynn901/mora/internal/module/knowledge/wiki/service"
 	"github.com/lynn901/mora/internal/platform/outbox"
 )
 
-// Stream + consumer-group names (design-docs/14 §2.2, §5.1). The outbox
-// dispatcher ships events to these Streams; this worker consumes them.
+// Stream + consumer-group names (design-docs/14 §2.2, §5.1 + 16 §6.1). The
+// outbox dispatcher ships events to these Streams; this worker consumes them.
 const (
 	StreamSourceEvents     = "source_events"
 	StreamKnowledgeEvents  = "knowledge_events"
+	StreamWikiEvents       = "wiki_events"
 	GroupSourceSync        = "source_sync"
 	GroupKnowledgeProj     = "knowledge_projection"
+	GroupWikiMaintenance   = "wiki_maintenance"
 	SourceEventsDeadStream = "source_events:dead"
 	KnowEventsDeadStream   = "knowledge_events:dead"
+	WikiEventsDeadStream   = "wiki_events:dead"
 
 	defaultLeaseTTL      = 5 * time.Minute // worker.DefaultLeaseTTL; mirrored to avoid an import cycle in main
 	readGroupBlock       = 5 * time.Second
@@ -89,6 +94,7 @@ func main() {
 	dispatcher := outbox.NewDispatcher(pool, map[string]outbox.StreamPublisher{
 		outbox.KnowledgeEventsStream: publisher, // "knowledge_events"
 		StreamSourceEvents:           publisher,
+		StreamWikiEvents:             publisher, // "wiki_events" (16 §6.1)
 	}, dispatcherBatch, dispatcherInterval)
 
 	// Job handlers (§5.2 dispatch table). Each handler owns one job_type's
@@ -97,12 +103,34 @@ func main() {
 	// activate / reconcile handlers call AssetRegistry's activation methods
 	// (MarkProjectionReady / Activate / ReconcileScan) over the pool.
 	assets := postgres.NewAssetRegistry()
+
+	// Wiki maintenance ports (16 §3.3 / §4.3). The worker owns the provider
+	// call path: it constructs the wiki service with the provider adapter
+	// (which bridges provider.WikiMaintenanceProvider → the service's local
+	// MaintenanceProvider port), the postgres WikiRepo, and the transactional
+	// WikiSpaceSink. The wiki_events stream consumer (16 §6.1) maps
+	// wiki.ingest/query_file/lint events to wiki_maintain jobs. RBAC trimming
+	// of the source-version set the provider reads happens in the execute path,
+	// not at the worker process level — the worker runs with the workspace's
+	// authz revision resolved per-run.
+	wikiRepo := postgres.NewWikiRepo(postgres.NewDB(pool))
+	wikiSink := postgres.NewWikiSpaceSink(pool, outbox.NewStore())
+	wikiProvider := wikiprovider.NewNoopProvider()
+	wikiAdapter := &worker.ProviderAdapter{Inner: wikiProvider}
+	wikiSvc := wikisvc.NewService(wikiRepo, wikiSink, wikiAdapter)
+
 	handlers := worker.Handlers{
 		worker.JobSourceSync:      &worker.SourceSyncHandler{Pool: pool, Jobs: jobStore},
 		worker.JobProjectionBuild: &worker.ProjectionBuildHandler{Pool: pool, Jobs: jobStore, Assets: assets},
 		worker.JobAssetActivate:   &worker.AssetActivateHandler{Pool: pool, Assets: assets},
 		worker.JobReconcileScan:   &worker.ReconcileHandler{Pool: pool, Assets: assets},
 		worker.JobLegacyBackfill:  &worker.LegacyBackfillHandler{Pool: pool},
+		// Wiki maintenance handlers (16 §3.3). The maintain handler now uses
+		// the service's canonical ExecuteRun (Gap A wired).
+		worker.JobWikiMaintain:      &worker.WikiMaintainHandler{Wiki: wikiSvc, Repo: wikiRepo},
+		worker.JobWikiProposalApply:  &worker.WikiProposalApplyHandler{Repo: wikiRepo},
+		worker.JobWikiIndexRebuild:   &worker.WikiIndexRebuildHandler{Repo: wikiRepo},
+		worker.JobWikiLintScan:       &worker.WikiLintScanHandler{Repo: wikiRepo},
 	}
 	runner := worker.NewRunner(worker.RunnerConfig{
 		Jobs:      jobStore,
@@ -127,9 +155,14 @@ func main() {
 	go consumeStream(ctx, rdb, StreamKnowledgeEvents, GroupKnowledgeProj,
 		env("CONSUMER_NAME", "knowledge-worker-1"), mapKnowledgeEvent(jobStore))
 
+	// Wiki maintenance consumer (16 §6.1): wiki_events → wiki_maintain jobs.
+	go consumeStream(ctx, rdb, StreamWikiEvents, GroupWikiMaintenance,
+		env("CONSUMER_NAME", "knowledge-worker-1"), mapWikiEvent(jobStore))
+
 	// Crash-recovery reclaim for idle stream messages (mirrors rag-worker).
 	go reclaimLoop(ctx, rdb, StreamSourceEvents, GroupSourceSync, env("CONSUMER_NAME", "knowledge-worker-1"))
 	go reclaimLoop(ctx, rdb, StreamKnowledgeEvents, GroupKnowledgeProj, env("CONSUMER_NAME", "knowledge-worker-1"))
+	go reclaimLoop(ctx, rdb, StreamWikiEvents, GroupWikiMaintenance, env("CONSUMER_NAME", "knowledge-worker-1"))
 
 	// Reconcile ticker (§3.3): run the consistency scan for each workspace.
 	go reconcileLoop(ctx, pool)
@@ -278,6 +311,41 @@ func runReconcile(ctx context.Context, pool *pgxpool.Pool) {
 	// / ProjectionsStaled / NeedsHuman. Kept as a no-op until the port arrives.
 	_ = ctx
 	_ = pool
+}
+
+// mapWikiEvent turns a wiki_events message into a wiki_maintain job. The
+// payload's run_id is the TargetKey; the dedupe_key shape is
+// `wiki:{space_id}:{trigger}:{input_set_hash}` (16 §3.3). The provider call +
+// PagePatch landing happens in the WikiMaintainHandler.
+func mapWikiEvent(jobs worker.JobStore) func(ctx context.Context, msgID, payload string) error {
+	return func(ctx context.Context, msgID, payload string) error {
+		var ev domain.KnowledgeEvent
+		if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+			return err
+		}
+		// Only the maintenance-trigger event types map to a wiki_maintain job.
+		switch ev.EventType {
+		case wikisvc.WikiEventIngest, wikisvc.WikiEventQueryFile, wikisvc.WikiEventLint, wikisvc.WikiEventReconcile:
+		default:
+			return nil
+		}
+		runIDStr := payloadString(ev.Payload, "run_id")
+		runID, err := uuid.Parse(runIDStr)
+		if err != nil {
+			return nil // malformed payload — dead-letter
+		}
+		_, err = jobs.Create(ctx, nil, domain.Job{
+			JobType:     worker.JobWikiMaintain,
+			TargetKey:   runID.String(),
+			DedupeKey:   worker.DedupeKey(worker.JobWikiMaintain, ev.AggregateID.String(), runID.String()),
+			MaxAttempt:  3,
+			SourceEventID: nil,
+		})
+		if err != nil && !errors.Is(err, worker.ErrJobExists) {
+			return err
+		}
+		return nil
+	}
 }
 
 // --- Stream → Job mappers ---

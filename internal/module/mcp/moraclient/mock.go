@@ -33,6 +33,18 @@ type Mock struct {
 
 	// draft store for create_draft / update_document
 	drafts map[string]*DraftResult
+
+	// wiki store for wiki_status / wiki_page_propose (design doc 16 §7.3).
+	// Minimal in-memory model so the MCP tools are exercisable in mock mode.
+	wikiSpaces    map[string]*WikiSpaceStatus
+	wikiRuns      map[string]*WikiPageProposeResult // runID -> run
+}
+
+// AddWikiSpace seeds a Wiki Space status record for wiki_status tests.
+func (m *Mock) AddWikiSpace(st WikiSpaceStatus) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.wikiSpaces[st.WikiSpaceID] = &st
 }
 
 type mockDirectory struct {
@@ -61,6 +73,8 @@ func NewMock() *Mock {
 		tags:        make(map[string][]Tag),
 		acl:         make(map[string]*mockACL),
 		drafts:      make(map[string]*DraftResult),
+		wikiSpaces:  make(map[string]*WikiSpaceStatus),
+		wikiRuns:    make(map[string]*WikiPageProposeResult),
 	}
 }
 
@@ -427,6 +441,60 @@ func (m *Mock) UpdateDocument(_ context.Context, auth *AuthContext, req UpdateDo
 	}
 	m.drafts[draftID] = res
 	return res, nil
+}
+
+// WikiStatus returns the Wiki Space status (§7.3). Read permission on the
+// Space's workspace is required; otherwise ErrNotExist (§8.2 — no leak).
+func (m *Mock) WikiStatus(_ context.Context, auth *AuthContext, wikiSpaceID string) (*WikiSpaceStatus, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	st, ok := m.wikiSpaces[wikiSpaceID]
+	if !ok || !m.canRead(auth, st.WorkspaceID) {
+		return nil, ErrNotExist()
+	}
+	out := *st
+	return &out, nil
+}
+
+// WikiPagePropose lands a candidate proposal run (§7.3/§11.3). Write perm on
+// the Space's workspace required; the run is recorded in-memory so a poll of
+// wiki_status observes it. Never publishes directly.
+func (m *Mock) WikiPagePropose(_ context.Context, auth *AuthContext, req WikiPageProposeRequest) (*WikiPageProposeResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.wikiSpaces[req.WikiSpaceID]
+	if !ok || !m.canWrite(auth, st.WorkspaceID) {
+		return nil, domainerr.ErrForbidden
+	}
+	// Deterministic run id without time/rand: workspace + page + run count.
+	n := len(m.wikiRuns)
+	runID := "run-" + req.WikiSpaceID + "-" + req.PageKey + "-" + itoa(n+1)
+	res := &WikiPageProposeResult{
+		RunID:   runID,
+		Status:  "queued",
+		PageKey: req.PageKey,
+	}
+	m.wikiRuns[runID] = res
+	// Surface the run in the Space's last_run so a follow-up wiki_status sees it.
+	st.LastRun = &MaintenanceRun{
+		ID: runID, TriggerType: "ingest", Status: "queued",
+	}
+	return res, nil
+}
+
+// itoa is a tiny int->string to avoid pulling strconv into the mock.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
 }
 
 func makeSnippet(content, q string) string {

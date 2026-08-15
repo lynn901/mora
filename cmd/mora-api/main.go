@@ -25,6 +25,7 @@ import (
 	"github.com/lynn901/mora/internal/infra/qdrant"
 	"github.com/lynn901/mora/internal/infra/ragwiring"
 	"github.com/lynn901/mora/internal/module/knowledge/asset"
+	wikisvc "github.com/lynn901/mora/internal/module/knowledge/wiki/service"
 	"github.com/lynn901/mora/internal/module/mora/collab"
 	"github.com/lynn901/mora/internal/module/mora/event"
 	wh "github.com/lynn901/mora/internal/module/mora/handler"
@@ -165,6 +166,17 @@ func main() {
 		WithAuthz(engine, auditLogger)
 	assetH := wh.NewAssetHandler(assetReadSvc)
 
+	// Wiki maintenance API (design-docs/16 §7.1 / api/wiki.yaml). The service
+	// enforces resource-level RBAC (§8.2: a missing/cross-workspace Wiki Space
+	// resolves to ErrWikiSpaceNotFound → 404, no leak) + the locked-page
+	// three-way guard (§4.4) + audit (§8.3). The provider is the noop fallback
+	// — the real model adapter is wired in the knowledge-worker; mora-api only
+	// triggers runs + serves the review UI.
+	wikiRepo := postgres.NewWikiRepo(db)
+	wikiSink := postgres.NewWikiSpaceSink(pool, outbox.NewStore())
+	wikiSvc := wikisvc.NewService(wikiRepo, wikiSink, nil).WithAuthz(engine, auditLogger)
+	wikiH := wh.NewWikiHandler(wikiSvc)
+
 	tm := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
 	userLookup := &pgUserLookup{db: db}
 	collabHub := collab.NewHub(cfg.CollabMaxConcurrent)
@@ -304,6 +316,20 @@ func main() {
 	authed.GET("/knowledge/assets/:id", assetH.Get)
 	authed.GET("/knowledge/assets/:id/versions", assetH.ListVersions)
 	authed.GET("/knowledge/assets/:id/relations", assetH.ListRelations)
+
+	// Wiki maintenance REST control plane (design-docs/16 §7.1 / api/wiki.yaml).
+	// Wiki Space CRUD + maintenance-run trigger/list + lint + proposals review.
+	// Existence never leaks (§8.2): the service maps not-found AND read-denial
+	// to 404 + 40400.
+	authed.GET("/workspaces/:workspace_id/wiki-spaces", wikiH.ListSpaces)
+	authed.POST("/workspaces/:workspace_id/wiki-spaces", wikiH.CreateSpace)
+	authed.GET("/wiki-spaces/:id", wikiH.GetSpace)
+	authed.GET("/wiki-spaces/:id/status", wikiH.GetStatus)
+	authed.GET("/wiki-spaces/:id/maintenance-runs", wikiH.ListRuns)
+	authed.POST("/wiki-spaces/:id/maintenance-runs", wikiH.TriggerRun)
+	authed.POST("/wiki-spaces/:id:lint", wikiH.Lint)
+	authed.GET("/wiki-spaces/:id/pages/:page_key/proposals", wikiH.ListProposals)
+	authed.POST("/wiki-spaces/:id/proposals/:proposal_id", wikiH.ReviewProposal)
 
 	// health
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
