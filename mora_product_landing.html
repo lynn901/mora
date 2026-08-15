@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>一分钟认识 Mora — 面向团队与 AI Agent 的“第二大脑”</title>
+  <style>
+    :root {
+      --bg-color: #08090C;
+      --card-bg: #11131A;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-hover-border: rgba(18, 167, 124, 0.4);
+      --text-main: #F3F4F6;
+      --text-muted: #9CA3AF;
+      --text-dim: #6B7280;
+      --brand-green: #12A77C;
+      --brand-green-bg: rgba(18, 167, 124, 0.12);
+      --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "PingFang SC", sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      padding-bottom: 80px;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    header {
+      border-bottom: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(8, 9, 12, 0.85);
+    }
+    .nav-inner {
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+      font-weight: 700;
+      font-size: 20px;
+    }
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: #202523;
+      border-radius: 50%;
+      position: relative;
+      border: 2px solid #333;
+    }
+    .logo-icon::after {
+      content: "";
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: var(--brand-green);
+      top: 0px;
+      right: -2px;
+      transform: rotate(45deg);
+      border-radius: 2px;
+    }
+
+    .hero {
+      padding: 80px 0 48px;
+      text-align: center;
+    }
+    .pill-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-family: var(--font-mono);
+      color: var(--brand-green);
+      background: var(--brand-green-bg);
+      border: 1px solid rgba(18, 167, 124, 0.3);
+      padding: 6px 16px;
+      border-radius: 100px;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: 48px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      margin-bottom: 20px;
+    }
+    .hero p {
+      font-size: 20px;
+      color: var(--text-muted);
+      max-width: 680px;
+      margin: 0 auto 36px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 32px;
+      transition: border-color 0.2s;
+      overflow: hidden;
+    }
+    .card:hover {
+      border-color: var(--card-hover-border);
+    }
+    .card-num {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--brand-green);
+      margin-bottom: 8px;
+    }
+    .card h3 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .card p {
+      color: var(--text-muted);
+      font-size: 16px;
+      margin-bottom: 20px;
+    }
+    .card-img-wrap {
+      background: #FFFFFF;
+      padding: 16px;
+      border-radius: 12px;
+      display: flex;
+      justify-content: center;
+    }
+    .card-img-wrap img {
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+      display: block;
+    }
+
+    .table-wrap {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      overflow: hidden;
+      margin: 40px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 15px;
+    }
+    th, td {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    th {
+      background: rgba(255, 255, 255, 0.02);
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    footer {
+      border-top: 1px solid var(--card-border);
+      padding-top: 48px;
+      color: var(--text-dim);
+      font-size: 14px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="container nav-inner">
+      <a href="#" class="logo-brand">
+        <div class="logo-icon"></div>
+        <span>Mora</span>
+      </a>
+      <span style="color: var(--text-muted); font-size: 14px;">团队与 AI Agent 的第二大脑</span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container">
+      <div class="pill-tag">新品类定义 ｜ Context Proxy 模式</div>
+      <h1>人类在上面写文档<br>AI Agent 在上面记经验</h1>
+      <p>Mora 既是一个多人实时协同的在线文档库，也是一个能自动把 Agent 对话与会议经验转化为团队资产的记忆仓库。</p>
+    </div>
+  </section>
+
+  <section class="container">
+    <div class="card" style="border-color: rgba(18, 167, 124, 0.4);">
+      <h3>💡 为什么需要 Mora？</h3>
+      <p>团队写的 SOP 躺在文档里，AI 读不到；员工在 AI 对话框里提炼的经验，关掉窗口就丢了；把私密文件扔给 AI 知识库，又怕泄露薪酬和财务隐私。Mora 正是为此而生 —— 连通人类文档与 AI 记忆，全公司安全协同。</p>
+      <div class="card-img-wrap">
+        <img src="/Users/yuan/.gemini/antigravity/brain/b00edf59-5c2c-4d06-a3e1-efcb8851250f/assets/01-human-agent-brain.jpg" alt="人类写文档与 Agent 记经验人机协同">
+      </div>
+    </div>
+
+    <h2 style="font-size: 28px; margin: 48px 0 24px;">在你的团队里，Mora 怎么工作？</h2>
+
+    <div class="card">
+      <div class="card-num">01 / 团队协同</div>
+      <h3>像在线文档一样编辑，像仓库一样沉淀记忆</h3>
+      <p>支持多人在线协同 Markdown 编辑。开会时 Agent 总结的决策与待办进入“候选盒”，确认后一键转为团队公开 SOP。</p>
+      <div class="card-img-wrap">
+        <img src="/Users/yuan/.gemini/antigravity/brain/b00edf59-5c2c-4d06-a3e1-efcb8851250f/assets/02-candidate-workflow.jpg" alt="候选盒防污染流程">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">02 / 安全隔离</div>
+      <h3>跨部门问答：回答智能，绝不越权泄密</h3>
+      <p>基于硬隔离安全防爆墙，无权访问的 HR 薪酬或财务数据在搜索中完全隐形，连文件的存在都不会泄露给无权员工或 Agent。</p>
+      <div class="card-img-wrap">
+        <img src="/Users/yuan/.gemini/antigravity/brain/b00edf59-5c2c-4d06-a3e1-efcb8851250f/assets/03-stealth-security.jpg" alt="召回硬隔离与存在性隐形防爆墙">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">03 / 有据可查</div>
+      <h3>拒绝 AI 幻觉：所有经验一拉到底追溯源头</h3>
+      <p>每一条 AI 给出的回答、总结的经验，均带有点选式“证据锚点”，直达原始会议记录、代码提交或政策文件。</p>
+      <div class="card-img-wrap">
+        <img src="/Users/yuan/.gemini/antigravity/brain/b00edf59-5c2c-4d06-a3e1-efcb8851250f/assets/04-evidence-lineage.jpg" alt="证据锚点与链条追溯">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-num">04 / Context Proxy 模式</div>
+      <h3>共享团队记忆 + 规范 Agent 遵从公司 SOP 流程</h3>
+      <p>Context Proxy 在员工与 Agent 对话时自动静默代理，实时注入团队积累的业务背景与历史记忆；同时将公司的标准操作流程（SOP）注入给 Agent，指导 Agent 严格按照既定步骤执行任务，防止操作脱轨。</p>
+      <div class="card-img-wrap">
+        <img src="/Users/yuan/.gemini/antigravity/brain/b00edf59-5c2c-4d06-a3e1-efcb8851250f/assets/05-context-proxy-sop.jpg" alt="Context Proxy 共享团队记忆与规范 Agent 遵从 SOP 执行">
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>对比维度</th>
+            <th>传统在线文档 (飞书/Notion)</th>
+            <th>普通 AI 问答库 (RAG)</th>
+            <th>Mora 人机协同知识控制面</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>使用者</strong></td>
+            <td>仅人类员工编辑</td>
+            <td>仅 AI Agent 检索</td>
+            <td style="color: var(--brand-green); font-weight:700;">人类员工与 AI Agent 共同协同</td>
+          </tr>
+          <tr>
+            <td><strong>经验来源</strong></td>
+            <td>手动撰写发霉</td>
+            <td>切碎文本盲目召回</td>
+            <td style="color: var(--brand-green); font-weight:700;">人类撰写 + Agent 会议对话自动沉淀</td>
+          </tr>
+          <tr>
+            <td><strong>数据安全</strong></td>
+            <td>依赖界面隐藏</td>
+            <td>容易越权泄露隐私</td>
+            <td style="color: var(--brand-green); font-weight:700;">召回级硬隔离，无权内容彻底隐形</td>
+          </tr>
+          <tr>
+            <td><strong>流程约束</strong></td>
+            <td>依靠人工阅读与监督</td>
+            <td>无法约束 AI 执行步骤</td>
+            <td style="color: var(--brand-green); font-weight:700;">Context Proxy：规范 Agent 遵从 SOP 执行</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="container">
+    <p>Mora — 让人类的思考与 AI 的记忆串联起来 © 2026</p>
+  </footer>
+
+</body>
+</html>
