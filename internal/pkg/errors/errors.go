@@ -10,14 +10,16 @@ import (
 type Code int
 
 const (
-	CodeOK            Code = 0
-	CodeBadRequest    Code = 40000
-	CodeUnauthorized  Code = 40100
-	CodeForbidden     Code = 40300
-	CodeNotFound      Code = 40400
-	CodeConflict      Code = 40900
-	CodeRateLimited   Code = 42900
-	CodeInternal      Code = 50000
+	CodeOK               Code = 0
+	CodeBadRequest       Code = 40000
+	CodeUnauthorized     Code = 40100
+	CodeForbidden        Code = 40300
+	CodeNotFound         Code = 40400
+	CodeGone             Code = 41000
+	CodeConflict         Code = 40900
+	CodeRateLimited      Code = 42900
+	CodeInternal         Code = 50000
+	CodeServiceUnavailable Code = 50300
 )
 
 // Error carries a business code, an HTTP status, and a human message.
@@ -49,9 +51,13 @@ func BadRequest(msg string) *Error    { return New(CodeBadRequest, http.StatusBa
 func Unauthorized(msg string) *Error  { return New(CodeUnauthorized, http.StatusUnauthorized, msg) }
 func Forbidden(msg string) *Error     { return New(CodeForbidden, http.StatusForbidden, msg) }
 func NotFound(msg string) *Error      { return New(CodeNotFound, http.StatusNotFound, msg) }
+func Gone(msg string) *Error          { return New(CodeGone, http.StatusGone, msg) }
 func Conflict(msg string) *Error      { return New(CodeConflict, http.StatusConflict, msg) }
 func RateLimited(msg string) *Error   { return New(CodeRateLimited, http.StatusTooManyRequests, msg) }
 func Internal(msg string) *Error      { return New(CodeInternal, http.StatusInternalServerError, msg) }
+func ServiceUnavailable(msg string) *Error {
+	return New(CodeServiceUnavailable, http.StatusServiceUnavailable, msg)
+}
 
 // As extracts an *Error from any error; returns nil if none.
 func As(err error) *Error {

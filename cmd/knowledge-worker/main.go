@@ -32,6 +32,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/lynn901/mora/internal/domain"
+	codegraphinfra "github.com/lynn901/mora/internal/infra/codegraph"
 	"github.com/lynn901/mora/internal/infra/postgres"
 	"github.com/lynn901/mora/internal/module/knowledge/worker"
 	wikiprovider "github.com/lynn901/mora/internal/module/knowledge/wiki/provider"
@@ -104,6 +105,23 @@ func main() {
 	// (MarkProjectionReady / Activate / ReconcileScan) over the pool.
 	assets := postgres.NewAssetRegistry()
 
+	// Phase 3 (design-docs/17 §5): codegraph build path. The CodeGraphBuildHandler
+	// materializes a codebase snapshot, calls the provider Build, verifies
+	// commit/source_tree_hash, and MarkProjectionReady(kind=codegraph) over the
+	// existing CAS path (zero changes to activation). The provider defaults to
+	// NoopProvider — capability_unavailable until the sidecar Compose profile
+	// (PR #52) merges + a SidecarProvider is wired in config. The version source
+	// locator reads commit + snapshot prefix from the version's refs.
+	codegraphProvider := codegraphinfra.NewNoopProvider()
+	codegraphAdapter := &worker.CodeGraphProviderAdapter{Inner: codegraphProvider}
+	assetReadRepo := postgres.NewAssetReadRepo(postgres.NewDB(pool))
+	codegraphLocator := &worker.AssetVersionLocator{
+		Load: func(ctx context.Context, versionID uuid.UUID) (*domain.AssetVersion, uuid.UUID, error) {
+			return assetReadRepo.GetVersionByID(ctx, versionID)
+		},
+	}
+	_ = codegraphAdapter // wired below in the dispatch table
+
 	// Wiki maintenance ports (16 §3.3 / §4.3). The worker owns the provider
 	// call path: it constructs the wiki service with the provider adapter
 	// (which bridges provider.WikiMaintenanceProvider → the service's local
@@ -125,6 +143,15 @@ func main() {
 		worker.JobAssetActivate:   &worker.AssetActivateHandler{Pool: pool, Assets: assets},
 		worker.JobReconcileScan:   &worker.ReconcileHandler{Pool: pool, Assets: assets},
 		worker.JobLegacyBackfill:  &worker.LegacyBackfillHandler{Pool: pool},
+		// Phase 3 (17 §5): codegraph build path. Defaults to NoopProvider
+		// (capability_unavailable) until the sidecar profile (PR #52) merges.
+		worker.JobCodeGraphBuild: &worker.CodeGraphBuildHandler{
+			Provider:     codegraphAdapter,
+			Locator:      codegraphLocator,
+			Materializer: worker.ManifestHashMaterializer{},
+			Assets:       assets,
+			Pool:         pool,
+		},
 		// Wiki maintenance handlers (16 §3.3). The maintain handler now uses
 		// the service's canonical ExecuteRun (Gap A wired).
 		worker.JobWikiMaintain:      &worker.WikiMaintainHandler{Wiki: wikiSvc, Repo: wikiRepo},
@@ -399,6 +426,13 @@ func mapKnowledgeEvent(jobs worker.JobStore) func(ctx context.Context, msgID, pa
 // enqueueProjectionJobs creates a projection_build job per required projection
 // kind for the version named in the event payload (§7 rag-worker bridge). Each
 // is idempotent on `proj:{version}:{kind}:{build_revision}`.
+//
+// Phase 3 (design-docs/17 §5): for a codebase asset, it ALSO fans out a
+// codegraph_build job (dedupe `codegraph:{version}:{build_revision}`). This is
+// the codegraph build trigger — mapKnowledgeEvent routes asset.version.requested
+// here; the CodeGraphBuildHandler materializes the snapshot, builds the graph,
+// verifies commit/source_tree_hash, and MarkProjectionReady(kind=codegraph).
+// No new Stream is added — knowledge_events is the projection fan-out channel.
 func enqueueProjectionJobs(ctx context.Context, jobs worker.JobStore, ev *domain.KnowledgeEvent) error {
 	vid, err := uuid.Parse(payloadString(ev.Payload, "version_id"))
 	if err != nil {
@@ -415,6 +449,22 @@ func enqueueProjectionJobs(ctx context.Context, jobs worker.JobStore, ev *domain
 			TargetKey:      kind,
 			BuildRevision:  buildRevision,
 			DedupeKey:      worker.DedupeKey(worker.JobProjectionBuild, vid.String(), kind, buildRevision),
+			MaxAttempt:     5,
+		})
+		if err != nil && !errors.Is(err, worker.ErrJobExists) {
+			return err
+		}
+	}
+	// Phase 3 (§5): a codebase asset fans out a codegraph_build job so the
+	// codegraph projection lands alongside the FTS/vector ones.
+	if payloadString(ev.Payload, "asset_type") == "codebase" {
+		_, err := jobs.Create(ctx, nil, domain.Job{
+			JobType:        worker.JobCodeGraphBuild,
+			AssetID:        &assetID,
+			AssetVersionID: &vid,
+			TargetKey:      "codegraph",
+			BuildRevision:  buildRevision,
+			DedupeKey:      worker.DedupeKey(worker.JobCodeGraphBuild, vid.String(), buildRevision),
 			MaxAttempt:     5,
 		})
 		if err != nil && !errors.Is(err, worker.ErrJobExists) {

@@ -38,6 +38,14 @@ type Mock struct {
 	// Minimal in-memory model so the MCP tools are exercisable in mock mode.
 	wikiSpaces    map[string]*WikiSpaceStatus
 	wikiRuns      map[string]*WikiPageProposeResult // runID -> run
+
+	// codegraph store for the code_* tools (design-docs/17 §6.2). A codebase is
+	// a knowledge_assets row owned by a workspace; the mock models only the
+	// bits the query tools need: a workspace binding (for RBAC), an active
+	// graph's commit + source_tree_hash, and a small set of seeded symbols /
+	// files / edges so explore/search/node/callers/callees/impact return
+	// non-empty results in mock mode.
+	codebases map[string]*mockCodebase
 }
 
 // AddWikiSpace seeds a Wiki Space status record for wiki_status tests.
@@ -75,6 +83,7 @@ func NewMock() *Mock {
 		drafts:      make(map[string]*DraftResult),
 		wikiSpaces:  make(map[string]*WikiSpaceStatus),
 		wikiRuns:    make(map[string]*WikiPageProposeResult),
+		codebases:   make(map[string]*mockCodebase),
 	}
 }
 
@@ -480,6 +489,226 @@ func (m *Mock) WikiPagePropose(_ context.Context, auth *AuthContext, req WikiPag
 		ID: runID, TriggerType: "ingest", Status: "queued",
 	}
 	return res, nil
+}
+
+// --- CodeGraph mock surface (design-docs/17 §6.2) ---
+
+// MockCodebase is the in-memory model a code_* tool queries (design-docs/17
+// §6.2). It binds a codebase id to its workspace (so canRead gates it — §8.2
+// no-leak) and holds the active graph's commit + source_tree_hash + seeded
+// files / symbols / edges. The mock is deliberately tiny: it proves the tool
+// wiring + RBAC gate, not the graph engine.
+type MockCodebase struct {
+	WorkspaceID    string
+	Commit         string
+	SourceTreeHash string
+	Files          []CodeFileNode
+	Symbols        []CodeNodeDef
+	Edges          []CodeEdge // calls|defines|implements
+}
+
+// internal alias keeps the field-name code below stable.
+type mockCodebase = MockCodebase
+
+// AddCodebase seeds a codebase for the code_* tools. Deterministic commit +
+// hash are filled when the seeder left them blank so §3.2 "every result carries
+// a commit" holds without time/rand.
+func (m *Mock) AddCodebase(cb MockCodebase) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Deterministic commit + hash when the seeder left them blank so §3.2
+	// "every result carries a commit" holds without time/rand.
+	if cb.Commit == "" {
+		cb.Commit = "commit-" + cb.WorkspaceID
+	}
+	if cb.SourceTreeHash == "" {
+		cb.SourceTreeHash = "sha256:" + cb.Commit
+	}
+	id := "codebase-" + cb.WorkspaceID
+	m.codebases[id] = &cb
+}
+
+// resolveCodebase is the single RBAC chokepoint for the code_* tools. A missing
+// codebase OR a caller without read access on its workspace → ErrNotExist
+// (§8.2 no-leak — the Agent cannot tell not-found from not-allowed). Caller
+// must hold the read lock.
+func (m *Mock) resolveCodebase(auth *AuthContext, codebaseID string) (*mockCodebase, bool) {
+	cb, ok := m.codebases[codebaseID]
+	if !ok || !m.canRead(auth, cb.WorkspaceID) {
+		return nil, false
+	}
+	return cb, true
+}
+
+// CodeStatus (code_status). Read-gated; missing/no-perm → ErrNotExist.
+func (m *Mock) CodeStatus(_ context.Context, auth *AuthContext, codebaseID string) (*CodeGraphStatus, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cb, ok := m.resolveCodebase(auth, codebaseID)
+	if !ok {
+		return nil, ErrNotExist()
+	}
+	symbols := len(cb.Symbols)
+	edges := len(cb.Edges)
+	files := len(cb.Files)
+	return &CodeGraphStatus{
+		Commit:         cb.Commit,
+		SourceTreeHash: cb.SourceTreeHash,
+		ProviderVersion: "mock-1.0",
+		Stats: CodeGraphBuildStats{Files: files, Symbols: symbols, Edges: edges},
+	}, nil
+}
+
+// CodeFiles (code_files). Read-gated; pathPrefix filters naively.
+func (m *Mock) CodeFiles(_ context.Context, auth *AuthContext, codebaseID, pathPrefix string) (*CodeFileTree, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cb, ok := m.resolveCodebase(auth, codebaseID)
+	if !ok {
+		return nil, ErrNotExist()
+	}
+	tree := &CodeFileTree{Path: ""}
+	for _, f := range cb.Files {
+		if pathPrefix == "" || strings.HasPrefix(f.Path, pathPrefix) {
+			tree.Files = append(tree.Files, f)
+		}
+	}
+	return tree, nil
+}
+
+// CodeSearch (code_search). Naive substring match over the seeded symbols'
+// signatures + docstrings. Empty when no matches (normal success).
+func (m *Mock) CodeSearch(_ context.Context, auth *AuthContext, codebaseID string, req CodeSearchQuery) (*CodeHits, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cb, ok := m.resolveCodebase(auth, codebaseID)
+	if !ok {
+		return nil, ErrNotExist()
+	}
+	q := strings.ToLower(req.Query)
+	hits := []CodeHit{}
+	for _, s := range cb.Symbols {
+		hay := strings.ToLower(s.Signature + " " + s.Docstring + " " + s.Loc.Symbol)
+		if q != "" && strings.Contains(hay, q) {
+			hits = append(hits, CodeHit{Loc: s.Loc, Snippet: s.Signature})
+		}
+	}
+	hits = trimHits(hits, req.Limit)
+	return &CodeHits{Items: hits, Commit: cb.Commit}, nil
+}
+
+// CodeExplore (code_explore). Returns matching symbols as hits + nodes.
+func (m *Mock) CodeExplore(_ context.Context, auth *AuthContext, codebaseID string, req CodeExploreQuery) (*CodeExploreResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cb, ok := m.resolveCodebase(auth, codebaseID)
+	if !ok {
+		return nil, ErrNotExist()
+	}
+	q := strings.ToLower(req.Query)
+	hits := []CodeHit{}
+	nodes := []CodeNodeDef{}
+	for _, s := range cb.Symbols {
+		hay := strings.ToLower(s.Signature + " " + s.Docstring + " " + s.Loc.Symbol)
+		if q == "" || strings.Contains(hay, q) {
+			hits = append(hits, CodeHit{Loc: s.Loc, Snippet: s.Signature})
+			nodes = append(nodes, s)
+		}
+	}
+	hits = trimHits(hits, req.Limit)
+	return &CodeExploreResult{Hits: hits, Nodes: nodes, Commit: cb.Commit}, nil
+}
+
+// CodeNode (code_node). Resolves the first symbol matching req.Symbol (path
+// disambiguates when provided). Missing symbol → nil node (empty result, not
+// an error — §15 authorized-empty).
+func (m *Mock) CodeNode(_ context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeNodeDef, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cb, ok := m.resolveCodebase(auth, codebaseID)
+	if !ok {
+		return nil, ErrNotExist()
+	}
+	for _, s := range cb.Symbols {
+		if s.Loc.Symbol == req.Symbol && (req.Path == "" || s.Loc.Path == req.Path) {
+			out := s
+			return &out, nil
+		}
+	}
+	return nil, nil
+}
+
+// CodeCallers (code_callers). Edges where To.Symbol == req.Symbol.
+func (m *Mock) CodeCallers(_ context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeEdges, error) {
+	return m.codeEdgesFor(auth, codebaseID, req, func(e CodeEdge) bool {
+		return e.To.Symbol == req.Symbol && (req.Path == "" || e.To.Path == req.Path)
+	})
+}
+
+// CodeCallees (code_callees). Edges where From.Symbol == req.Symbol.
+func (m *Mock) CodeCallees(_ context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeEdges, error) {
+	return m.codeEdgesFor(auth, codebaseID, req, func(e CodeEdge) bool {
+		return e.From.Symbol == req.Symbol && (req.Path == "" || e.From.Path == req.Path)
+	})
+}
+
+// codeEdgesFor is the shared callers/callees selector. Read-gated; empty on no
+// matches (authorized-empty, §15).
+func (m *Mock) codeEdgesFor(auth *AuthContext, codebaseID string, req CodeSymbolQuery, match func(CodeEdge) bool) (*CodeEdges, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cb, ok := m.resolveCodebase(auth, codebaseID)
+	if !ok {
+		return nil, ErrNotExist()
+	}
+	out := []CodeEdge{}
+	for _, e := range cb.Edges {
+		if match(e) {
+			out = append(out, e)
+		}
+	}
+	return &CodeEdges{Items: out}, nil
+}
+
+// CodeImpact (code_impact). Naive transitive closure over call edges up to
+// req.Depth (default 2): the symbol + everything that calls it (recursively).
+func (m *Mock) CodeImpact(_ context.Context, auth *AuthContext, codebaseID string, req CodeImpactQuery) (*CodeHits, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cb, ok := m.resolveCodebase(auth, codebaseID)
+	if !ok {
+		return nil, ErrNotExist()
+	}
+	depth := req.Depth
+	if depth <= 0 {
+		depth = 2
+	}
+	// BFS over callers (edges where To == current). Seed with the named symbol.
+	seen := map[string]bool{req.Symbol: true}
+	frontier := []string{req.Symbol}
+	hits := []CodeHit{}
+	for d := 0; d < depth && len(frontier) > 0; d++ {
+		var next []string
+		for _, sym := range frontier {
+			for _, e := range cb.Edges {
+				if e.To.Symbol == sym && !seen[e.From.Symbol] {
+					seen[e.From.Symbol] = true
+					next = append(next, e.From.Symbol)
+					hits = append(hits, CodeHit{Loc: e.From, Score: float64(depth - d)})
+				}
+			}
+		}
+		frontier = next
+	}
+	return &CodeHits{Items: hits, Commit: cb.Commit}, nil
+}
+
+// trimHits caps a hit slice at limit (0 = unlimited).
+func trimHits(hits []CodeHit, limit int) []CodeHit {
+	if limit > 0 && len(hits) > limit {
+		return hits[:limit]
+	}
+	return hits
 }
 
 // itoa is a tiny int->string to avoid pulling strconv into the mock.

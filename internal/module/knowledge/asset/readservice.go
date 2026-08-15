@@ -48,6 +48,11 @@ type ReadRepo interface {
 	List(ctx context.Context, q ListQuery) ([]*domain.KnowledgeAsset, string, error)
 	// ListVersions returns the version history of an asset (newest-first).
 	ListVersions(ctx context.Context, assetID uuid.UUID) ([]*domain.AssetVersion, error)
+	// GetVersionByID loads one asset version by id, joined to its asset's
+	// workspace id (Phase 3 codegraph build path, 17 §4.1). A missing version
+	// returns ErrAssetNotFound (no existence leak — the build handler maps it
+	// to a permanent fail-closed job).
+	GetVersionByID(ctx context.Context, versionID uuid.UUID) (*domain.AssetVersion, uuid.UUID, error)
 	// ListRelations returns the knowledge_relations edges of an asset, optionally
 	// filtered by relation_type.
 	ListRelations(ctx context.Context, assetID uuid.UUID, relationType string) ([]*domain.KnowledgeRelation, error)

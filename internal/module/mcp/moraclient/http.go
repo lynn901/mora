@@ -407,6 +407,159 @@ func isNotExist(err error) bool {
 	return domainerr.Is(err, domainerr.ErrNotFound)
 }
 
+// --- CodeGraph query surface (design-docs/17 §6.2) ---
+// All code_* methods GET /api/v1/knowledge/assets/{id}/codegraph/* on mora-api.
+// The upstream codegraph service enforces resource-level RBAC (via
+// asset.ReadService): a missing / cross-workspace / no-permission codebase →
+// 404 → ErrNotExist so the tool layer yields an empty result (§8.2 no-leak).
+// A provider fault (503 capability_unavailable / 410 source_snapshot_unavailable)
+// surfaces as a typed error the tool layer maps to empty + diagnostic (§15).
+
+// codegraphBase builds the codegraph path for a codebase asset id.
+func codegraphBase(codebaseID, suffix string) string {
+	return "/api/v1/knowledge/assets/" + codebaseID + "/codegraph/" + suffix
+}
+
+// CodeStatus calls GET .../codegraph/status (code_status).
+func (c *HTTPClient) CodeStatus(ctx context.Context, auth *AuthContext, codebaseID string) (*CodeGraphStatus, error) {
+	var st CodeGraphStatus
+	if err := c.get(ctx, auth, codegraphBase(codebaseID, "status"), &st); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &st, nil
+}
+
+// CodeFiles calls GET .../codegraph/files (code_files).
+func (c *HTTPClient) CodeFiles(ctx context.Context, auth *AuthContext, codebaseID string, pathPrefix string) (*CodeFileTree, error) {
+	path := codegraphBase(codebaseID, "files")
+	if pathPrefix != "" {
+		path += "?path_prefix=" + pathPrefix
+	}
+	var tree CodeFileTree
+	if err := c.get(ctx, auth, path, &tree); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &tree, nil
+}
+
+// CodeSearch calls GET .../codegraph/search (code_search). query required.
+func (c *HTTPClient) CodeSearch(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSearchQuery) (*CodeHits, error) {
+	path := codegraphBase(codebaseID, "search") + "?q=" + req.Query
+	if req.Language != "" {
+		path += "&language=" + req.Language
+	}
+	if req.PathGlob != "" {
+		path += "&path_glob=" + req.PathGlob
+	}
+	if req.Limit > 0 {
+		path += "&limit=" + strconv.Itoa(req.Limit)
+	}
+	var hits CodeHits
+	if err := c.get(ctx, auth, path, &hits); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &hits, nil
+}
+
+// CodeExplore calls GET .../codegraph/explore (code_explore). query required.
+func (c *HTTPClient) CodeExplore(ctx context.Context, auth *AuthContext, codebaseID string, req CodeExploreQuery) (*CodeExploreResult, error) {
+	path := codegraphBase(codebaseID, "explore") + "?q=" + req.Query
+	if req.Language != "" {
+		path += "&language=" + req.Language
+	}
+	if req.Limit > 0 {
+		path += "&limit=" + strconv.Itoa(req.Limit)
+	}
+	var res CodeExploreResult
+	if err := c.get(ctx, auth, path, &res); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &res, nil
+}
+
+// CodeNode calls GET .../codegraph/node (code_node). symbol required.
+func (c *HTTPClient) CodeNode(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeNodeDef, error) {
+	path := codegraphBase(codebaseID, "node") + "?symbol=" + req.Symbol
+	if req.Language != "" {
+		path += "&language=" + req.Language
+	}
+	if req.Path != "" {
+		path += "&path=" + req.Path
+	}
+	var node CodeNodeDef
+	if err := c.get(ctx, auth, path, &node); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &node, nil
+}
+
+// CodeCallers calls GET .../codegraph/callers (code_callers). symbol required.
+func (c *HTTPClient) CodeCallers(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeEdges, error) {
+	return c.codeEdges(ctx, auth, codebaseID, "callers", req)
+}
+
+// CodeCallees calls GET .../codegraph/callees (code_callees). symbol required.
+func (c *HTTPClient) CodeCallees(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeEdges, error) {
+	return c.codeEdges(ctx, auth, codebaseID, "callees", req)
+}
+
+// codeEdges is the shared callers/callees GET. symbol required; language + path
+// disambiguate. A missing/no-permission codebase → ErrNotExist (no leak).
+func (c *HTTPClient) codeEdges(ctx context.Context, auth *AuthContext, codebaseID, kind string, req CodeSymbolQuery) (*CodeEdges, error) {
+	path := codegraphBase(codebaseID, kind) + "?symbol=" + req.Symbol
+	if req.Language != "" {
+		path += "&language=" + req.Language
+	}
+	if req.Path != "" {
+		path += "&path=" + req.Path
+	}
+	var edges CodeEdges
+	if err := c.get(ctx, auth, path, &edges); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &edges, nil
+}
+
+// CodeImpact calls GET .../codegraph/impact (code_impact). symbol required.
+func (c *HTTPClient) CodeImpact(ctx context.Context, auth *AuthContext, codebaseID string, req CodeImpactQuery) (*CodeHits, error) {
+	path := codegraphBase(codebaseID, "impact") + "?symbol=" + req.Symbol
+	if req.Language != "" {
+		path += "&language=" + req.Language
+	}
+	if req.Path != "" {
+		path += "&path=" + req.Path
+	}
+	if req.Depth > 0 {
+		path += "&depth=" + strconv.Itoa(req.Depth)
+	}
+	var hits CodeHits
+	if err := c.get(ctx, auth, path, &hits); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &hits, nil
+}
+
 func max1(n int) int {
 	if n < 1 {
 		return 1
