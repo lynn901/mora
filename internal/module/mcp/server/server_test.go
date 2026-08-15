@@ -101,6 +101,15 @@ func newTestEnv(t *testing.T, rateRead, rateWrite int) *testEnv {
 	srv.RegisterTool(tool.NewGetTagsTool(mock))
 	srv.RegisterTool(tool.NewCreateDraftTool(mock))
 	srv.RegisterTool(tool.NewUpdateDocumentTool(mock))
+	// CodeGraph query tools (design-docs/17 §6.2).
+	srv.RegisterTool(tool.NewCodeStatusTool(mock))
+	srv.RegisterTool(tool.NewCodeFilesTool(mock))
+	srv.RegisterTool(tool.NewCodeSearchTool(mock))
+	srv.RegisterTool(tool.NewCodeExploreTool(mock))
+	srv.RegisterTool(tool.NewCodeNodeTool(mock))
+	srv.RegisterTool(tool.NewCodeCallersTool(mock))
+	srv.RegisterTool(tool.NewCodeCalleesTool(mock))
+	srv.RegisterTool(tool.NewCodeImpactTool(mock))
 	env.srv = srv
 
 	gin.SetMode(gin.TestMode)

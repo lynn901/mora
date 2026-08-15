@@ -25,13 +25,18 @@ import (
 )
 
 // Job type identifiers (design-docs/14 §5.2 dispatch table). Each maps to a
-// Handler registered on the Runner.
+// Handler registered on the Runner. Phase 3 (design-docs/17 §5) adds
+// JobCodeGraphBuild for the codegraph build path.
 const (
 	JobSourceSync       = "source_sync"
 	JobProjectionBuild  = "projection_build"
 	JobAssetActivate    = "asset_activate"
 	JobReconcileScan    = "reconcile_scan"
 	JobLegacyBackfill   = "legacy_backfill"
+	// JobCodeGraphBuild materializes a codebase snapshot, builds a codegraph,
+	// verifies commit/source_tree_hash and marks the codegraph projection ready
+	// (design-docs/17 §4–§5). Dedupe key: codegraph:{version_id}:{revision}.
+	JobCodeGraphBuild   = "codegraph_build"
 )
 
 // DedupeKey builds the idempotency key for a job (§5.2 / §6.5):

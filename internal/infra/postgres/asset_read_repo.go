@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -224,6 +225,80 @@ func (r *AssetReadRepo) ListVersions(ctx context.Context, assetID uuid.UUID) ([]
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// GetVersionByID loads a single asset version by id, joined to its owning
+// knowledge_assets row for the workspace id (Phase 3 codegraph build path,
+// design-docs/17 §4.1 step 1 — the CodeGraphBuildHandler reads the snapshot
+// locator + commit + workspace from the version's refs). A missing version
+// returns ErrAssetNotFound so the handler fails closed (permanent — the version
+// won't appear by retrying, no existence leak to the job layer).
+func (r *AssetReadRepo) GetVersionByID(ctx context.Context, versionID uuid.UUID) (*domain.AssetVersion, uuid.UUID, error) {
+	// Select the version columns + the asset's workspace_id in one joined query
+	// so the build handler has the Capability workspace without a second round
+	// trip. versionColumnList is prefixed with v. for the join.
+	row := r.db.Pool.QueryRow(ctx,
+		`SELECT v.`+strings.Join(versionColsAliased(), ", v.")+`, a.workspace_id
+		 FROM knowledge_asset_versions v
+		 JOIN knowledge_assets a ON a.id = v.asset_id
+		 WHERE v.id = $1`, versionID)
+	v, wsID, err := scanAssetVersionWithWorkspace(row.Scan)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, uuid.Nil, asset.ErrAssetNotFound
+		}
+		return nil, uuid.Nil, err
+	}
+	return v, wsID, nil
+}
+
+// versionColsAliased returns the bare versionColumnList column names (split on
+// comma + trimmed) so GetVersionByID can prefix them with the v. alias without
+// duplicating the literal. Kept local to asset_read_repo.go alongside
+// versionColumnList.
+func versionColsAliased() []string {
+	raw := strings.Split(versionColumnList, ",")
+	out := make([]string, 0, len(raw))
+	for _, c := range raw {
+		if t := strings.TrimSpace(c); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// scanAssetVersionWithWorkspace scans a version row + the joined workspace_id.
+func scanAssetVersionWithWorkspace(scan func(dest ...any) error) (*domain.AssetVersion, uuid.UUID, error) {
+	v := &domain.AssetVersion{}
+	var (
+		sourceID, nativeDocVersionID, approvedByID *uuid.UUID
+		generationRef, providerRef, policySnapshot []byte
+		approvedAt                                  *time.Time
+		approvedByType, createdByType               string
+		wsID                                        uuid.UUID
+	)
+	err := scan(
+		&v.ID, &v.AssetID, &v.VersionNo, &sourceID, &v.SourceRevision,
+		&nativeDocVersionID, &v.ContentOrigin, &generationRef, &providerRef,
+		&v.ContentHash, &v.DedupeKey, &v.BuildStatus, &v.GovernanceStatus,
+		&policySnapshot, &approvedByType, &approvedByID, &approvedAt,
+		&createdByType, &v.CreatedByID, &v.CreatedAt, &wsID,
+	)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+	v.SourceID = sourceID
+	v.NativeDocumentVersionID = nativeDocVersionID
+	v.GenerationRef = jsonbToMap(generationRef)
+	v.ProviderRef = jsonbToMap(providerRef)
+	v.ActivationPolicySnapshot = jsonbToMap(policySnapshot)
+	if approvedByType != "" {
+		v.ApprovedByType = approvedByType
+	}
+	v.ApprovedByID = approvedByID
+	v.ApprovedAt = approvedAt
+	v.CreatedByType = domain.SubjectType(createdByType)
+	return v, wsID, nil
 }
 
 // ListRelations returns an asset's relation edges, optionally filtered by

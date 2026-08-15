@@ -225,6 +225,125 @@ type ListDocumentsParams struct {
 	PageSize    int
 }
 
+// --- CodeGraph DTOs (design-docs/17 §3.2 / §6.2) ---
+// These are the client-facing shapes the MCP code_* tools return. They mirror
+// the provider/codegraph-service types but live in moraclient so the MCP module
+// stays self-contained (no import of the codegraph service package). Every result
+// carries its commit (§3.2 CodeLoc) so an expired revision never masquerades as
+// the current one.
+
+// CodeLoc is the location anchor every codegraph result MUST carry (§3.2).
+type CodeLoc struct {
+	Commit    string `json:"commit"`
+	Path      string `json:"path"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line,omitempty"`
+	Symbol    string `json:"symbol,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+}
+
+// CodeHit is a search/explore/impact hit.
+type CodeHit struct {
+	Loc     CodeLoc `json:"loc"`
+	Score   float64 `json:"score,omitempty"`
+	Snippet string  `json:"snippet,omitempty"`
+}
+
+// CodeEdge is a directed relationship between two symbols.
+type CodeEdge struct {
+	From CodeLoc `json:"from"`
+	To   CodeLoc `json:"to"`
+	Kind string  `json:"kind"` // calls|defines|implements
+}
+
+// CodeNodeDef is a single symbol definition (code_node).
+type CodeNodeDef struct {
+	Loc       CodeLoc `json:"loc"`
+	Kind      string  `json:"kind"`
+	Signature string  `json:"signature,omitempty"`
+	Docstring string  `json:"docstring,omitempty"`
+}
+
+// CodeFileNode is one file in a CodeFileTree.
+type CodeFileNode struct {
+	Path   string `json:"path"`
+	Lines  int    `json:"lines,omitempty"`
+	Commit string `json:"commit"`
+}
+
+// CodeFileTree is the files listing (code_files).
+type CodeFileTree struct {
+	Path  string          `json:"path"`
+	Files []CodeFileNode  `json:"files,omitempty"`
+	Dirs  []CodeFileTree  `json:"dirs,omitempty"`
+}
+
+// CodeGraphStatus is the code_status result: active graph version metadata.
+type CodeGraphStatus struct {
+	Commit             string                 `json:"commit"`
+	SourceTreeHash     string                 `json:"source_tree_hash"`
+	ProviderVersion    string                 `json:"provider_version"`
+	IndexSchemaVersion string                 `json:"index_schema_version,omitempty"`
+	Stats             CodeGraphBuildStats     `json:"stats,omitempty"`
+	Stale             bool                   `json:"stale,omitempty"`
+}
+
+// CodeGraphBuildStats are build-time counts surfaced in CodeGraphStatus.
+type CodeGraphBuildStats struct {
+	Files   int `json:"files"`
+	Symbols int `json:"symbols"`
+	Edges   int `json:"edges"`
+}
+
+// CodeSearchQuery is the code_search input.
+type CodeSearchQuery struct {
+	Query    string `json:"query"`
+	Language string `json:"language,omitempty"`
+	PathGlob string `json:"path_glob,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
+// CodeExploreQuery is the code_explore input.
+type CodeExploreQuery struct {
+	Query    string `json:"query"`
+	Language string `json:"language,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
+// CodeExploreResult is the code_explore outcome.
+type CodeExploreResult struct {
+	Hits   []CodeHit    `json:"hits,omitempty"`
+	Nodes  []CodeNodeDef `json:"nodes,omitempty"`
+	Commit string       `json:"commit"`
+}
+
+// CodeSymbolQuery names a symbol to resolve (code_node / code_callers /
+// code_callees). symbol is required; language + path disambiguate.
+type CodeSymbolQuery struct {
+	Symbol   string `json:"symbol"`
+	Language string `json:"language,omitempty"`
+	Path     string `json:"path,omitempty"`
+}
+
+// CodeImpactQuery is the code_impact input.
+type CodeImpactQuery struct {
+	Symbol   string `json:"symbol"`
+	Language string `json:"language,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Depth    int    `json:"depth,omitempty"`
+}
+
+// CodeHits wraps a hit slice for the search/impact tools' empty-safe shape.
+type CodeHits struct {
+	Items  []CodeHit `json:"items"`
+	Commit string    `json:"commit,omitempty"`
+}
+
+// CodeEdges wraps an edge slice for the callers/callees tools' empty-safe shape.
+type CodeEdges struct {
+	Items []CodeEdge `json:"items"`
+}
+
 // MoraClient is the upstream Mora + RAG capability surface used by MCP tools
 // and resources. All methods receive the caller AuthContext so RBAC is applied
 // server-side by the real Mora/RAG services.
@@ -261,6 +380,35 @@ type MoraClient interface {
 	// proposal for a page (§7.3/§11.3). Write: returns ErrForbidden on
 	// missing write perm; never publishes directly.
 	WikiPagePropose(ctx context.Context, auth *AuthContext, req WikiPageProposeRequest) (*WikiPageProposeResult, error)
+
+	// --- CodeGraph query surface (design-docs/17 §6.2) ---
+	// All code_* methods are read-only, scoped to a codebase asset id. RBAC is
+	// enforced upstream by the codegraph service (via asset.ReadService.GetAsset):
+	// a missing / cross-workspace / no-permission codebase returns ErrNotExist so
+	// the tool layer yields an empty result, never an error to the Agent (§8.2
+	// no-leak). A provider fault (capability_unavailable /
+	// source_snapshot_unavailable / asset_version mismatch) surfaces as a typed
+	// error the tool layer maps to an empty result + a diagnostic note, never a
+	// faked result (§15). Every result carries its commit so an expired revision
+	// never masquerades as current (§3.2 / §4.2).
+
+	// CodeStatus returns the active codegraph version metadata for a codebase
+	// (code_status). Returns ErrNotExist for a missing/no-permission codebase.
+	CodeStatus(ctx context.Context, auth *AuthContext, codebaseID string) (*CodeGraphStatus, error)
+	// CodeFiles returns the source tree listing (code_files).
+	CodeFiles(ctx context.Context, auth *AuthContext, codebaseID string, pathPrefix string) (*CodeFileTree, error)
+	// CodeSearch runs a code search (code_search). query is required.
+	CodeSearch(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSearchQuery) (*CodeHits, error)
+	// CodeExplore runs the combined query (code_explore). query is required.
+	CodeExplore(ctx context.Context, auth *AuthContext, codebaseID string, req CodeExploreQuery) (*CodeExploreResult, error)
+	// CodeNode resolves one symbol (code_node). symbol is required.
+	CodeNode(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeNodeDef, error)
+	// CodeCallers returns the incoming call edges (code_callers). symbol required.
+	CodeCallers(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeEdges, error)
+	// CodeCallees returns the outgoing call edges (code_callees). symbol required.
+	CodeCallees(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeEdges, error)
+	// CodeImpact computes the change-impact set (code_impact). symbol required.
+	CodeImpact(ctx context.Context, auth *AuthContext, codebaseID string, req CodeImpactQuery) (*CodeHits, error)
 }
 
 // ErrNotExist is returned by read methods when the resource is absent or the

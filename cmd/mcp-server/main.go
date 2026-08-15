@@ -105,6 +105,18 @@ func main() {
 	// propose-write that lands a candidate (never publishes directly).
 	srv.RegisterTool(tool.NewWikiStatusTool(moraClient))
 	srv.RegisterTool(tool.NewWikiPageProposeTool(moraClient))
+	// CodeGraph query tools (design-docs/17 §6.2): read-only code_* surfaces.
+	// RBAC enforced upstream by the codegraph service (via
+	// asset.ReadService); no-permission/absent codebase → empty result (§8.2
+	// no-leak). A provider fault surfaces as empty + diagnostic (§15).
+	srv.RegisterTool(tool.NewCodeStatusTool(moraClient))
+	srv.RegisterTool(tool.NewCodeFilesTool(moraClient))
+	srv.RegisterTool(tool.NewCodeSearchTool(moraClient))
+	srv.RegisterTool(tool.NewCodeExploreTool(moraClient))
+	srv.RegisterTool(tool.NewCodeNodeTool(moraClient))
+	srv.RegisterTool(tool.NewCodeCallersTool(moraClient))
+	srv.RegisterTool(tool.NewCodeCalleesTool(moraClient))
+	srv.RegisterTool(tool.NewCodeImpactTool(moraClient))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

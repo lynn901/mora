@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lynn901/mora/internal/domain"
+	"github.com/lynn901/mora/internal/infra/codegraph"
 	"github.com/lynn901/mora/internal/infra/mq"
 	"github.com/lynn901/mora/internal/infra/objstore"
 	"github.com/lynn901/mora/internal/infra/pg"
@@ -25,6 +26,7 @@ import (
 	"github.com/lynn901/mora/internal/infra/qdrant"
 	"github.com/lynn901/mora/internal/infra/ragwiring"
 	"github.com/lynn901/mora/internal/module/knowledge/asset"
+	cgservice "github.com/lynn901/mora/internal/module/knowledge/codegraph/service"
 	wikisvc "github.com/lynn901/mora/internal/module/knowledge/wiki/service"
 	"github.com/lynn901/mora/internal/module/mora/collab"
 	"github.com/lynn901/mora/internal/module/mora/event"
@@ -165,6 +167,23 @@ func main() {
 	assetReadSvc := asset.NewReadService(postgres.NewAssetReadRepo(db)).
 		WithAuthz(engine, auditLogger)
 	assetH := wh.NewAssetHandler(assetReadSvc)
+
+	// CodeGraph query API (design-docs/17 §6.1): the read-side code_* surfaces
+	// (status / files / search / explore / node / callers / callees / impact).
+	// The service resolves the codebase through asset.ReadService (resource-level
+	// RBAC, fail-closed no-leak — §8.2 / §10.4 用例 26/27) and routes queries
+	// through the provider.CodeGraphProvider; MCP tools MUST NOT bypass it
+	// (§10.2 red line). Provider defaults to NoopProvider (returns
+	// capability_unavailable, §3.3) — swap for the SidecarProvider when the
+	// codegraph daemon is configured. Query-time validation (§4.2) runs in the
+	// service + provider; a misaligned source_tree_hash / asset_version fails
+	// closed, never returns possibly-misaligned source.
+	codegraphSvc := cgservice.NewService(
+		assetReadSvc,
+		postgres.NewCodeGraphProjectionRepo(db),
+		codegraph.NewNoopProvider(),
+	)
+	codegraphH := wh.NewCodeGraphHandler(codegraphSvc)
 
 	// Wiki maintenance API (design-docs/16 §7.1 / api/wiki.yaml). The service
 	// enforces resource-level RBAC (§8.2: a missing/cross-workspace Wiki Space
@@ -316,6 +335,21 @@ func main() {
 	authed.GET("/knowledge/assets/:id", assetH.Get)
 	authed.GET("/knowledge/assets/:id/versions", assetH.ListVersions)
 	authed.GET("/knowledge/assets/:id/relations", assetH.ListRelations)
+
+	// CodeGraph query API (§6.1). Reads only; resource-level RBAC enforced in
+	// the codegraph service (via asset.ReadService.GetAsset). A codebase with no
+	// ready graph surfaces 409 (not 404 — existence already known to the caller,
+	// §8.2). Provider faults surface 503/410, never confused with empty results
+	// (§15).
+	authed.GET("/knowledge/assets/:id/codegraph/status", codegraphH.Status)
+	authed.GET("/knowledge/assets/:id/codegraph/files", codegraphH.Files)
+	authed.GET("/knowledge/assets/:id/codegraph/search", codegraphH.Search)
+	authed.GET("/knowledge/assets/:id/codegraph/explore", codegraphH.Explore)
+	authed.GET("/knowledge/assets/:id/codegraph/node", codegraphH.Node)
+	authed.GET("/knowledge/assets/:id/codegraph/callers", codegraphH.Callers)
+	authed.GET("/knowledge/assets/:id/codegraph/callees", codegraphH.Callees)
+	authed.GET("/knowledge/assets/:id/codegraph/impact", codegraphH.Impact)
+	authed.GET("/knowledge/codegraph/capabilities", codegraphH.Capabilities)
 
 	// Wiki maintenance REST control plane (design-docs/16 §7.1 / api/wiki.yaml).
 	// Wiki Space CRUD + maintenance-run trigger/list + lint + proposals review.
