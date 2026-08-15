@@ -1,14 +1,48 @@
-# CodeGraph — Third-Party Notice (placeholder)
+# CodeGraph — Third-Party Notice
 
-CodeGraph is a placeholder baseline for the code-symbol / call-graph / impact-query
-capability (ADR-0001). The actual selection is deferred to Phase 3 (YS-97); this file
-exists so the gate machinery is in place. Until ADR-0001 is filled and `lock.json`
-holds a real digest, the `third-party-check` gate will report CodeGraph as `TBD`
-(selection pending) — it does not fail the gate while the component is unreferenced
-at runtime, but it WILL fail once a CodeGraph dependency appears in `go.mod` /
-`package-lock.json` without a matching, non-TBD lock entry.
+This product (Mora) includes the `codegraph` software
+(https://github.com/colbymchenry/codegraph) as the code-symbol / call-graph /
+impact-query capability provider, integrated as an independent sidecar process
+(ADR-0001, accepted 2026-08-15).
 
-- Source: TBD (Phase 3)
-- Version: TBD
-- License: TBD
-- Notice file for the selected implementation: TBD
+## Attribution
+
+- Name: codegraph
+- Source: https://github.com/colbymchenry/codegraph
+- Version: 1.5.0 (GitHub release v1.5.0, 2026-07-21)
+- Pinned commit: c6aaa20358cd6adcd04b87bdef8e5803ad146f3a (2026-08-08, PGP verified)
+- License: MIT
+
+## License (MIT)
+
+MIT License
+
+Copyright (c) 2026 Colby Mchenry
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Integration notes
+
+Mora invokes codegraph exclusively through the CodeGraphProvider port
+(design-docs/12 §10.2) via the adapter at `internal/infra/codegraph/`. Mora does
+not import codegraph's internal package paths, does not fork its control plane,
+and does not pass Mora credentials to the sidecar — the sidecar receives only
+short-lived service credentials and a trimmed AuthzContext (design-docs/11 §6).
+The baseline is locked to commit c6aaa20; upgrades require revising ADR-0001
+and re-running the third-party gate.

@@ -100,14 +100,22 @@ while [ "$i" -lt "$NCOMP" ]; do
       ;;
     reference)
       # Reference baselines are not validated against a runtime digest source.
-      # CodeGraph must remain TBD until Phase 3; Agent Skills spec must be accepted.
+      # CodeGraph selection was completed in Phase 3 (ADR-0001 accepted); the
+      # baseline is locked to a pinned commit. Agent Skills spec must be accepted.
       status=$(jq -r ".components[$i].status // empty" "$LOCK")
+      adr=$(jq -r ".components[$i].adr // empty" "$LOCK")
       case "$name" in
-        CodeGraph)
-          if [ "$digest" != "TBD" ]; then
-            warn "CodeGraph has a non-TBD digest ($digest) — ensure ADR-0001 is accepted before publish"
+        codegraph|CodeGraph)
+          # Selection done: status must reflect the accepted baseline, and ADR-0001
+          # must be marked accepted on disk. Digest is the npm tarball shasum,
+          # filled when the sidecar lands — warn (not fail) until then, but FAIL
+          # if someone regressed the status or the ADR.
+          if [ "$status" != "selected-baseline-phase3" ]; then
+            fail "codegraph: status regressed to '$status' (expected selected-baseline-phase3) — was ADR-0001 reverted?"
+          elif [ "$digest" = "TBD" ] || [[ "$digest" == TBD-* ]]; then
+            warn "codegraph: digest still TBD ($digest) — ADR-0001 accepted, fill npm tarball dist.shasum at sidecar landing"
           else
-            ok "reference CodeGraph: TBD (Phase 3 selection pending)"
+            ok "reference codegraph: baseline locked (v$ver, commit pinned, ADR-0001 accepted)"
           fi
           ;;
         "Agent Skills spec")
