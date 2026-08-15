@@ -7,10 +7,11 @@ impact-query capability provider, integrated as an independent sidecar process
 
 ## Attribution
 
-- Name: codegraph
+- Name: codegraph (npm package `@colbymchenry/codegraph`)
 - Source: https://github.com/colbymchenry/codegraph
-- Version: 1.5.0 (GitHub release v1.5.0, 2026-07-21)
+- Version: 1.5.0 (npm `@colbymchenry/codegraph@1.5.0` / GitHub release v1.5.0, 2026-07-21)
 - Pinned commit: c6aaa20358cd6adcd04b87bdef8e5803ad146f3a (2026-08-08, PGP verified)
+- npm tarball dist.shasum: 0be47912e573a45b488423d48894bffd9ad3c505 (recorded YS-131, SBOM traceability)
 - License: MIT
 
 ## License (MIT)

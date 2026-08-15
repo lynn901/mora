@@ -742,7 +742,10 @@
       "digest": "c6aaa20358cd6adcd04b87bdef8e5803ad146f3a",
       "notice_path": "third-party/NOTICES/CodeGraph.NOTICE",
       "status": "selected-baseline-phase3",
-      "note": "Sidecar baseline, not a go/web runtime dep; locked to commit c6aaa20 (PGP-verified 2026-08-08). Validated by ADR-0001 acceptance + capability contract tests, not against a lockfile. npm tarball dist.shasum recorded at sidecar landing for SBOM traceability."
+      "note": "Sidecar baseline, not a go/web runtime dep; locked to commit c6aaa20 (PGP-verified 2026-08-08). Validated by ADR-0001 acceptance + capability contract tests, not against a lockfile. npm tarball dist.shasum (@colbymchenry/codegraph@1.5.0) recorded at sidecar landing (YS-131) for SBOM traceability.",
+      "npm_dist_shasum": "0be47912e573a45b488423d48894bffd9ad3c505",
+      "npm_dist_integrity": "sha512-/l1JMVOQ9WGQLrc/IIuAg7Igr944t79/oNCJTcnGkYtIeQx2XFIqI0ho+9Les/Yu4zKfmPU17hIUshD6yP1fKw==",
+      "npm_package": "@colbymchenry/codegraph"
     }
   ],
   "generated_from": {
