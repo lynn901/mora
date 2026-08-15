@@ -23,7 +23,7 @@ Mora 知识底座规划了"代码资产"维度（`knowledge_assets.asset_type = 
 
 | 候选 | 语言/运行时 | License | 活跃度（2026-08-15 探测） | 维护成本 | 性能/资源 | 合规影响 | 是否需出网 |
 |---|---|---|---|---|---|---|---|
-| **colbymchenry/codegraph**（npm `codegraph` v1.5.0） | C/TS 混合，树游标解析，SQLite 索引 | MIT | ★66.4k，fork 4.2k，最后 push 2026-08-08，近月连续 5 个版本（v1.3.0→v1.5.0） | 中：独立 sidecar 进程，Mora 不导入其内部包 | 预索引 + 增量同步，SQLite 本地索引；单次只读查询目标 ≤1.5s（§13.3 SLO） | MIT 与 Apache-2.0 相容，无传染性 | 否，100% 本地 |
+| **colbymchenry/codegraph**（npm `@colbymchenry/codegraph` v1.5.0） | C/TS 混合，树游标解析，SQLite 索引 | MIT | ★66.4k，fork 4.2k，最后 push 2026-08-08，近月连续 5 个版本（v1.3.0→v1.5.0） | 中：独立 sidecar 进程，Mora 不导入其内部包 | 预索引 + 增量同步，SQLite 本地索引；单次只读查询目标 ≤1.5s（§13.3 SLO） | MIT 与 Apache-2.0 相容，无传染性 | 否，100% 本地 |
 | tree-sitter + 自研调用图 | C lib + Go 绑定 | MIT（tree-sitter）/ Apache-2.0 | 极活跃 | 高：需自建符号/调用/影响面语义层 | 高性能但工程量大 | 相容 | 否 |
 | Sourcegraph SCIP/lsif-indexer | Go | Apache-2.0 | 活跃 | 中高：依赖 SCIP 索引产物，需独立索引管线 | 索引产物大，查询需 SCIP 服务 | 相容 | 否 |
 | GitHub Stack Graphs | Rust | MIT | 维护趋缓 | 高：需语义栈编译配置 | 高 | 相容 | 否 |
@@ -32,7 +32,7 @@ Mora 知识底座规划了"代码资产"维度（`knowledge_assets.asset_type = 
 
 ## 决策
 
-**选定 `colbymchenry/codegraph`（npm `codegraph` 1.5.0，MIT，commit `c6aaa20358cd6adcd04b87bdef8e5803ad146f3a`）作为 CodeGraph Provider 首版实现基线。**
+**选定 `colbymchenry/codegraph`（npm `@colbymchenry/codegraph` 1.5.0，MIT，commit `c6aaa20358cd6adcd04b87bdef8e5803ad146f3a`）作为 CodeGraph Provider 首版实现基线。**
 
 理由：
 
@@ -54,13 +54,14 @@ Mora 知识底座规划了"代码资产"维度（`knowledge_assets.asset_type = 
 
 同步写入 `third-party/lock.json`（新增 `code-symbol-graph` capability 条目）：
 
-- 组件名: `codegraph`（npm 包名 / 仓库名）
+- 组件名: `codegraph`（lock 条目名；npm 包名 `@colbymchenry/codegraph`，仓库名 colbymchenry/codegraph）
 - source_url: `https://github.com/colbymchenry/codegraph`
 - commit_sha: `c6aaa20358cd6adcd04b87bdef8e5803ad146f3a`（merge commit，2026-08-08，PGP verified）
-- version: `1.5.0`（npm tag `codegraph@1.5.0`；GitHub release `v1.5.0`，2026-07-21）
+- version: `1.5.0`（npm package `@colbymchenry/codegraph@1.5.0`；GitHub release `v1.5.0`，2026-07-21）
 - license: `MIT`
-- ecosystem: `npm`（sidecar 侧；Go 侧通过 HTTP/本地 RPC 调用，不进 `go.mod`）
-- digest_type / digest: 见 `third-party/lock.json` —— npm 包 `codegraph@1.5.0` 的 tarball sha（`npm view codegraph@1.5.0 dist.shasum` 落地时填入），`source_url` 指向固定 commit
+- ecosystem: `reference`（sidecar 基线，非 go/web 运行时依赖，不 against lockfile 漂移检查；Go 侧通过 stdio-MCP / 本地 daemon socket 调用，不进 `go.mod`）
+- digest_type / digest: `git-commit-pinned` / commit `c6aaa20`（权威基线锁，`make third-party-check` 校验非 TBD + ADR accepted）
+- npm_dist_shasum: `0be47912e573a45b488423d48894bffd9ad3c505`（`@colbymchenry/codegraph@1.5.0` tarball `dist.shasum`，sidecar 落地 YS-131 实测填入，用于 SBOM 追溯；与 git-commit 锁互补，不替代门禁校验）
 - notice_path: `third-party/NOTICES/CodeGraph.NOTICE`
 - capability: `code-symbol-graph`（代码符号 / 调用 / 影响查询）
 
@@ -84,7 +85,7 @@ Mora 知识底座规划了"代码资产"维度（`knowledge_assets.asset_type = 
 - [x] Phase 3 选型后，本 ADR 置为 `accepted` 并填全"固定基线"。
 - [x] `third-party/lock.json` 写入 CodeGraph 条目（非 TBD）。
 - [x] NOTICE 文件副本置于 `third-party/NOTICES/CodeGraph.NOTICE`。
-- [ ] `make third-party-check sbom notices` 通过（研发落地 sidecar 后在 CI 验证；架构交付期 lock.json 条目已就位，digest 字段在 npm 包实测时填入）。
+- [x] `make third-party-check` 通过（reference 分支校验 status + ADR accepted + digest 非 TBD；npm tarball dist.shasum 已于 sidecar 落地 YS-131 补录进 lock.json `npm_dist_shasum` 字段供 SBOM 追溯）。
 
 ## 参考
 

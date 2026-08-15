@@ -11,6 +11,7 @@
 #        make export  — 全量导出（迁移）
 #        make verify  — 冒烟验证
 #        make up-parser — 拉起 P2 多模态解析 sidecar（需先 make up）
+#        make up-codegraph — 拉起 Phase 3 CodeGraph sidecar（需先 make up）
 #
 # 第三方治理门禁 (design-docs/13 §6, D8):
 #        make third-party-check — 校验 lock.json 漂移 / license / NOTICE，fail-closed
@@ -26,7 +27,7 @@ SYFT_IMAGE ?= anchore/syft:v1.27.1
 SBOM_FILE ?= mora.sbom.cdx.json
 SBOM_FORMAT ?= cyclonedx-json
 
-.PHONY: build up up-parser down logs ps restart reset backup restore export verify config \
+.PHONY: build up up-parser up-codegraph down logs ps restart reset backup restore export verify config \
         third-party-check sbom notices third-party-sync
 
 build:
@@ -39,6 +40,12 @@ up:
 # 启用后须在 .env 设 MORA_PARSER_URL=http://mora-parser:8000；详见 deployments/docker-compose.yml。
 up-parser:
 	docker compose -f $(COMPOSE_FILE) -p $(COMPOSE_PROJECT) --profile parser up -d
+
+# CodeGraph sidecar（Phase 3 / design-docs/17 §9）：只读代码符号/调用/影响查询。
+# sidecar 不暴露宿主端口，mora-api/knowledge-worker 经内部网络 + daemon socket 调用。
+# 启用后须在 .env 设 CODEGRAPH_SERVICE_TOKEN；详见 deployments/docker-compose.yml + Dockerfile.codegraph。
+up-codegraph:
+	docker compose -f $(COMPOSE_FILE) -p $(COMPOSE_PROJECT) --profile codegraph up -d
 
 down:
 	docker compose -f $(COMPOSE_FILE) -p $(COMPOSE_PROJECT) down

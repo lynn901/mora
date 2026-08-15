@@ -355,6 +355,44 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  # ---------- CodeGraph sidecar（profile: codegraph）----------
+  # YS-97 Phase 3 / design-docs/17 §9。codegraph 是只读代码符号 / 调用 / 影响查询
+  # 能力的独立 sidecar 进程（ADR-0001，commit c6aaa20 锁定）。
+  # 用法: docker compose --profile codegraph up -d
+  #
+  # 形态说明（与 §9 假设的差异）：codegraph 是 stdio-MCP / 按需 Unix-socket
+  # daemon，无 HTTP server、无 /health 或 /capabilities 路由。因此本 sidecar
+  # 不暴露端口、不走 HTTP 健康探针——readiness 通过 `codegraph status --json`
+  # 探测（见 Dockerfile.codegraph 的 HEALTHCHECK）。mora-api 的 CodeGraphProvider
+  # adapter 经内部网络 + daemon socket / `serve --mcp` 调用，不经 HTTP。
+  #
+  # 隔离约束（§9）：sidecar 不持 Git/Mora 凭据；只收 Mora 签发的短效服务 token
+  # + 已裁剪的 snapshot locator + commit。不暴露宿主端口（仅 compose 内网）。
+  # 默认不出网：100% 本地构建与查询（mora 部署约定）。
+
+  codegraph:
+    profiles: ["codegraph"]
+    build:
+      context: .
+      dockerfile: Dockerfile.codegraph
+    # 无 ports — sidecar 内部专用，与 mora-api / knowledge-worker 同属默认网络。
+    volumes:
+      - codegraph_data:/data
+    environment:
+      # 独立服务凭据：mora-api 调 sidecar 时携带的短效服务 token。默认占位符，
+      # 生产须替换（与 INTERNAL_SERVICE_TOKEN 分离，sidecar 不持有主服务凭据）。
+      CODEGRAPH_SERVICE_TOKEN: "${CODEGRAPH_SERVICE_TOKEN:-change-me-codegraph-token}"
+      # 数据根目录（graph 索引 / 源码树 / daemon socket 均落在 /data 下）。
+      CODEGRAPH_DATA_ROOT: "/data"
+      NODE_ENV: "production"
+    healthcheck:
+      test: ["CMD-SHELL", "codegraph status --json >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
   # ---------- 可观测（profile: monitoring）----------
 
   prometheus:
@@ -436,6 +474,7 @@ volumes:
   parser_models:
   tei_cache:
   ollama_data:
+  codegraph_data:
   prometheus_data:
   grafana_data:
   backup_export:

@@ -1,0 +1,62 @@
+# CodeGraph sidecar — Phase 3 (YS-97 §9 / YS-131).
+#
+# `codegraph` is a local-first code-intelligence library + CLI + MCP server
+# (tree-sitter → SQLite, 100% local). Per ADR-0001 the baseline is locked to
+# npm `@colbymchenry/codegraph@1.5.0` (dist.shasum
+# 0be47912e573a45b488423d48894bffd9ad3c505, recorded in third-party/lock.json)
+# on commit c6aaa20.
+#
+# Runtime shape divergence from design-docs/17 §9 (documented here so operators
+# are not surprised): §9 assumed an HTTP sidecar exposing Health/Capabilities
+# endpoints. The real tool is a stdio-MCP server / on-demand Unix-socket daemon
+# (src/mcp/daemon.ts) — it has no HTTP server and no /health or /capabilities
+# route. So this container is a long-lived readiness supervisor: it keeps the
+# binary installed and indexed, and the readiness probe shells out to
+# `codegraph status --json` instead of curl'ing an HTTP endpoint. Mora's
+# CodeGraphProvider adapter (internal/infra/codegraph/, built by backend) talks
+# to the daemon socket / spawns `serve --mcp`; it does not need HTTP.
+#
+# Node 22 is required: the tool uses Node's built-in `node:sqlite` (DatabaseSync,
+# real SQLite with WAL + FTS5), available from Node 22.5+ (BUNDLING.md). Node 20
+# would fail at startup. engines: ">=20.0.0 <25.0.0" but node:sqlite forces ≥22.
+#
+# Base image: node:22-slim (Debian/glibc), NOT node:22-alpine. The npm package
+# is a self-contained shim: `npm-shim.js` execs a per-platform optional dep
+# (@colbymchenry/codegraph-linux-x64) that ships its OWN vendored Node runtime
+# (123MB glibc binary) + the app. That vendored node is a glibc dynamic executable
+# and will not run on Alpine/musl ("not found" on exec). Unlike y-websocket (pure
+# JS, runs on alpine), codegraph MUST have a glibc base. Slim keeps it lean.
+
+FROM node:22-slim
+
+# Install the pinned package globally. --omit=dev keeps the image lean;
+# integrity is verified against the registry signature by npm itself.
+RUN npm install -g @colbymchenry/codegraph@1.5.0 \
+    --omit=dev \
+    --no-audit --no-fund
+
+# Sidecar holds NO Mora/Git credentials (§9 / design-docs/17 §2 "sidecar 不持有
+# Git 凭据"). BuildRequest only carries a read-only snapshot locator + commit.
+# The single secret it accepts is a short-lived inter-service token Mora issues
+# to authorize calls; it is injected via env, never baked into the image.
+ENV CODEGRAPH_DIR=.codegraph \
+    CODEGRAPH_DATA_ROOT=/data \
+    NODE_ENV=production
+
+VOLUME ["/data"]
+
+# No port is published: the sidecar is internal-only (same Docker network as
+# mora-api). It speaks stdio-MCP / Unix socket, not HTTP, so there is no
+# EXPOSE. mora-api reaches it over the shared network + socket path.
+
+# Readiness: the tool has no HTTP health endpoint, so the probe shells out to
+# the CLI's own status report. `codegraph status --json` exits 0 once the
+# runtime + SQLite layer are usable. This is the closest faithful translation
+# of §9's "Health endpoint into Compose healthcheck" for a non-HTTP tool.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=10 \
+  CMD codegraph status --json >/dev/null 2>&1 || exit 1
+
+# Keep the container alive as a long-lived sidecar. The actual graph daemon is
+# spawned on demand by the first client (§3.1); `serve --mcp` is driven by the
+# adapter. tail -f /dev/null is the standard "stay up, do nothing" sentinel.
+CMD ["tail", "-f", "/dev/null"]
