@@ -19,12 +19,6 @@
 
 ![人类写文档与 Agent 记经验人机协同](assets/mora-edu-illustrations/01-human-agent-brain.jpg)
 
-```mermaid
-graph TD
-    User[人类员工] -- 撰写 SOP / 编辑计划 --> Mora[Mora 知识控制面]
-    Agent[AI Agent / 办公助手] -- 会议摘要 / 提炼经验 --> Mora
-    Mora -- 权限隔离与安全审核 --> Collective[团队共享知识资产]
-```
 
 ---
 
