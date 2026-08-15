@@ -1,0 +1,256 @@
+openapi: 3.0.3
+info:
+  title: Mora Wiki Maintenance API
+  version: "1.0"
+  description: |
+    Wiki 增量维护控制面（design-docs/16 §7.1，12 §11.1/§16.3 / YS-96）。
+    维护器只提候选、不直接写生产文档；locked 页只产旁路建议。
+    RBAC 为硬约束：未授权 Wiki Space 不返回、不计入 total（存在性不泄露）。
+security:
+  - BearerAuth: []
+paths:
+  /api/v1/workspaces/{workspace_id}/wiki-spaces:
+    get:
+      tags: [Wiki]
+      summary: 列出 Wiki Space
+      parameters:
+        - { name: workspace_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: Wiki Space 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/WikiSpace' }
+                      total: { type: integer }
+                      page: { type: integer }
+                      page_size: { type: integer }
+    post:
+      tags: [Wiki]
+      summary: 创建 Wiki Space
+      parameters:
+        - { name: workspace_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, schema_asset_id, schema_version_id, governance_profile_id]
+              properties:
+                name: { type: string }
+                schema_asset_id: { type: string, format: uuid }
+                schema_version_id: { type: string, format: uuid }
+                governance_profile_id: { type: string, format: uuid }
+                maintenance_policy: { type: object }
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data: { $ref: '#/components/schemas/WikiSpace' }
+
+  /api/v1/wiki-spaces/{id}:
+    get:
+      tags: [Wiki]
+      summary: 查询 Wiki Space 状态（含维护状态、页面统计）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Wiki Space 详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data: { $ref: '#/components/schemas/WikiSpace' }
+        "403":
+          description: 无权限（存在性不泄露，不区分不存在与无权）
+
+  /api/v1/wiki-spaces/{id}/maintenance-runs:
+    get:
+      tags: [Wiki]
+      summary: 列出维护 Run
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [queued, analyzing, proposing, awaiting_review, applied, failed, cancelled] } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        "200":
+          description: Run 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/MaintenanceRun' }
+                      total: { type: integer }
+    post:
+      tags: [Wiki]
+      summary: 触发维护 Run（trigger=query_file 显式沉淀回答）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trigger]
+              properties:
+                trigger: { type: string, enum: [ingest, query_file, lint, manual] }
+                page_key: { type: string, description: 仅 query_file 必填 }
+                answer_ref: { type: object, description: 仅 query_file 必填，不可执行引用 }
+                check_kinds: { type: array, items: { type: string }, description: 仅 lint }
+      responses:
+        "201":
+          description: Run 已创建
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data: { $ref: '#/components/schemas/MaintenanceRun' }
+
+  /api/v1/wiki-spaces/{id}:lint:
+    post:
+      tags: [Wiki]
+      summary: 触发 lint 扫描
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                check_kinds: { type: array, items: { type: string, enum: [stale, conflict, orphan, missing_source, schema_drift] } }
+      responses:
+        "202":
+          description: lint job 已排队
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data: { $ref: '#/components/schemas/MaintenanceRun' }
+
+  /api/v1/wiki-spaces/{id}/pages/{page_key}/proposals:
+    get:
+      tags: [Wiki]
+      summary: 列出页面候选修订（审核 UI 用）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: page_key, in: path, required: true, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [proposed, approved, rejected, superseded, applied, failed] } }
+      responses:
+        "200":
+          description: 候选列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/PageProposal' }
+
+  /api/v1/wiki-spaces/{id}/proposals/{proposal_id}:
+    post:
+      tags: [Wiki]
+      summary: 审核页面候选（approve/reject；逐页 CAS 激活）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: proposal_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                rationale: { type: string }
+      responses:
+        "200":
+          description: 审核结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: integer, example: 0 }
+                  data: { $ref: '#/components/schemas/PageProposal' }
+
+components:
+  schemas:
+    WikiSpace:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        schema_asset_id: { type: string, format: uuid }
+        schema_version_id: { type: string, format: uuid }
+        index_asset_id: { type: string, format: uuid, nullable: true }
+        log_asset_id: { type: string, format: uuid, nullable: true }
+        governance_profile_id: { type: string, format: uuid }
+        maintenance_policy: { type: object }
+        status: { type: string, enum: [active, paused, archived] }
+    MaintenanceRun:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        wiki_space_id: { type: string, format: uuid }
+        trigger_type: { type: string, enum: [ingest, query_file, lint, manual] }
+        schema_version_id: { type: string, format: uuid }
+        input_set_hash: { type: string }
+        model_revision: { type: string }
+        prompt_revision: { type: string }
+        status: { type: string, enum: [queued, analyzing, proposing, awaiting_review, applied, failed, cancelled] }
+        proposal_manifest: { type: object }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
+    PageProposal:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        run_id: { type: string, format: uuid }
+        page_key: { type: string }
+        page_asset_id: { type: string, format: uuid, nullable: true }
+        expected_version_id: { type: string, format: uuid, nullable: true }
+        proposed_version_id: { type: string, format: uuid, nullable: true }
+        action: { type: string, enum: [create, update, link, contradiction, stale] }
+        is_bypass: { type: boolean }
+        content_hash: { type: string }
+        status: { type: string, enum: [proposed, approved, rejected, superseded, applied, failed] }
