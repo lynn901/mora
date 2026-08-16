@@ -164,6 +164,31 @@ type ReviewRepo interface {
 	Get(ctx context.Context, reviewID uuid.UUID) (ReviewInfo, error)
 }
 
+// EvidenceInfo is the minimal projection authz.Service needs from
+// memory_evidence (design-docs/18 §4.4, decision D2). Evidence ACL is
+// independent of Memory publish: only the fields a permission decision
+// consults are carried — the workspace, the owner (for owner-shortcut reads),
+// and the source_asset (for the source-asset current-ACL second check). A
+// missing or deleted row returns an error the locator maps to
+// ErrTargetNotFound so existence never leaks (§9.3). SourceAssetID may be nil
+// (session/message/tool_call evidence has no source asset); in that case the
+// locator omits the source-asset node and resolves only [evidence, workspace].
+type EvidenceInfo struct {
+	WorkspaceID   uuid.UUID
+	OwnerType      domain.OwnerType
+	OwnerID        uuid.UUID
+	SourceAssetID  *uuid.UUID
+	Visibility     domain.EvidenceVisibility
+}
+
+// EvidenceRepo is the read port authz.Service needs over memory_evidence
+// (design-docs/18 §4.4). Distinct from the module/memory evidence.EvidenceRepo
+// full CRUD port for the same narrow-port reason as AssetRepo/SourceRepo —
+// the authz layer depends on a minimal read shape, not the whole repository.
+type EvidenceRepo interface {
+	Get(ctx context.Context, evidenceID uuid.UUID) (EvidenceInfo, error)
+}
+
 // BindingRepo returns the active agent_bindings for an agent in a workspace
 // (revoked_at IS NULL), used by the decision pipeline step 3/4.
 type BindingRepo interface {

@@ -51,6 +51,20 @@ type Config struct {
 	MinioSecure    bool // true = HTTPS
 	MinioRegion    string
 
+	// Phase 4 Agent memory (design-docs/18 §2.4 retention, §4.2 KEK)
+	// Retention defaults are seeded by migration 018 (365d retain + 30d purge
+	// grace) but can be overridden per workspace by the PM governance layer
+	// (§19.6). These env knobs let deploy override the seeded system-default
+	// durations without a new migration (dev/staging knobs; production values
+	// are a governance decision).
+	MemoryDefaultRetainDays int // default 365; 0 = use migration seed
+	MemoryDefaultPurgeDays  int // default 30; 0 = use migration seed
+	// MoraEvidenceKEK is the 32-byte envelope key-encryption key for small
+	// evidence fragments (AES-256-GCM). Empty = the crypto adapter returns an
+	// error on first use (production MUST inject; 07-security: no hardcoded
+	// keys). The KEK is held in-memory only, never logged.
+	MoraEvidenceKEK string
+
 	// --- multi-format document parsing (10 §9.2) ---
 	MoraParserURL         string // mora-parser sidecar (OCR/VLM/ASR); empty = disabled (P2)
 	WhisperURL            string // whisper.cpp ASR server; empty = disabled (P2)
@@ -98,6 +112,9 @@ func Load() (*Config, error) {
 		MinioBucket:            getenv("MINIO_BUCKET", "mora"),
 		MinioSecure:            os.Getenv("MINIO_SECURE") == "true",
 		MinioRegion:            getenv("MINIO_REGION", "us-east-1"),
+		MemoryDefaultRetainDays: getenvInt("MEMORY_DEFAULT_RETAIN_DAYS", 365),
+		MemoryDefaultPurgeDays:  getenvInt("MEMORY_DEFAULT_PURGE_DAYS", 30),
+		MoraEvidenceKEK:        getenv("MORA_EVIDENCE_KEK", ""),
 		MoraParserURL:          getenv("MORA_PARSER_URL", ""),
 		WhisperURL:             getenv("WHISPER_URL", ""),
 		ParseMaxFileMB:         getenvInt("PARSE_MAX_FILE_MB", 100),

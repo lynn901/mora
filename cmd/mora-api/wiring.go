@@ -26,6 +26,10 @@ import (
 // resolves documents — a missing/cross-workspace asset or source, or missing
 // review, returns ErrTargetNotFound, indistinguishable from a denial
 // (existence never leaks).
+// Phase 4 adds the Evidence locator (design-docs/18 §4.4, D2): evidence ACL is
+// independent of Memory publish, and the locator resolves [evidence,
+// source_asset?, workspace] so the §4.3 read chain can consult the owner +
+// source-asset current ACL.
 func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo, docs *postgres.DocumentRepo, authzDB *postgres.DB) *rbac.Engine {
 	repo := postgres.NewRBACAdapter(perms, dirs, docs)
 	eng := rbac.NewEngine(repo)
@@ -56,6 +60,10 @@ func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo,
 			Type authz.TargetType
 			Loc  authz.ResourceLocator
 		}{Type: domain.TargetReview, Loc: authz.NewReviewLocator(postgres.NewAuthzReviewRepo(authzDB))},
+		struct {
+			Type authz.TargetType
+			Loc  authz.ResourceLocator
+		}{Type: domain.TargetEvidence, Loc: authz.NewEvidenceLocator(postgres.NewAuthzEvidenceRepo(authzDB))},
 	)
 	eng.SetLocator(authz.AsLocator(comp))
 	return eng
