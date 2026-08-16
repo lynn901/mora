@@ -446,6 +446,45 @@ wiki_maintenance_runs:
 
 非阻塞投影未就绪时，对应查询能力降级或暂不返回该版本，不得把旧投影标记为新版本。
 
+##### Memory 资产默认治理值（Phase 4 落实 11 §4.2）
+
+`governance_profiles` 对 `memory` 资产类型的默认 Profile（首版强制 `auto_publish=false`，附录 A 不变量 9）。下表给出可写入的数值默认值；具体列名以数据模型迁移为准，研发实现时对齐既有列结构。
+
+| 字段 | 默认值 | 依据 |
+|---|---|---|
+| `auto_publish` | `false`（强制） | 附录 A 不变量 9；11 §4.2「首版不自动发布团队记忆」 |
+| `required_projections` | `['fts','vector','summary']` | 上表「Memory」行 |
+| `review_roles` | `['admin','write']` | §8.2 reviewer 资格 |
+| `evidence_required` | `true` | 每条已发布 Memory 可回溯证据（附录 A 不变量 14） |
+| `default_validity` | 按 memory_type（见下表） | 11 §4.2 表 |
+
+`memory_units.authority` 是召回排序基线（`NUMERIC(5,4) DEFAULT 0.5`），反馈与治理状态在其上动态调整，不改 statement。默认值按 memory_type 分型：
+
+| memory_type | 默认 `authority`（0–1） | 默认可见性 | 默认 `validity` | 发布要求（review_decisions 必填项） |
+|---|---|---|---|---|
+| `decision` | `0.85` | `private`→发布为 `workspace` | `valid_from=now`，`expires_at=NULL` | 必须关联决策者或正式记录（`structured_payload` 含 `decision_ref`） |
+| `constraint` | `0.80` | `private`→发布为 `workspace` | `valid_from=now`，`expires_at=+180d` | 必须说明适用范围（`scope` 非空） |
+| `fact` | `0.70` | `private`→发布为 `workspace` | `valid_from=now`，`expires_at=NULL` | 团队发布需证据且人工审核 |
+| `preference` | `0.50` | `private`（仅 owner） | `valid_from=now`，`expires_at=+90d` | 仅 owner 可发布或授权 |
+| `event` | `0.60` | `private`→发布为 `restricted` | `valid_from=事件时间`，`expires_at=NULL` | 脱敏后审核；可提升为复盘 Document |
+
+`authority` 排序与 §9.5「决策原因」意图一致：经治理批准的决策文档级结论为首要依据，事实依赖来源变化 revalidate 未复核时不应高于决策，事件/事故多为单点记录脱敏后限范围，偏好主观性强且默认仅 owner。反馈影响（D8，不改 statement）：`useful`→authority 微升（+0.05，上限 1.0）；`incorrect/stale`→authority/freshness 降（−0.1，下限 0.0）+ 触发 revalidate。上述数值为建议默认，研发实现时可配置；Phase 6 评测集上线后据反馈调参。
+
+##### 低风险自动发布的未来开启条件（首版不实现，定义判据）
+
+首版强制不自动发布团队 Memory（附录 A 不变量 9）。`governance_profiles.auto_publish` 对 `memory` 类型强制 `false`/空，`memory_units.state='published'` 必须经 `review_decisions`（§8.2）。本节定义未来开启自动发布的前置条件，作为开关判据，不在首版实现。未来开启时复用 `auto_publish` 列并新增 `auto_publish_policy` JSONB（承载阈值/白名单/信任等级）。
+
+六项前置条件全部满足，方可 workspace 级显式开启：
+
+1. **审核通过率阈值**：该 workspace 过去 30 天人工审核通过率 ≥ 85%，且 `incorrect/stale` 反馈率 ≤ 10%（数据来自 `review_decisions` + `memory_feedback` 聚合）。
+2. **workspace 信任等级**：workspace 显式标记为「信任 workspace」（需 workspace admin 设置 + 审计），默认不信任。
+3. **记忆类型白名单**：仅 `fact`/`preference` 允许自动发布候选；`decision`/`constraint`/`event` 永远不自动发布（高风险/需正式记录/需脱敏）。
+4. **证据完整性**：候选必须有有效 Evidence 链接（`memory_evidence_links` 非空）且 `evidence_missing=false`；`confidence ≥ 0.7`。
+5. **冲突规则可验证**：候选无 `contradicts` 建议（或所有冲突已被 reviewer 处置）；`duplicate/extends` 已合并。
+6. **可观测与可回滚**：自动发布审计可回溯（`memory.published` 带 `auto=true` 标记 + `review_decision` 占位行），且 workspace admin 可一键关闭开关、已自动发布的 Memory 可批量回退为 `candidate`。
+
+判据与不变量：自动发布不绕过 Evidence ACL（附录 A 不变量 8），只写 `memory_units`/`review_decisions`/投影，不写 `permissions(target_type='evidence')`；仍走同一条提炼管线（§8.2），不跳过脱敏门禁与 JSON Schema 双层校验。开关默认关闭，开启动作审计记录，关闭后已发布 Memory 不自动回滚。不满足任一前置条件 → 开关不可开启；运行中条件失守（如通过率跌破阈值）→ 系统自动暂停自动发布并告警，不回滚已发布项。阈值（85%/10%/0.7）为经验初版判据，未来开启前需先积累 30 天审核数据再校准。
+
 ### 4.3 Agent 与 Binding 表
 
 #### `agents`
@@ -539,6 +578,34 @@ memory_evidence_links:
   support_type supports | contradicts
   PRIMARY KEY(memory_unit_id, evidence_id)
 ```
+
+#### `memory_retention_policies`
+
+```text
+memory_retention_policies:
+  id UUID PK
+  workspace_id UUID FK
+  memory_type fact | decision | constraint | preference | event NULL
+  retain_for INTERVAL NOT NULL
+  purge_after INTERVAL NOT NULL
+  is_system BOOLEAN NOT NULL DEFAULT false
+  created_at / updated_at
+  UNIQUE(workspace_id, memory_type)
+```
+
+`memory_type IS NULL` 行为 workspace 级默认；非空行覆盖该 memory_type。系统默认行 `is_system=true` 不可删但可被 workspace 行（`is_system=false`）override，由 `UNIQUE(workspace_id, memory_type)` 保证一行匹配。Evidence 入库时按 `retention_policy_id` 关联策略，`memory_evidence.expires_at = created_at + retain_for`。保留期需同时满足三条约束（对齐 §8.4 与 §12.2）：可回溯性（保留期内 Evidence 原文经 ACL 可展开，支撑已发布 Memory 的证据链可审计）、最小化与删除传播（到期先 `pending_purge` 停止展开原文 → `purge_after` 期满 `purged` 擦除原文保留 `content_hash`+审计 ID 并级联）、分型治理（不同 memory_type 时效语义不同）。
+
+首版默认保留期限（workspace 级 `memory_type IS NULL` 默认 `retain_for=365 days / purge_after=30 days`；memory_type 级系统默认覆盖）：
+
+| memory_type | 默认 `retain_for` | 默认 `purge_after` | 依据（11 §4.2） |
+|---|---|---|---|
+| `decision` | `1095 days`（3 年） | `60 days` | 决策长期有效，直到被替代；保留期需覆盖项目周期以支撑决策回溯 |
+| `constraint` | `730 days`（2 年） | `45 days` | 约束需说明适用范围且建议设置复核时间；保留期支撑复核回溯，不无限保留易变约束 |
+| `fact` | `365 days` | `30 days` | 事实来源变化后重新验证；与 workspace 默认一致，依赖 `valid_from/expires_at` + revalidate 触发复核而非长保留期 |
+| `preference` | `180 days` | `15 days` | 偏好易过期；短保留期驱动重新确认，避免陈旧偏好污染召回 |
+| `event` | `547 days`（1.5 年） | `30 days` | 事件/事故按保留策略归档；覆盖一个典型事故复盘 + 季度回顾周期，可提升为复盘 Document 后由 Document 生命周期接管 |
+
+期限应用规则：到期对账任务（§12.3）置 `pending_purge`（停止展开原文，`redacted_excerpt` 仍可读）；`pending_purge` 后 `purge_after` 期满 → `purged`：擦除 `encrypted_content`/`storage_key`，保留 `id/content_hash/redacted_excerpt/审计元数据`，触发删除传播（§8.4、§12.2 级联 `memory_units.evidence_missing`、FTS/Qdrant/摘要删除）。已发布 Memory 引用的 Evidence 被擦除 → `memory_units.evidence_missing=true`（若无其他独立证据）→ 该 unit 退出高权威召回（authority 降权，不删 statement），召回仍可返回其脱敏引用与校验状态。`memory_units.validity.expires_at`（结构化有效期，由提炼产出）独立于 Evidence 保留期限：Memory 可先于 Evidence 过期（validity 到期触发 revalidate），或 Evidence 先于 Memory 失效（evidence_missing 降权）。保留期数值假设企业内部协作典型项目周期 1–3 年且无行业法规硬性保留要求；自托管私有化部署，遇合规保留要求时 workspace admin 调整 + 审计。
 
 证据权限独立于 Memory 发布权限。`permissions.target_type` 增加 `evidence`，`ResourceLocator` 必须能解析 Evidence 的 workspace、owner 和来源资产。会话、消息和工具证据默认 `private`，只能由 owner 显式分享；文档和代码证据还必须通过引用资产的当前权限。
 
@@ -905,6 +972,24 @@ flowchart LR
 ```
 
 Extraction Provider 必须返回受 JSON Schema 约束的候选：`memory_type`、`statement`、`scope`、`validity`、`confidence` 和证据 locator。解析失败保留 Evidence 并重试，不写半结构化 Memory。
+
+#### Review Inbox 审核 UX（落实 11 §10.3 五问）
+
+reviewer 资格：workspace 内对 `memory` 资产有 `admin` 或 `write` 角色的成员，且对目标 workspace 团队资产有发布权限（对齐 RBAC「显式拒绝 > 显式允许 > 继承 > 默认拒绝」，§5.3）。owner 对自己的私有候选始终可审。reviewer 在 Inbox 看到 = 自己作为 reviewer 的 `review_requests` 关联的 `memory_units(state=candidate/approved)` + 该 workspace 内 `memory_dedup_suggestions(state=pending)` 中指向自己待审 unit 的建议。非 owner 看不到他人 `private` 候选（存在性不泄露，§11.4 leak-safe）。
+
+审核视图呈三栏（布局为产品建议，前端可调整；字段/操作/排序/leak-safe 为硬约束）：左栏候选列表（`GET /api/v1/memory/inbox`，字段含 `memory_type` 标签、`statement` 摘要、`confidence`、`created_at`、状态徽标、优先级标记；排序 `contradicts` 建议 > `evidence_missing` > `confidence` 升序 > `created_at`；可按 `memory_type`/`source_kind`/是否有 pending 建议筛选）；中栏候选详情 + 证据回溯（逐项呈现 11 §10.3 五问：结论 `statement`+`structured_payload`+`confidence`、证据 `memory_evidence_links` 列表 +「展开片段」调 `memory_evidence_read`、冲突见右栏、建议可见性/有效期/关联项目、处置操作）；右栏去重/冲突建议（`GET /api/v1/memory/dedup-suggestions?unit_id=`，每条 `suggestion_type` 徽标 + 对端摘要 + `confidence` + `origin`，`contradicts` 可跳转对端 unit 联合审核，`duplicate/extends` 提供 merge 快捷操作）。
+
+四类操作流（reviewer 处置，对齐 §8.3 reviewer 决定 merge/supersede）：
+
+| 操作 | 前置校验 | 写入 | 后置 |
+|---|---|---|---|
+| approve（发布团队 Memory） | reviewer 对团队资产有发布权；必经 `review_requests`+`review_decisions` | `state: candidate→approved→published`；**不写** `permissions(target_type='evidence')`（附录 A 不变量 8）；触发投影构建 | 审计 `memory.published`；默认召回纳入 |
+| reject | 同上权限 | `state: candidate→rejected` + `review_decisions`；保留 Evidence（不级联删，可重审或随保留期到期） | 审计 `memory.rejected` |
+| merge（合并两 unit） | reviewer 对两 unit 均有处置权；选保留方与被合并方 | 保留方 `state→published`；被合并方 `superseded_by=保留方.id`、`state→deprecated`；`memory_evidence_links` 迁移到保留方；`memory_dedup_suggestions.state→accepted` | 被合并方退出召回 |
+| supersede（被新结论替代） | 同 merge 权限 | 旧 unit `superseded_by=新unit.id`、`state→deprecated`；新 unit 经 approve→published | 同上 |
+| promote（提升为 Document 候选） | 跨 `asset_type`（memory→document），走 Document 治理流程 | 原 unit `state→deprecated` 标记已提升；创建 Document Asset 候选 + `review_requests` | Document 审核流程接管 |
+
+不变量：`state='published' AND superseded_by IS NOT NULL` 禁止——已发布 Memory 不能同时被标记替代，supersede 须先 deprecated 再 publish 新版。错误语义（对齐 §11.4）：无权 reviewer 访问 inbox → 返回空列表（不报 403，不泄露存在性）；无权 `memory_evidence_read` → 返回脱敏引用 + `evidence_type` + 校验状态 `denied`，HTTP 200（不报 403/404 区分）；重复 `approve` 幂等，第二次返回当前状态不重复写 `review_decisions`。
 
 ### 8.3 去重与冲突
 
