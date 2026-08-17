@@ -306,15 +306,21 @@ func jsonMap(b []byte) map[string]any {
 	return m
 }
 
-// jsonBytes marshals a map for an INSERT; returns nil for empty so the column
-// receives the table DEFAULT '{}' rather than an explicit null.
+// jsonBytes marshals a map for a NOT NULL jsonb column (structured_payload,
+// quote_locator). A nil/empty map returns the literal '{}' bytes so the column
+// receives a valid empty JSON object, NOT SQL NULL — supplying NULL to a NOT
+// NULL column (even one with a DEFAULT '{}') errors out (SQLSTATE 23502),
+// because pgx only honors DEFAULT when the column is omitted from the INSERT
+// list, not when an explicit nil value is bound. This keeps a caller that
+// leaves StructuredPayload unset (e.g. a test seed, or the distill/D path
+// before it populates entity keys) from crashing on insert.
 func jsonBytes(m map[string]any) any {
-	if m == nil {
-		return nil
+	if len(m) == 0 {
+		return []byte("{}")
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
-		return nil
+		return []byte("{}")
 	}
 	return b
 }
