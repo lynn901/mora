@@ -6,6 +6,7 @@ package postgres
 //
 //   - MemoryEvidenceRepo.Get         → recall.EvidenceReader.Get
 //   - MemoryEvidenceLinkRepo.ListForUnit → recall.LinkReader.ListForUnit
+//   - MemoryUnitRepo.Get             → recall.UnitReader.Get (§4.3 step 1 + §8.3)
 //
 // No new methods: the signatures already match. The compile-time assertions
 // below pin the contract so a future drift in either repo breaks the build
@@ -16,6 +17,7 @@ import (
 
 var _ recall.EvidenceReader = (*MemoryEvidenceRepo)(nil)
 var _ recall.LinkReader = (*MemoryEvidenceLinkRepo)(nil)
+var _ recall.UnitReader = (*MemoryUnitRepo)(nil)
 
 // NewRecallEvidenceReader builds the concrete *MemoryEvidenceRepo so it satisfies
 // BOTH evidence.EvidenceRepo (write/capture path) AND recall.EvidenceReader
@@ -30,3 +32,8 @@ func NewRecallLinkReader(db *DB) *MemoryEvidenceLinkRepo { return &MemoryEvidenc
 // NewRecallFeedbackRepo builds the concrete *FeedbackRepo so it satisfies BOTH
 // evidence.FeedbackRepo AND recall.FeedbackRepo (the §8.3 narrow write port).
 func NewRecallFeedbackRepo(db *DB) *FeedbackRepo { return &FeedbackRepo{db: db} }
+
+// NewRecallUnitReader builds the concrete *MemoryUnitRepo so it satisfies BOTH
+// evidence.MemoryUnitRepo AND recall.UnitReader (the §4.3 step-1 + §8.3 read
+// gate — resolves unit.id → asset_id + created_by_id).
+func NewRecallUnitReader(db *DB) *MemoryUnitRepo { return &MemoryUnitRepo{db: db} }

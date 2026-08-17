@@ -25,7 +25,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/lynn901/mora/internal/domain"
-	"github.com/lynn901/mora/internal/platform/audit"
 	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
@@ -55,14 +54,15 @@ const defaultRecallCap = 20
 // (workspace is mandatory — recall is always workspace-scoped, §8.1).
 var ErrInvalidQuery = errors.New("memory: invalid recall query")
 
-// RecallService composes the recall repo + evidence/link readers + rbac +
-// audit. It is the MemoryQuery.Recall implementation.
+// RecallService composes the recall repo + evidence/link readers + unit reader
+// + rbac + audit. It is the MemoryQuery.Recall implementation.
 type RecallService struct {
-	units    RecallRepo
-	links    LinkReader
-	evidence EvidenceReader
-	rbac     *rbac.Engine // nil = no resource-level authz (dev/test only)
-	audit    *audit.Logger
+	units      RecallRepo
+	links      LinkReader
+	evidence   EvidenceReader
+	unitReader UnitReader   // resolves unit.id → asset_id for the §4.3 step-1 gate
+	rbac       *rbac.Engine // nil = no resource-level authz (dev/test only)
+	audit      AuditLogger  // nil = no audit (dev/test only); local port, no platform/audit dep
 }
 
 // NewRecallService wires the recall service. rbac/audit may be nil in dev/test
@@ -74,10 +74,21 @@ func NewRecallService(units RecallRepo, links LinkReader, evidence EvidenceReade
 	return &RecallService{units: units, links: links, evidence: evidence}
 }
 
+// WithUnits injects the UnitReader used to resolve a unit's anchor asset for
+// the §4.3 step-1 read gate (unit use/read before expanding evidence).
+// Production wiring MUST call this so ReadExcerpt enforces the full §4.3 chain;
+// without it ReadExcerpt skips step 1 (the unit-read gate) and only enforces
+// steps 2–3. Returns the service for chaining.
+func (s *RecallService) WithUnits(unitReader UnitReader) *RecallService {
+	s.unitReader = unitReader
+	return s
+}
+
 // WithAuthz injects the RBAC engine + audit logger and returns the service
 // for chaining. Production wiring MUST call this so the §4.3 Evidence ACL
-// chain + the §9.4 audit events run.
-func (s *RecallService) WithAuthz(engine *rbac.Engine, logger *audit.Logger) *RecallService {
+// chain + the §9.4 audit events run. The logger is the local AuditLogger port
+// — the wiring layer passes a *audit.Logger, which satisfies it.
+func (s *RecallService) WithAuthz(engine *rbac.Engine, logger AuditLogger) *RecallService {
 	s.rbac = engine
 	s.audit = logger
 	return s

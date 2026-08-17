@@ -104,3 +104,19 @@ type EvidenceReader interface {
 type LinkReader interface {
 	ListForUnit(ctx context.Context, memoryUnitID uuid.UUID) ([]domain.MemoryEvidenceLink, error)
 }
+
+// UnitReader is the minimal read port over memory_units the recall + feedback
+// services use to resolve a unit's anchor asset + owner for the §4.3 / §8.3
+// ACL chains. It is deliberately narrow (Get → asset_id + created_by_id +
+// state) so the recall package does not import the evidence package's wider
+// MemoryUnitRepo surface (same narrow-port precedent as LinkReader).
+//
+// A missing/deleted unit returns domain.ErrMemoryUnitNotFound so the caller can
+// collapse to a leak-safe deny/empty (§9.3 — existence never leaks).
+type UnitReader interface {
+	// Get returns the memory unit row for the §4.3 step-1 / §8.3 read gate.
+	// Used to resolve unit.id → unit.asset_id (the TargetAsset to check) and
+	// unit.created_by_id (the owner shortcut). A missing row yields
+	// domain.ErrMemoryUnitNotFound.
+	Get(ctx context.Context, id uuid.UUID) (domain.MemoryUnit, error)
+}

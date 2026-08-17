@@ -231,12 +231,13 @@ func main() {
 	recallUnits := postgres.NewRecallRepo(db)
 	recallLinks := postgres.NewRecallLinkReader(db)
 	recallEvidence := postgres.NewRecallEvidenceReader(db)
+	recallUnitReader := postgres.NewRecallUnitReader(db)
 	recallSvc := recall.NewRecallService(recallUnits, recallLinks, recallEvidence).
-		WithAuthz(engine, auditLogger)
+		WithUnits(recallUnitReader).WithAuthz(engine, auditLogger)
 	feedbackRepo := postgres.NewRecallFeedbackRepo(db)
 	feedbackSink := postgres.NewMemoryFeedbackSink(db, outbox.NewStore())
 	feedbackSvc := recall.NewFeedbackService(feedbackRepo, feedbackSink).
-		WithAuthz(engine, auditLogger)
+		WithUnits(recallUnitReader).WithAuthz(engine, auditLogger)
 	recallH := wh.NewMemoryRecallHandler(recallSvc, feedbackSvc)
 
 	tm := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)

@@ -141,8 +141,21 @@ func (r *RecallRepo) Recall(ctx context.Context, q recall.KnowledgeQuery, includ
 // loadRelations populates the RelationHints for each unit row from
 // knowledge_relations (supersedes/contradicts, §8.2). Bulk-loaded in one query
 // to avoid N+1. Relations are between knowledge_assets; a unit's asset_id is
-// the from anchor. Only the memory-asset relation types that affect authority
-// (supersedes, contradicts) are loaded — the §8.2 "必须展示的冲突" set.
+// the anchor.
+//
+// Direction handling (§8.2 "必须展示的冲突"):
+//   - supersedes is DIRECTIONAL (from supersedes to). A unit is the from side
+//     → it supersedes the target. We anchor on from_asset_id only.
+//   - contradicts is SYMMETRIC. A unit participates whether it is the from
+//     OR the to side. The original query anchored only from_asset_id, so a
+//     unit contradicted BY another (the to side of someone else's row) was
+//     never surfaced — half the conflicts were missing. This fixes that by
+//     UNION-ing the from-side for all types with the to-side for contradicts
+//     only, attaching each to the unit on the matched side with the other
+//     asset as the target.
+//
+// Only the memory-asset relation types that affect authority (supersedes,
+// contradicts) are loaded — the §8.2 "必须展示的冲突" set.
 func (r *RecallRepo) loadRelations(ctx context.Context, rows []recall.UnitRow) error {
 	assetIDs := make([]uuid.UUID, 0, len(rows))
 	assetIdx := make(map[uuid.UUID]int, len(rows))
@@ -160,31 +173,51 @@ func (r *RecallRepo) loadRelations(ctx context.Context, rows []recall.UnitRow) e
 		return nil
 	}
 
-	q := `SELECT from_asset_id, to_asset_id, relation_type, u.statement
-		FROM knowledge_relations kr
-		LEFT JOIN memory_units u ON u.asset_id = kr.to_asset_id
-		WHERE kr.relation_type IN ('supersedes','contradicts')
-		  AND from_asset_id = ANY(@asset_ids)`
+	// Two arms UNION'd:
+	//  arm A (from-side, all types): the unit is from_asset_id — surface the
+	//    to_asset as the conflict target. Covers supersedes (directional) +
+	//    the from-half of contradicts.
+	//  arm B (to-side, contradicts only): the unit is to_asset_id — surface
+	//    the from_asset as the conflict target. Symmetric closure for
+	//    contradicts only (supersedes is directional, so a superseded-by unit
+	//    surfaces its superseder via arm A, not here).
+	// anchor is the unit's asset that matched; target is the other side; the
+	// LEFT JOIN picks up the target's statement as the title.
+	q := `
+		WITH matched AS (
+			SELECT from_asset_id AS anchor, to_asset_id AS target, relation_type
+			FROM knowledge_relations
+			WHERE relation_type IN ('supersedes','contradicts')
+			  AND from_asset_id = ANY(@asset_ids)
+			UNION ALL
+			SELECT to_asset_id AS anchor, from_asset_id AS target, relation_type
+			FROM knowledge_relations
+			WHERE relation_type = 'contradicts'
+			  AND to_asset_id = ANY(@asset_ids)
+		)
+		SELECT m.anchor, m.target, m.relation_type, u.statement
+		FROM matched m
+		LEFT JOIN memory_units u ON u.asset_id = m.target`
 	rowsq, err := r.db.Pool.Query(ctx, q, pgx.NamedArgs{"asset_ids": assetIDs})
 	if err != nil {
 		return err
 	}
 	defer rowsq.Close()
 	for rowsq.Next() {
-		var fromAsset, toAsset uuid.UUID
+		var anchor, target uuid.UUID
 		var relType string
 		var stmtPtr *string
-		if err := rowsq.Scan(&fromAsset, &toAsset, &relType, &stmtPtr); err != nil {
+		if err := rowsq.Scan(&anchor, &target, &relType, &stmtPtr); err != nil {
 			return err
 		}
 		stmt := ""
 		if stmtPtr != nil {
 			stmt = *stmtPtr
 		}
-		if i, ok := assetIdx[fromAsset]; ok {
+		if i, ok := assetIdx[anchor]; ok {
 			rows[i].RelationHints = append(rows[i].RelationHints, recall.RelationHint{
 				RelationType: relType,
-				TargetID:     toAsset,
+				TargetID:     target,
 				TargetTitle:  stmt,
 			})
 		}

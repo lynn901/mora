@@ -26,7 +26,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/lynn901/mora/internal/domain"
-	"github.com/lynn901/mora/internal/platform/audit"
 	"github.com/lynn901/mora/internal/platform/rbac"
 )
 
@@ -57,27 +56,42 @@ var ErrFeedbackForbidden = errors.New("memory: feedback not permitted or unit no
 var ErrFeedbackInvalid = errors.New("memory: invalid feedback type")
 
 // FeedbackService composes the FeedbackRepo + the FeedbackSink (outbox-in-tx)
-// + rbac + audit. It is the ONLY writer of memory_feedback rows from the
+// + rbac + audit + the UnitReader (to resolve a unit's anchor asset + owner for
+// the §8.3 read gate). It is the ONLY writer of memory_feedback rows from the
 // feedback entry; the repo's AdjustAuthority is called in the same tx via the
 // sink so the authority delta + the feedback row are atomic.
 type FeedbackService struct {
 	feedback FeedbackRepo
 	sink     FeedbackSink
-	rbac     *rbac.Engine // nil = no resource-level authz (dev/test only)
-	audit    *audit.Logger
+	units    UnitReader    // resolves unit.id → asset_id + created_by_id (§8.3 gate)
+	rbac     *rbac.Engine  // nil = no resource-level authz (dev/test only)
+	audit    AuditLogger   // nil = no audit (dev/test only); local port, no platform/audit dep
 }
 
 // NewFeedbackService wires the feedback service. sink may be nil ONLY in
 // dev/test when revalidate is never triggered; production MUST inject it so
-// the §6.3 outbox-in-tx boundary runs. rbac/audit may be nil in dev/test.
+// the §6.3 outbox-in-tx boundary runs. units may be nil ONLY in dev/test when
+// the §8.3 read gate is skipped (no rbac); production MUST inject it so the
+// gate resolves the unit's anchor asset. rbac/audit may be nil in dev/test.
 func NewFeedbackService(feedback FeedbackRepo, sink FeedbackSink) *FeedbackService {
 	return &FeedbackService{feedback: feedback, sink: sink}
 }
 
+// WithUnits injects the UnitReader used to resolve a unit's anchor asset +
+// owner for the §8.3 read gate. Production wiring MUST call this so the gate
+// checks TargetAsset against the unit's asset_id (not the unit id, which the
+// AssetLocator cannot resolve — defect-1 root cause). Returns the service for
+// chaining.
+func (s *FeedbackService) WithUnits(units UnitReader) *FeedbackService {
+	s.units = units
+	return s
+}
+
 // WithAuthz injects the RBAC engine + audit logger. Production wiring MUST
-// call this so the §4.3 Evidence ACL chain (the unit read gate) + the §9.4
-// `memory.feedback` audit row run.
-func (s *FeedbackService) WithAuthz(engine *rbac.Engine, logger *audit.Logger) *FeedbackService {
+// call this so the §8.3 unit-read gate + the §9.4 `memory.feedback` audit row
+// run. The logger is the local AuditLogger port — the wiring layer passes a
+// *audit.Logger, which satisfies it (same Record signature).
+func (s *FeedbackService) WithAuthz(engine *rbac.Engine, logger AuditLogger) *FeedbackService {
 	s.rbac = engine
 	s.audit = logger
 	return s
@@ -150,28 +164,47 @@ func (s *FeedbackService) Submit(ctx context.Context, auth AuthContext, req Feed
 	return id, nil
 }
 
-// mayFeedback gates feedback submission on the unit read (§9.3 leak-safe).
-// An admin may always submit (the review view). Without an rbac engine
-// (dev/test), allow — the production wiring MUST inject rbac.
+// mayFeedback gates feedback submission on the unit read (§8.3 / §9.3
+// leak-safe). The gate resolves the unit's anchor asset (unit.asset_id — the
+// real TargetAsset) and checks use/read on THAT, NOT on the unit id. The
+// AssetLocator resolves TargetAsset against knowledge_assets.id; a
+// memory_unit.id never matches (defect-1 root cause), so passing the unit id
+// made every non-admin caller fail. An admin short-circuits (review view);
+// the unit's owner short-circuits (mirrors canReadEvidence, §8.3). A missing
+// unit yields a leak-safe deny (existence never leaks, §9.3). Without an
+// rbac engine (dev/test), allow — production wiring MUST inject rbac.
 func (s *FeedbackService) mayFeedback(ctx context.Context, auth AuthContext, req FeedbackRequest) bool {
 	if auth.IsAdmin {
 		return true
 	}
 	if s.rbac == nil {
-		return true // dev/test only; production MUST inject rbac.
+		return true // dev/test only; production MUST inject rbac + units.
 	}
-	// The unit is a knowledge_asset(target_type='asset'); use/read on the
+	// Resolve the unit so we check TargetAsset against its asset_id, not the
+	// unit id (the AssetLocator cannot resolve a memory_unit.id). A missing
+	// unit → leak-safe deny (indistinguishable from not-found, §9.3).
+	if s.units == nil {
+		return false // fail closed when rbac is wired but units is not.
+	}
+	unit, err := s.units.Get(ctx, req.MemoryUnitID)
+	if err != nil || unit.AssetID == uuid.Nil {
+		return false // leak-safe: missing/unresolvable unit → deny.
+	}
+	// Owner shortcut (mirrors canReadEvidence §8.3): the unit's creator may
+	// always feedback on their own unit. Without this, the owner of a private
+	// candidate could not submit feedback (defect-1).
+	if unit.CreatedByID == auth.PrincipalID {
+		return true
+	}
+	// §8.3 read gate: use OR read on the unit's anchor asset. use/read on the
 	// asset means the caller may read the memory → may feedback on it.
 	dec, err := s.rbac.Check(ctx, auth.PrincipalID, auth.GroupIDs,
-		domain.TargetAsset, req.MemoryUnitID, domain.ActionUse)
-	if err != nil {
-		return false
-	}
-	if dec.Allowed {
+		domain.TargetAsset, unit.AssetID, domain.ActionUse)
+	if err == nil && dec.Allowed {
 		return true
 	}
 	dec, err = s.rbac.Check(ctx, auth.PrincipalID, auth.GroupIDs,
-		domain.TargetAsset, req.MemoryUnitID, domain.ActionRead)
+		domain.TargetAsset, unit.AssetID, domain.ActionRead)
 	if err != nil {
 		return false
 	}

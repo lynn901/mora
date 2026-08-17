@@ -103,8 +103,29 @@ func (s *RecallService) ReadExcerpt(ctx context.Context, auth AuthContext, req R
 		}, nil
 	}
 
-	// §4.3 ACL chain. Step 2: Evidence read (target_type='evidence').
-	allowed, reason := s.canReadEvidence(ctx, auth, ev)
+	// §4.3 ACL chain step 1: Memory use/read — the caller must have use/read
+	// on the memory_unit that REFERENCES the evidence (defect-2: previously
+	// only steps 2–3 ran, so a caller with evidence read but no unit read
+	// could expand the excerpt). The unit is a knowledge_asset(target_type=
+	// 'asset'); resolve unit.id → unit.asset_id (the AssetLocator cannot
+	// resolve a memory_unit.id directly) and check TargetAsset. An admin
+	// short-circuits; a missing unit → leak-safe deny (§9.3). When no
+	// unitReader is wired (dev/test), skip step 1 (fail-open for the legacy
+	// dev path — production MUST inject it via WithUnits).
+	allowed, reason := s.canReadUnit(ctx, auth, req)
+	if !allowed {
+		s.auditEvidenceRead(ctx, auth, req, false, reason)
+		return EvidenceExcerpt{
+			EvidenceID:         req.EvidenceID,
+			Readable:           false,
+			EvidenceType:       string(ev.SourceKind),
+			VerificationStatus: string(ev.State),
+			EvidenceMissing:    ev.State == domain.EvidencePurged,
+		}, nil
+	}
+
+	// §4.3 ACL chain steps 2–3: Evidence read + source_asset current ACL.
+	allowed, reason = s.canReadEvidence(ctx, auth, ev)
 	if !allowed {
 		s.auditEvidenceRead(ctx, auth, req, false, reason)
 		// Return the redacted reference + evidence_type + verification
@@ -136,6 +157,54 @@ func (s *RecallService) ReadExcerpt(ctx context.Context, auth AuthContext, req R
 		VerificationStatus: string(ev.State),
 		EvidenceMissing:    ev.State == domain.EvidencePurged,
 	}, nil
+}
+
+// canReadUnit evaluates the §4.3 chain step 1: the caller must have use/read
+// on the memory_unit that references the evidence (defect-2). The unit is a
+// knowledge_asset; resolve unit.id → unit.asset_id (the AssetLocator resolves
+// TargetAsset against knowledge_assets.id, NOT memory_units.id) and check
+// TargetAsset. An admin short-circuits to allow; the unit's owner
+// short-circuits (mirrors §8.3). A missing unit → leak-safe deny (§9.3 —
+// indistinguishable from a deny). Without a unitReader (dev/test only) the
+// step is skipped (fail-open for the legacy dev path; production MUST inject
+// it via WithUnits so the full chain runs). Returns (allowed, reason) where
+// reason is auditable (§9.4).
+func (s *RecallService) canReadUnit(ctx context.Context, auth AuthContext, req ReadExcerptRequest) (bool, string) {
+	if auth.IsAdmin {
+		return true, "admin"
+	}
+	if s.unitReader == nil {
+		// Dev/test without a unit reader: skip step 1 (legacy fail-open). The
+		// §4.3 steps 2–3 still run; production MUST inject the reader.
+		return true, "no_unit_reader"
+	}
+	unit, err := s.unitReader.Get(ctx, req.MemoryUnitID)
+	if err != nil || unit.AssetID == uuid.Nil {
+		// §9.3 leak-safe: a missing/unresolvable unit is indistinguishable
+		// from a deny — the evidence excerpt is not expanded.
+		return false, "unit_not_found"
+	}
+	// Owner shortcut (§8.3): the unit's creator may read evidence referenced
+	// by their own unit.
+	if unit.CreatedByID == auth.PrincipalID {
+		return true, "owner"
+	}
+	if s.rbac == nil {
+		// Dev/test without rbac: fail closed at step 1 (the unit-read gate).
+		return false, "no_rbac"
+	}
+	// Step 1: use OR read on the unit's anchor asset.
+	dec, err := s.rbac.Check(ctx, auth.PrincipalID, auth.GroupIDs,
+		domain.TargetAsset, unit.AssetID, domain.ActionUse)
+	if err == nil && dec.Allowed {
+		return true, "unit_use"
+	}
+	dec, err = s.rbac.Check(ctx, auth.PrincipalID, auth.GroupIDs,
+		domain.TargetAsset, unit.AssetID, domain.ActionRead)
+	if err != nil || !dec.Allowed {
+		return false, "unit_denied"
+	}
+	return true, "unit_read"
 }
 
 // canReadEvidence evaluates the §4.3 chain step 2 (Evidence read) + step 3
