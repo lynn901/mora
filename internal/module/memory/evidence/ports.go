@@ -54,6 +54,12 @@ type MemoryUnitRepo interface {
 	// Candidate Inbox view, §6.3). Private candidates are filtered to the owner
 	// by the service layer above; this repo only carries the state filter.
 	ListCandidates(ctx context.Context, workspaceID uuid.UUID) ([]domain.MemoryUnit, error)
+	// ListCandidateNeighbors returns candidate/published units in the same
+	// workspace + memory_type whose validity window overlaps the given unit's,
+	// for the dedup structural filter (§6.1 step 1). The dedup service feeds
+	// these to ClassifyRelation; it never auto-merges (D7). excludeID is the
+	// unit currently being classified — it is omitted from its own neighbor set.
+	ListCandidateNeighbors(ctx context.Context, workspaceID uuid.UUID, memoryType domain.MemoryType, excludeID uuid.UUID) ([]domain.MemoryUnit, error)
 	// SetState transitions a unit's state (§6.2). Published requires a
 	// review_decision by the caller — the repo does not enforce review here.
 	SetState(ctx context.Context, id uuid.UUID, state domain.MemoryUnitState) error
@@ -62,6 +68,11 @@ type MemoryUnitRepo interface {
 	// MarkEvidenceMissing flags a unit whose backing evidence is gone (D3
 	// propagation): the unit exits high-authority recall but stays readable.
 	MarkEvidenceMissing(ctx context.Context, id uuid.UUID) error
+	// SetAssetVersionID pins a unit to a knowledge_asset_versions row. The
+	// manual-publish path (§6.2) creates the memory asset version + sets it on
+	// every published unit of that asset, so the published Memory is
+	// version-traceable like a document asset.
+	SetAssetVersionID(ctx context.Context, id, assetVersionID uuid.UUID) error
 }
 
 // EvidenceLinkRepo is the persistence port over memory_evidence_links (§2.3).
@@ -116,6 +127,74 @@ type DedupSuggestionRepo interface {
 	// Resolve records a reviewer disposition (accepted/rejected). Writing
 	// memory_units.superseded_by / knowledge_relations is the caller's job.
 	Resolve(ctx context.Context, id uuid.UUID, state domain.DedupSuggestionState, resolvedByType domain.OwnerType, resolvedByID uuid.UUID) error
+}
+
+// KnowledgeRelationWriter is the port over knowledge_relations for the memory
+// dedup/publish paths (§6.1, §6.2). It is a narrow slice of the 014
+// knowledge_relations table: a contradicts edge (§8.3 — the dedup service
+// records a contradicts RELATION suggestion here as a pending reviewer-facing
+// edge, distinct from memory_dedup_suggestions), and a supersedes edge (§6.2
+// — a reviewer-confirmed supersede between two memory assets). Relations never
+// cross workspaces (014 CHECK + application-enforced).
+//
+// This port is deliberately separate from DedupSuggestionRepo so the dedup
+// service's contradicts landing does NOT pollute the suggestion-table
+// semantics: a contradicts suggestion row in memory_dedup_suggestions tracks
+// the *proposal* (pending/accepted/rejected); the knowledge_relations row is
+// the *relation itself* that recall surfaces (§8.2 — recall returns
+// contradicts Relations, never silently picking one answer).
+type KnowledgeRelationWriter interface {
+	// InsertRelation inserts a knowledge_relations row. The caller pins the
+	// workspace_id; the implementation does not re-resolve it (no cross-ws
+	// leak). Returns the new row id.
+	InsertRelation(ctx context.Context, r domain.KnowledgeRelation) (uuid.UUID, error)
+}
+
+// ReviewGate is the persistence port over review_requests + review_decisions
+// for the manual-publish path (§6.2 — published requires a review_decision;
+// first version has NO auto-publish, 附录 A 不变量 9). It mirrors
+// source.ReviewRepo's CreateRequest/AppendDecision but is owned by the memory
+// module so the inbox service does not import the source package.
+type ReviewGate interface {
+	// CreateRequest inserts a pending review_request for a memory asset
+	// version. The caller has already created the asset_version; the gate only
+	// records the request + the governance profile snapshot.
+	CreateRequest(ctx context.Context, req *domain.ReviewRequest) error
+	// AppendDecision adds an immutable review_decision + projects the request
+	// status (approve/reject/merge/promote/deprecate). The caller passes the
+	// acting reviewer's subject type + id + the policy snapshot tag.
+	AppendDecision(ctx context.Context, d *domain.ReviewDecisionRecord) error
+}
+
+// MemoryAssetVersionSink is the transactional boundary for manual publish
+// (§6.2): it creates the knowledge_asset_versions row for a published memory
+// unit set + the FTS asset_projection + stamps the unit state, all in one tx.
+// The service composes it with the ReviewGate + KnowledgeRelationWriter so
+// publish is atomic and never writes an Evidence ACL (附录 A 不变量 8).
+type MemoryAssetVersionSink interface {
+	// PublishUnit creates a knowledge_asset_versions row (governance_status=
+	// 'published', build_status='ready') for the memory asset, writes the FTS
+	// projection, sets the unit's asset_version_id + state='published', and
+	// records the review_decision — all in one tx. The caller passes the unit
+	// id + the reviewer identity + the governance profile id + the policy
+	// snapshot tag. Returns the new asset_version_id.
+	PublishUnit(ctx context.Context, req PublishUnitRequest) (uuid.UUID, error)
+}
+
+// PublishUnitRequest is the input to MemoryAssetVersionSink.PublishUnit.
+type PublishUnitRequest struct {
+	UnitID              uuid.UUID
+	WorkspaceID         uuid.UUID
+	AssetID             uuid.UUID
+	GovernanceProfileID uuid.UUID
+	ReviewerType        domain.SubjectType
+	ReviewerID          uuid.UUID
+	PolicyVersion       string
+	RationaleRedacted   string
+	// FTSProvider/FTSProviderVersion identify the projection row (§4.5). The
+	// memory FTS projection reuses the zhparser configuration like documents.
+	FTSProvider        string
+	FTSProviderVersion string
 }
 
 // KEK is the envelope key-encryption-key port (D4). It wraps a per-evidence

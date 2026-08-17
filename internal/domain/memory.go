@@ -65,6 +65,22 @@ const (
 	OwnerServiceAccount OwnerType = "service_account"
 )
 
+// ToSubjectType maps an OwnerType to the closest SubjectType (the two enums
+// overlap for user/agent/service_account; group-owned evidence is rare and
+// resolves to service_account — the actor/created_by field is audit metadata,
+// not an authz principal). Used where a memory-owned row feeds an event actor
+// or a knowledge_relations.created_by_type (which is a SubjectType column).
+func (o OwnerType) ToSubjectType() SubjectType {
+	switch o {
+	case OwnerUser:
+		return SubjectUser
+	case OwnerAgent:
+		return SubjectAgent
+	default:
+		return SubjectServiceAccount
+	}
+}
+
 // MemoryEvidence is raw evidence L0 with an independent ACL (D2, §2.1).
 // Small fragments (≤64KiB redacted) store AES-256-GCM ciphertext in
 // EncryptedContent with the DEK envelope-wrapped by a versioned KEK; large

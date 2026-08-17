@@ -105,6 +105,29 @@ func (r *MemoryUnitRepo) ListCandidates(ctx context.Context, workspaceID uuid.UU
 	return collectUnits(rows)
 }
 
+// ListCandidateNeighbors returns candidate/published units in the same workspace
+// + memory_type for the dedup structural filter (§6.1 step 1). The dedup service
+// feeds these to ClassifyRelation; it never auto-merges (D7). The excludeID is
+// the unit currently being classified (omitted from its own neighbor set). Only
+// non-deprecated, non-rejected units are considered — a rejected/deprecated unit
+// is not a live neighbor a new candidate could duplicate/extend/contradict.
+func (r *MemoryUnitRepo) ListCandidateNeighbors(ctx context.Context, workspaceID uuid.UUID, memoryType domain.MemoryType, excludeID uuid.UUID) ([]domain.MemoryUnit, error) {
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT id, workspace_id, asset_id, asset_version_id, memory_type, statement,
+		       structured_payload, confidence, valid_from, expires_at, state,
+		       superseded_by, evidence_missing, authority, created_by_type, created_by_id,
+		       created_at, updated_at
+		FROM memory_units
+		WHERE workspace_id = $1 AND memory_type = $2 AND id <> $3
+		  AND state IN ('candidate','published')
+		ORDER BY created_at DESC`, workspaceID, string(memoryType), excludeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return collectUnits(rows)
+}
+
 // SetState transitions a unit's state (§6.2). Published requires a
 // review_decision by the caller — the repo does not enforce review here. The
 // CHECK (state='published' AND superseded_by IS NULL) is enforced by the DB.
@@ -141,6 +164,23 @@ func (r *MemoryUnitRepo) SetSupersededBy(ctx context.Context, id, supersededBy u
 func (r *MemoryUnitRepo) MarkEvidenceMissing(ctx context.Context, id uuid.UUID) error {
 	tag, err := r.db.Pool.Exec(ctx, `
 		UPDATE memory_units SET evidence_missing = true, updated_at = now() WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrMemoryUnitNotFound
+	}
+	return nil
+}
+
+// SetAssetVersionID pins a unit to a knowledge_asset_versions row (§6.2 manual
+// publish). The publish sink creates the memory asset version + sets it on the
+// published unit in the same transaction, so the published Memory is
+// version-traceable like a document asset.
+func (r *MemoryUnitRepo) SetAssetVersionID(ctx context.Context, id, assetVersionID uuid.UUID) error {
+	tag, err := r.db.Pool.Exec(ctx, `
+		UPDATE memory_units SET asset_version_id = $2, updated_at = now() WHERE id = $1`,
+		id, assetVersionID)
 	if err != nil {
 		return err
 	}

@@ -142,6 +142,15 @@ const (
 // KnowledgeRelation is a directed edge between two assets (14 §2.1).
 // from_asset_id and to_asset_id must share a workspace (application-enforced,
 // and the workspace_id column pins it).
+//
+// FromUnitID/ToUnitID carry per-unit granularity for memory intra-asset edges
+// (021): a contradicts/supersede edge between two memory_units under the SAME
+// knowledge_assets(memory) row has from_asset_id = to_asset_id (the relaxed
+// 021 CHECK permits this for contradicts/supersedes only), and the unit ids
+// disambiguate which two units the edge joins. Cross-asset edges
+// (derived_from/explains/uses/related_to) leave these nil — the asset ids are
+// the join key. Recall (§8.2) reads *_unit_id directly instead of joining
+// memory_units per query, so the per-unit granularity is stored, not derived.
 type KnowledgeRelation struct {
 	ID            UUID
 	WorkspaceID   UUID
@@ -150,6 +159,11 @@ type KnowledgeRelation struct {
 	RelationType  RelationType
 	ToAssetID     UUID
 	ToVersionID   *UUID
+	// FromUnitID/ToUnitID are set for memory intra-asset contradicts/supersede
+	// edges (021); nil for cross-asset edges. No FK — memory_units deletion is
+	// propagated by the §9.2 reaper, which cleans these rows in the same path.
+	FromUnitID    *UUID
+	ToUnitID      *UUID
 	Origin        RelationOrigin
 	Confidence    *float64
 	CreatedByType SubjectType
