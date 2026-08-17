@@ -69,6 +69,14 @@ type EvidenceLinkRepo interface {
 	Insert(ctx context.Context, l domain.MemoryEvidenceLink) error
 	ListForUnit(ctx context.Context, memoryUnitID uuid.UUID) ([]domain.MemoryEvidenceLink, error)
 	ListForEvidence(ctx context.Context, evidenceID uuid.UUID) ([]domain.MemoryEvidenceLink, error)
+	// CountAvailableEvidence counts a unit's links whose backing evidence is
+	// still readable (state != 'purged' AND deleted_at IS NULL). The deletion
+	// propagation path (§9.2) uses this to decide whether to mark a unit
+	// evidence_missing: when the purged evidence was a unit's last independent
+	// support, the count drops to 0 and the unit exits high-authority recall.
+	// excludeEvidenceID lets the caller ask "how much is left if THIS one goes"
+	// in one query without a read-then-write race on the row being purged.
+	CountAvailableEvidence(ctx context.Context, memoryUnitID, excludeEvidenceID uuid.UUID) (int, error)
 }
 
 // RetentionPolicyRepo is the persistence port over memory_retention_policies
@@ -84,6 +92,13 @@ type RetentionPolicyRepo interface {
 	// retention reaper (D3 → pending_purge). Belongs here because expiry is
 	// derived from policy + evidence.expires_at.
 	PurgeDue(ctx context.Context, now time.Time, limit int) ([]domain.MemoryEvidence, error)
+	// PurgeReady returns pending_purge evidence whose purge_after grace window
+	// has elapsed (pending_purged_at + policy.purge_after ≤ now), for the
+	// reaper's second half (D3 → purged). Evidence without a retention_policy
+	// (policy_id NULL) is still returned when pending_purged_at + a default
+	// grace has passed, so an explicitly-deleted evidence with no policy row
+	// is not stranded in pending_purge forever. Limited per tick.
+	PurgeReady(ctx context.Context, now time.Time, defaultGrace time.Duration, limit int) ([]domain.MemoryEvidence, error)
 }
 
 // FeedbackRepo is the persistence port over memory_feedback (§2.5, D8).

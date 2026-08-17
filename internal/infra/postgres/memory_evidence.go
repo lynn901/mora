@@ -71,7 +71,7 @@ func (r *MemoryEvidenceRepo) Get(ctx context.Context, id uuid.UUID) (domain.Memo
 		       source_asset_id, source_asset_version_id, visibility, captured_authz_revision,
 		       content_hash, encrypted_content, storage_key, key_version,
 		       redacted_excerpt, classification, retention_policy_id, state,
-		       created_at, expires_at, purged_at, deleted_at
+		       created_at, expires_at, pending_purged_at, purged_at, deleted_at
 		FROM memory_evidence
 		WHERE id = $1 AND deleted_at IS NULL`, id)
 	e, err := scanEvidence(row.Scan)
@@ -91,7 +91,7 @@ func (r *MemoryEvidenceRepo) ListByOwner(ctx context.Context, workspaceID uuid.U
 		       source_asset_id, source_asset_version_id, visibility, captured_authz_revision,
 		       content_hash, encrypted_content, storage_key, key_version,
 		       redacted_excerpt, classification, retention_policy_id, state,
-		       created_at, expires_at, purged_at, deleted_at
+		       created_at, expires_at, pending_purged_at, purged_at, deleted_at
 		FROM memory_evidence
 		WHERE workspace_id = $1 AND owner_type = $2 AND owner_id = $3 AND deleted_at IS NULL
 		ORDER BY created_at DESC`, workspaceID, string(ownerType), ownerID)
@@ -110,7 +110,7 @@ func (r *MemoryEvidenceRepo) ListBySourceAsset(ctx context.Context, sourceAssetI
 		       source_asset_id, source_asset_version_id, visibility, captured_authz_revision,
 		       content_hash, encrypted_content, storage_key, key_version,
 		       redacted_excerpt, classification, retention_policy_id, state,
-		       created_at, expires_at, purged_at, deleted_at
+		       created_at, expires_at, pending_purged_at, purged_at, deleted_at
 		FROM memory_evidence
 		WHERE source_asset_id = $1 AND deleted_at IS NULL`, sourceAssetID)
 	if err != nil {
@@ -120,12 +120,15 @@ func (r *MemoryEvidenceRepo) ListBySourceAsset(ctx context.Context, sourceAssetI
 	return collectEvidence(rows)
 }
 
-// MarkPendingPurge flips an active evidence to pending_purge (D3 expiry). A
-// pending_purge/purged row is a no-op. Returns ErrEvidenceNotFound if the row
-// is missing/deleted so the reaper can't infer existence of purged rows.
+// MarkPendingPurge flips an active evidence to pending_purge (D3 expiry) and
+// stamps pending_purged_at = now() — the start of the purge_after grace window
+// the reaper counts from (019 migration / §9.2). A pending_purge/purged row is a
+// no-op. Returns ErrEvidenceNotFound if the row is missing/deleted so the
+// reaper can't infer existence of purged rows.
 func (r *MemoryEvidenceRepo) MarkPendingPurge(ctx context.Context, id uuid.UUID) error {
 	tag, err := r.db.Pool.Exec(ctx, `
-		UPDATE memory_evidence SET state = 'pending_purge'
+		UPDATE memory_evidence
+		SET state = 'pending_purge', pending_purged_at = now()
 		WHERE id = $1 AND state = 'active' AND deleted_at IS NULL`, id)
 	if err != nil {
 		return err
@@ -175,20 +178,20 @@ type scanFunc func(dest ...any) error
 func scanEvidence(scan scanFunc) (domain.MemoryEvidence, error) {
 	var e domain.MemoryEvidence
 	var (
-		ownerType, sourceKind, visibility, state string
-		class                                    *string
-		srcAsset, srcAssetVer, retentionID       *uuid.UUID
-		encrypted                                []byte
-		storageKey                               *string
-		keyVersion                               *int
-		expiresAt, purgedAt, deletedAt           *time.Time
+		ownerType, sourceKind, visibility, state        string
+		class                                           *string
+		srcAsset, srcAssetVer, retentionID              *uuid.UUID
+		encrypted                                       []byte
+		storageKey                                      *string
+		keyVersion                                      *int
+		expiresAt, pendingPurgedAt, purgedAt, deletedAt *time.Time
 	)
 	err := scan(
 		&e.ID, &e.WorkspaceID, &ownerType, &e.OwnerID, &sourceKind, &e.SourceRef,
 		&srcAsset, &srcAssetVer, &visibility, &e.CapturedAuthzRevision,
 		&e.ContentHash, &encrypted, &storageKey, &keyVersion,
 		&e.RedactedExcerpt, &class, &retentionID, &state,
-		&e.CreatedAt, &expiresAt, &purgedAt, &deletedAt,
+		&e.CreatedAt, &expiresAt, &pendingPurgedAt, &purgedAt, &deletedAt,
 	)
 	if err != nil {
 		return domain.MemoryEvidence{}, err
@@ -209,6 +212,7 @@ func scanEvidence(scan scanFunc) (domain.MemoryEvidence, error) {
 	}
 	e.RetentionPolicyID = retentionID
 	e.ExpiresAt = expiresAt
+	e.PendingPurgedAt = pendingPurgedAt
 	e.PurgedAt = purgedAt
 	e.DeletedAt = deletedAt
 	return e, nil
