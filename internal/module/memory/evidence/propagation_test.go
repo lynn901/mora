@@ -116,6 +116,17 @@ func (u *fakeUnitRepo) MarkEvidenceMissing(_ context.Context, id uuid.UUID) erro
 	return nil
 }
 
+// ListCandidateNeighbors + SetAssetVersionID are no-ops here: the propagation
+// reaper path never exercises dedup neighbor recall or publish-time version
+// pinning. They satisfy the MemoryUnitRepo interface (grown by the distill +
+// manual-publish commits) so this fake still compiles as a stand-in.
+func (u *fakeUnitRepo) ListCandidateNeighbors(context.Context, uuid.UUID, domain.MemoryType, uuid.UUID) ([]domain.MemoryUnit, error) {
+	return nil, nil
+}
+func (u *fakeUnitRepo) SetAssetVersionID(context.Context, uuid.UUID, uuid.UUID) error {
+	return nil
+}
+
 type fakeLinkRepo struct {
 	// per-evidence list of (unitID) links
 	linksForEv map[uuid.UUID][]uuid.UUID

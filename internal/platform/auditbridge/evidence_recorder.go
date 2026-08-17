@@ -1,16 +1,22 @@
-// Package audit — evidence audit bridge (design-docs/18 §9.4).
+// Package auditbridge adapts the append-only audit log (07 §5) to the
+// evidence.AuditRecorder port (design-docs/18 §9.4).
 //
-// EvidenceAuditRecorder adapts the append-only audit log (07 §5) to the
-// evidence.AuditRecorder port (internal/module/memory/evidence). The deletion
-// propagation path (§9.2) emits the evidence.purged audit row through this
-// bridge so the erase is auditable as evidence_id + content_hash + purged_at,
-// with no original content (12 §8.4 审计记录只保留不可逆摘要与 ID).
+// It lives in its own leaf package — NOT in platform/audit — to break the
+// import cycle that arose when the bridge was originally placed in package
+// audit: platform/audit imported module/memory/evidence (for the
+// AuditRecorder port) while evidence imported platform/audit (for the Logger
+// the capture/inbox services gate on). A bridge that depends on both sides
+// must sit in a leaf that neither side imports back; platform/audit stays a
+// pure leaf (Repo + Logger, no module dependency) and evidence stays a leaf
+// over platform/audit only.
 //
-// The bridge lives in platform/audit (not in the evidence package) because it
-// depends on the audit Repo port + domain.AuditLog shape; the evidence package
-// stays a leaf with no platform dependency, so the propagation service composes
-// this adapter from the wiring layer (cmd/mora-api, cmd/knowledge-worker).
-package audit
+// The wiring layer (cmd/mora-api, cmd/knowledge-worker) composes this adapter:
+// it owns a *audit.Repo and a *audit.Logger, hands the Logger to the
+// evidence/inbox services via WithAuthz, and hands NewEvidenceAuditRecorder
+// to the propagation service as its AuditRecorder. One audit implementation,
+// two adaptation shapes (Logger for the inline capture path, Recorder for the
+// §9.4 erase audit) — both backed by the same append-only table.
+package auditbridge
 
 import (
 	"context"
@@ -18,13 +24,14 @@ import (
 
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/module/memory/evidence"
+	"github.com/lynn901/mora/internal/platform/audit"
 )
 
 // EvidenceAuditRecorder bridges audit.Repo → evidence.AuditRecorder.
-type EvidenceAuditRecorder struct{ repo Repo }
+type EvidenceAuditRecorder struct{ repo audit.Repo }
 
 // NewEvidenceAuditRecorder wraps an audit.Repo for the §9.4 evidence events.
-func NewEvidenceAuditRecorder(repo Repo) *EvidenceAuditRecorder {
+func NewEvidenceAuditRecorder(repo audit.Repo) *EvidenceAuditRecorder {
 	return &EvidenceAuditRecorder{repo: repo}
 }
 
