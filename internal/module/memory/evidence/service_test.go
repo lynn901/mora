@@ -55,6 +55,9 @@ func (f *fakeRetention) ListForWorkspace(ctx context.Context, ws uuid.UUID) ([]d
 func (f *fakeRetention) PurgeDue(ctx context.Context, now time.Time, limit int) ([]domain.MemoryEvidence, error) {
 	return nil, nil
 }
+func (f *fakeRetention) PurgeReady(ctx context.Context, now time.Time, defaultGrace time.Duration, limit int) ([]domain.MemoryEvidence, error) {
+	return nil, nil
+}
 
 // fakeKEK + fakeCrypto satisfy the ports for the inline path.
 type fakeKEK struct{ version int }
