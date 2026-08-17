@@ -31,10 +31,21 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/lynn901/mora/internal/domain"
-	"github.com/lynn901/mora/internal/platform/audit"
 	"github.com/lynn901/mora/internal/platform/outbox"
 	"github.com/lynn901/mora/internal/platform/rbac"
 )
+
+// AuditLogger is the audit port the capture service uses to record denied
+// capture decisions (§9.4 `evidence.captured`-family audit). It is a LOCAL
+// port (not the platform/audit.Logger concrete type) so the evidence package
+// stays a leaf — no platform dependency — and there is no import cycle with
+// platform/audit (whose EvidenceAuditRecorder bridges back into this package
+// for the §9.2 propagation events). The wiring layer (cmd/mora-api) injects a
+// *audit.Logger, which satisfies this port.
+type AuditLogger interface {
+	Record(ctx context.Context, actorType string, actorID *uuid.UUID, action string,
+		targetType string, targetID *uuid.UUID, detail any, ip, ua string)
+}
 
 // CaptureRequest is the input to Service.Capture — the minimal, caller-trimmed
 // evidence snippet + its non-executable source locator (D9, §4.1 item 3).
@@ -80,7 +91,7 @@ type Service struct {
 	objects ObjectStore
 	outbox  *outbox.Store
 	rbac    *rbac.Engine // nil = no resource-level authz (dev/test only)
-	audit   *audit.Logger
+	audit   AuditLogger
 }
 
 // AuthContext carries the caller identity needed for the workspace-write RBAC
@@ -109,8 +120,10 @@ func NewService(repos EvidenceRepo, retention RetentionPolicyRepo, kek KEK, cryp
 
 // WithAuthz injects the RBAC engine + audit logger and returns the service for
 // chaining. Production wiring MUST call this so Capture gates on workspace
-// write (§4.4); without it the service runs RBAC-free (dev/test only).
-func (s *Service) WithAuthz(engine *rbac.Engine, logger *audit.Logger) *Service {
+// write (§4.4); without it the service runs RBAC-free (dev/test only). The
+// logger is the local AuditLogger port — the wiring layer passes a
+// *audit.Logger, which satisfies it (same Record signature).
+func (s *Service) WithAuthz(engine *rbac.Engine, logger AuditLogger) *Service {
 	s.rbac = engine
 	s.audit = logger
 	return s

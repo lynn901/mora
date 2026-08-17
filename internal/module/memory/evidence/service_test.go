@@ -55,6 +55,9 @@ func (f *fakeRetention) ListForWorkspace(ctx context.Context, ws uuid.UUID) ([]d
 func (f *fakeRetention) PurgeDue(ctx context.Context, now time.Time, limit int) ([]domain.MemoryEvidence, error) {
 	return nil, nil
 }
+func (f *fakeRetention) PurgeReady(ctx context.Context, now time.Time, defaultGrace time.Duration, limit int) ([]domain.MemoryEvidence, error) {
+	return nil, nil
+}
 
 // PurgeReady satisfies the second reaper half (D3 → purged). The capture
 // service never exercises reaping, so this returns no purge work — mirrors

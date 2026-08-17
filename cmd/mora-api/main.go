@@ -28,14 +28,15 @@ import (
 	"github.com/lynn901/mora/internal/infra/ragwiring"
 	"github.com/lynn901/mora/internal/module/knowledge/asset"
 	cgservice "github.com/lynn901/mora/internal/module/knowledge/codegraph/service"
+	srcsvc "github.com/lynn901/mora/internal/module/knowledge/source/service"
 	wikisvc "github.com/lynn901/mora/internal/module/knowledge/wiki/service"
 	"github.com/lynn901/mora/internal/module/memory/evidence"
+	"github.com/lynn901/mora/internal/module/memory/recall"
 	"github.com/lynn901/mora/internal/module/mora/collab"
 	"github.com/lynn901/mora/internal/module/mora/event"
 	wh "github.com/lynn901/mora/internal/module/mora/handler"
 	"github.com/lynn901/mora/internal/module/mora/parsewiring"
 	"github.com/lynn901/mora/internal/module/mora/service"
-	srcsvc "github.com/lynn901/mora/internal/module/knowledge/source/service"
 	ragsearch "github.com/lynn901/mora/internal/module/rag/search"
 	"github.com/lynn901/mora/internal/pkg/response"
 	auditpkg "github.com/lynn901/mora/internal/platform/audit"
@@ -157,7 +158,7 @@ func main() {
 	srcSvc := srcsvc.NewService(srcRepo, srcRunRepo, srcReviewRepo, srcSyncSink, nil).
 		WithAuthz(engine, auditLogger)
 	srcH := wh.NewSourceHandler(srcSvc)
-	_ = srcTargetRepo    // used by the knowledge-worker; reserved for the source-side list
+	_ = srcTargetRepo     // used by the knowledge-worker; reserved for the source-side list
 	_ = srcProjectionRepo // used by the worker's activation gate (§7); reserved
 
 	// Asset read API (design-docs/14 §4.4 D13): GET /knowledge/assets/:id,
@@ -217,6 +218,27 @@ func main() {
 	memoryH := wh.NewMemoryHandler(memSvc, memSink)
 	_ = memEvidenceRepo
 	_ = memRetentionRepo
+
+	// Phase 4 memory recall + feedback + evidence-read (design-docs/18 §8, §8.3,
+	// §4.3). The recall service reuses the SAME evidence/link repos the capture
+	// path wired above (they satisfy both evidence.* and recall.* ports — see
+	// postgres/memory_recall_adapters.go) so reads + writes stay consistent.
+	// RecallRepo owns the ranked unit query (§9.5); the service layers the §9.3
+	// leak-safe candidate downgrade + the §4.3 evidence ACL chain over it. The
+	// feedback sink owns the memory_feedback row + the `evidence.revalidate`
+	// outbox event boundary (§6.3). RBAC + audit reuse the same engine the
+	// capture path uses.
+	recallUnits := postgres.NewRecallRepo(db)
+	recallLinks := postgres.NewRecallLinkReader(db)
+	recallEvidence := postgres.NewRecallEvidenceReader(db)
+	recallUnitReader := postgres.NewRecallUnitReader(db)
+	recallSvc := recall.NewRecallService(recallUnits, recallLinks, recallEvidence).
+		WithUnits(recallUnitReader).WithAuthz(engine, auditLogger)
+	feedbackRepo := postgres.NewRecallFeedbackRepo(db)
+	feedbackSink := postgres.NewMemoryFeedbackSink(db, outbox.NewStore())
+	feedbackSvc := recall.NewFeedbackService(feedbackRepo, feedbackSink).
+		WithUnits(recallUnitReader).WithAuthz(engine, auditLogger)
+	recallH := wh.NewMemoryRecallHandler(recallSvc, feedbackSvc)
 
 	tm := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
 	userLookup := &pgUserLookup{db: db}
@@ -391,6 +413,15 @@ func main() {
 	// session import both feed POST /api/v1/memory/evidence. RBAC (workspace
 	// write, §4.4) + redact/encrypt/outbox live in the evidence service.
 	authed.POST("/memory/evidence", memoryH.Capture)
+
+	// Phase 4 memory recall + feedback + evidence-read (design-docs/18 §8,
+	// §8.3, §4.3). Leak-safe by construction (§9.3): an unauthorized /
+	// unpublished / non-owner-private result returns an EMPTY list or a
+	// not-readable shape, never a 403/404 — existence does not leak. Feedback
+	// never edits the statement (§8.5).
+	authed.GET("/memory/units", recallH.Recall)
+	authed.POST("/memory/units/:id/feedback", recallH.Feedback)
+	authed.POST("/memory/evidence/:id:read", recallH.EvidenceRead)
 
 	// health
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
