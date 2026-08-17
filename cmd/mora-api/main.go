@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/infra/codegraph"
+	"github.com/lynn901/mora/internal/infra/crypto"
 	"github.com/lynn901/mora/internal/infra/mq"
 	"github.com/lynn901/mora/internal/infra/objstore"
 	"github.com/lynn901/mora/internal/infra/pg"
@@ -28,6 +29,7 @@ import (
 	"github.com/lynn901/mora/internal/module/knowledge/asset"
 	cgservice "github.com/lynn901/mora/internal/module/knowledge/codegraph/service"
 	wikisvc "github.com/lynn901/mora/internal/module/knowledge/wiki/service"
+	"github.com/lynn901/mora/internal/module/memory/evidence"
 	"github.com/lynn901/mora/internal/module/mora/collab"
 	"github.com/lynn901/mora/internal/module/mora/event"
 	wh "github.com/lynn901/mora/internal/module/mora/handler"
@@ -195,6 +197,26 @@ func main() {
 	wikiSink := postgres.NewWikiSpaceSink(pool, outbox.NewStore())
 	wikiSvc := wikisvc.NewService(wikiRepo, wikiSink, nil).WithAuthz(engine, auditLogger)
 	wikiH := wh.NewWikiHandler(wikiSvc)
+
+	// Phase 4 memory write-entry API (design-docs/18 §7.1, §4.1, D9). The
+	// single capture endpoint POST /api/v1/memory/evidence serves both
+	// memory_remember (Agent tool_call/message) and session import. The
+	// evidence service enforces workspace-write RBAC (§4.4) + the redact/
+	// encrypt/outbox pipeline; the sink owns the row + `evidence.captured`
+	// event boundary (§6.3). A missing MORA_EVIDENCE_KEK fails closed on
+	// first inline encrypt (§4.2); a nil object store fails closed on a
+	// large-fragment Put — both surface as 500 to the caller.
+	memEvidenceRepo := postgres.NewMemoryEvidenceRepo(db)
+	memRetentionRepo := postgres.NewRetentionPolicyRepo(db)
+	memKEK, _ := crypto.NewEnvelopeKEK(cfg.MoraEvidenceKEK) // empty → fail-closed at use
+	memCrypto := crypto.NewAESGCM()
+	memObjects := objstore.NewEvidenceObjectStore(objStore)
+	memSink := postgres.NewMemoryEvidenceSink(db, outbox.NewStore(), memObjects)
+	memSvc := evidence.NewService(memEvidenceRepo, memRetentionRepo, memKEK, memCrypto, memObjects, outbox.NewStore()).
+		WithAuthz(engine, auditLogger)
+	memoryH := wh.NewMemoryHandler(memSvc, memSink)
+	_ = memEvidenceRepo
+	_ = memRetentionRepo
 
 	tm := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
 	userLookup := &pgUserLookup{db: db}
@@ -364,6 +386,11 @@ func main() {
 	authed.POST("/wiki-spaces/:id:lint", wikiH.Lint)
 	authed.GET("/wiki-spaces/:id/pages/:page_key/proposals", wikiH.ListProposals)
 	authed.POST("/wiki-spaces/:id/proposals/:proposal_id", wikiH.ReviewProposal)
+
+	// Phase 4 memory write-entry (design-docs/18 §7.1): memory_remember +
+	// session import both feed POST /api/v1/memory/evidence. RBAC (workspace
+	// write, §4.4) + redact/encrypt/outbox live in the evidence service.
+	authed.POST("/memory/evidence", memoryH.Capture)
 
 	// health
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
