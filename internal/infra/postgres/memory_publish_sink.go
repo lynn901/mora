@@ -102,15 +102,34 @@ func (s *MemoryPublishSink) PublishUnit(ctx context.Context, req evidence.Publis
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck — documented pgx pattern
 
-	// 1. Create the review_request (pending) + the approve decision in-tx.
-	//    review_requests.governance_profile_id is NOT NULL, so the caller must
-	//    supply a real profile id (the inbox service resolves the workspace's
-	//    memory governance profile before calling).
+	// 1. Create the knowledge_asset_versions row FIRST (governance_status=
+	//    'published', build_status='ready'). version_no = next per asset.
+	//    content_origin='system' (a reviewer-published memory, not a human-
+	//    authored doc); dedupe_key pins idempotency on the unit id.
+	//
+	//    Ordering matters: review_requests.asset_version_id is NOT NULL and
+	//    REFERENCES knowledge_asset_versions(id) (014), so the version row
+	//    MUST exist before the review_request insert. The earlier code inserted
+	//    the review_request (step 1) with a hardcoded nil asset_version_id
+	//    before creating the version (step 2) — a NOT NULL violation on real
+	//    SQL (SQLSTATE 23502), and even a real versionID would have violated
+	//    the FK because the target row did not exist yet. Create version, then
+	//    thread its id into the review_request.
+	versionID, err := createMemoryAssetVersionTx(ctx, tx, req)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("memory publish: asset version: %w", err)
+	}
+
+	// 2. Create the review_request (pending) carrying the version id from
+	//    step 1. review_requests.governance_profile_id is NOT NULL, so the
+	//    caller must supply a real profile id (the inbox service resolves the
+	//    workspace's memory governance profile before calling).
 	reviewID := uuid.New()
 	rr := &domain.ReviewRequest{
 		ID:                  reviewID,
 		WorkspaceID:         req.WorkspaceID,
 		AssetID:             req.AssetID,
+		AssetVersionID:      versionID, // satisfies NOT NULL + FK (row exists from step 1)
 		GovernanceProfileID: req.GovernanceProfileID,
 		RequestedByType:     req.ReviewerType,
 		RequestedByID:       req.ReviewerID,
@@ -122,15 +141,6 @@ func (s *MemoryPublishSink) PublishUnit(ctx context.Context, req evidence.Publis
 	// here and append the decision on the same tx.
 	if err := insertReviewRequestTx(ctx, tx, rr); err != nil {
 		return uuid.Nil, fmt.Errorf("memory publish: review request: %w", err)
-	}
-
-	// 2. Create the knowledge_asset_versions row (governance_status=
-	//    'published', build_status='ready'). version_no = next per asset.
-	//    content_origin='system' (a reviewer-published memory, not a human-
-	//    authored doc); dedupe_key pins idempotency on the unit id.
-	versionID, err := createMemoryAssetVersionTx(ctx, tx, req)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("memory publish: asset version: %w", err)
 	}
 
 	// 3. Append the approve review_decision (immutable) + project the request
@@ -175,6 +185,8 @@ func (s *MemoryPublishSink) PublishUnit(ctx context.Context, req evidence.Publis
 }
 
 // insertReviewRequestTx inserts a pending review_request on the publish tx.
+// r.AssetVersionID MUST be set by the caller (the version row is created in an
+// earlier step on the same tx so the NOT NULL + FK constraints hold).
 func insertReviewRequestTx(ctx context.Context, tx pgx.Tx, r *domain.ReviewRequest) error {
 	r.CreatedAt = time.Now().UTC()
 	r.Status = domain.ReviewPending
@@ -183,7 +195,7 @@ func insertReviewRequestTx(ctx context.Context, tx pgx.Tx, r *domain.ReviewReque
 		  (id, workspace_id, asset_id, asset_version_id, governance_profile_id,
 		   requested_by_type, requested_by_id, status, rationale, created_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		r.ID, r.WorkspaceID, r.AssetID, nil,
+		r.ID, r.WorkspaceID, r.AssetID, r.AssetVersionID,
 		r.GovernanceProfileID, string(r.RequestedByType), r.RequestedByID,
 		string(r.Status), nullIfEmpty(r.Rationale), r.CreatedAt)
 	return err
