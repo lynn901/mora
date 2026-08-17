@@ -63,15 +63,52 @@ func (l *AgentLocator) Locate(ctx context.Context, t TargetType, id uuid.UUID) (
 	}, nil
 }
 
-// EvidenceLocator is a Phase 0 placeholder for evidence targets (§3.3).
-// The memory_evidence table arrives in Phase 4; until then Locate returns
-// ErrTargetNotFound so evidence is never resolvable (and never leaks).
-type EvidenceLocator struct{}
+// EvidenceLocator resolves TargetEvidence → [evidence, source_asset?, workspace]
+// (design-docs/18 §4.4, decision D2). Evidence ACL is independent of Memory
+// publish: publishing a Memory never writes a permissions(target_type='evidence')
+// row (附录 A 不变量 8) — this locator only resolves where an evidence record
+// lives so the decision pipeline can consult the owner + source-asset current
+// ACL for the §4.3 read chain.
+//
+// A missing or deleted evidence returns ErrTargetNotFound so existence is
+// never leaked (§9.3). A source_asset_id that is nil (session/message/
+// tool_call evidence) omits the source-asset node; a source_asset that was
+// deleted does NOT block resolution — the locator returns evidence + workspace
+// nodes, and the §4.3 chain handles evidence_missing by denying plaintext
+// expansion (§4.3 "来源删除/不可定位 → 原文默认不可展开").
+type EvidenceLocator struct {
+	evidence EvidenceRepo
+}
 
-func NewEvidenceLocator() *EvidenceLocator { return &EvidenceLocator{} }
+// NewEvidenceLocator builds an EvidenceLocator over an authz EvidenceRepo.
+// The repo is the authz-side narrow port, not the module/memory full CRUD
+// repo — same narrow-port split as AssetLocator/SourceLocator.
+func NewEvidenceLocator(evidence EvidenceRepo) *EvidenceLocator {
+	return &EvidenceLocator{evidence: evidence}
+}
 
-func (l *EvidenceLocator) Locate(_ context.Context, _ TargetType, _ uuid.UUID) (Location, error) {
-	return Location{}, ErrTargetNotFound
+func (l *EvidenceLocator) Locate(ctx context.Context, t TargetType, id uuid.UUID) (Location, error) {
+	if t != domain.TargetEvidence {
+		return Location{}, errors.New("evidence locator: wrong target type")
+	}
+	e, err := l.evidence.Get(ctx, id)
+	if err != nil {
+		// Non-existent / deleted evidence: indistinguishable from not-found so
+		// existence is never leaked (不变量: 存在性不泄露, §9.3).
+		return Location{}, ErrTargetNotFound
+	}
+	chain := []Node{{Type: domain.TargetEvidence, ID: id}}
+	// Include the source-asset node when the evidence carries one. The asset's
+	// CURRENT ACL (not the captured_authz_revision snapshot) is the second check
+	// in the §4.3 read chain; the locator surfaces the asset id so the decision
+	// pipeline can resolve it via the AssetLocator. A nil asset (no source) or a
+	// deleted asset (resolved-but-missing by AssetLocator) does not fail here —
+	// the read chain above treats it as evidence_missing.
+	if e.SourceAssetID != nil {
+		chain = append(chain, Node{Type: domain.TargetAsset, ID: *e.SourceAssetID})
+	}
+	chain = append(chain, Node{Type: domain.TargetWorkspace, ID: e.WorkspaceID})
+	return Location{WorkspaceID: e.WorkspaceID, Chain: chain}, nil
 }
 
 // SourceLocator resolves source targets into [source, workspace] chains
