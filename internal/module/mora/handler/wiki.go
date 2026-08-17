@@ -199,7 +199,7 @@ func (h *WikiHandler) TriggerRun(c *gin.Context) {
 	response.Created(c, run)
 }
 
-// --- POST /wiki-spaces/:id:lint ---
+// --- POST /wiki-spaces/:id/lint ---
 
 type lintReq struct {
 	CheckKinds []string `json:"check_kinds"`

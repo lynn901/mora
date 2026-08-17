@@ -405,7 +405,7 @@ func main() {
 	authed.GET("/wiki-spaces/:id/status", wikiH.GetStatus)
 	authed.GET("/wiki-spaces/:id/maintenance-runs", wikiH.ListRuns)
 	authed.POST("/wiki-spaces/:id/maintenance-runs", wikiH.TriggerRun)
-	authed.POST("/wiki-spaces/:id:lint", wikiH.Lint)
+	authed.POST("/wiki-spaces/:id/lint", wikiH.Lint)
 	authed.GET("/wiki-spaces/:id/pages/:page_key/proposals", wikiH.ListProposals)
 	authed.POST("/wiki-spaces/:id/proposals/:proposal_id", wikiH.ReviewProposal)
 

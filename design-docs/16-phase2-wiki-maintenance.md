@@ -723,7 +723,10 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/MaintenanceRun' }
 
-  /api/v1/wiki-spaces/{id}:lint:
+  # Wire path is {id}/lint, not AIP-190's {id}:lint: Gin v1.12's route tree
+  # parses ':id:lint' as two params in one segment → startup panic. See
+  # api/wiki.yaml for the same note; the handler reads c.Param("id") unchanged.
+  /api/v1/wiki-spaces/{id}/lint:
     post:
       tags: [Wiki]
       summary: 触发 lint 扫描
