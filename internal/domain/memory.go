@@ -29,8 +29,8 @@ const (
 type EvidenceVisibility string
 
 const (
-	EvidencePrivate     EvidenceVisibility = "private"
-	EvidenceRestricted  EvidenceVisibility = "restricted"
+	EvidencePrivate    EvidenceVisibility = "private"
+	EvidenceRestricted EvidenceVisibility = "restricted"
 )
 
 // EvidenceState is the lifecycle state of an evidence record (D3, §9.2).
@@ -75,39 +75,44 @@ const (
 // CapturedAuthzRevision is audit-only and MUST NOT be used for future access
 // authorization (12 §4.4).
 type MemoryEvidence struct {
-	ID                       UUID
-	WorkspaceID              UUID
-	OwnerType                OwnerType
-	OwnerID                  UUID
-	SourceKind               EvidenceSourceKind
-	SourceRef                string
-	SourceAssetID            *UUID // references knowledge_assets(id), no FK — deletion is propagated, not cascaded
-	SourceAssetVersionID     *UUID
-	Visibility               EvidenceVisibility
-	CapturedAuthzRevision    int64
-	ContentHash              string
-	EncryptedContent         []byte // small fragment ciphertext; nil when StorageKey is set
-	StorageKey               string // large-object MinIO key mora-evidence/<ws>/<id>
-	KeyVersion               *int   // envelope KEK version; required when EncryptedContent != nil
-	RedactedExcerpt          string
-	Classification           EvidenceClassification
-	RetentionPolicyID        *UUID
-	State                    EvidenceState
-	CreatedAt                time.Time
-	ExpiresAt                *time.Time
-	PurgedAt                 *time.Time
-	DeletedAt                *time.Time
+	ID                    UUID
+	WorkspaceID           UUID
+	OwnerType             OwnerType
+	OwnerID               UUID
+	SourceKind            EvidenceSourceKind
+	SourceRef             string
+	SourceAssetID         *UUID // references knowledge_assets(id), no FK — deletion is propagated, not cascaded
+	SourceAssetVersionID  *UUID
+	Visibility            EvidenceVisibility
+	CapturedAuthzRevision int64
+	ContentHash           string
+	EncryptedContent      []byte // small fragment ciphertext; nil when StorageKey is set
+	StorageKey            string // large-object MinIO key mora-evidence/<ws>/<id>
+	KeyVersion            *int   // envelope KEK version; required when EncryptedContent != nil
+	RedactedExcerpt       string
+	Classification        EvidenceClassification
+	RetentionPolicyID     *UUID
+	State                 EvidenceState
+	CreatedAt             time.Time
+	ExpiresAt             *time.Time
+	// PendingPurgedAt is when the row flipped active → pending_purge (§9.2 /
+	// 019 migration). It is the start of the purge_after grace window the
+	// retention reaper counts from to decide a pending_purge row is due for
+	// hard erase. NULL on rows that never entered pending_purge.
+	PendingPurgedAt *time.Time
+	PurgedAt        *time.Time
+	DeletedAt       *time.Time
 }
 
 // MemoryType is the kind of a distilled memory unit (12 §4.4).
 type MemoryType string
 
 const (
-	MemoryFact        MemoryType = "fact"
-	MemoryDecision    MemoryType = "decision"
-	MemoryConstraint  MemoryType = "constraint"
-	MemoryPreference  MemoryType = "preference"
-	MemoryEvent       MemoryType = "event"
+	MemoryFact       MemoryType = "fact"
+	MemoryDecision   MemoryType = "decision"
+	MemoryConstraint MemoryType = "constraint"
+	MemoryPreference MemoryType = "preference"
+	MemoryEvent      MemoryType = "event"
 )
 
 // MemoryUnitState is the lifecycle state of a memory unit (§6.2).
@@ -155,7 +160,7 @@ type MemoryUnit struct {
 type SupportType string
 
 const (
-	Supports     SupportType = "supports"
+	Supports    SupportType = "supports"
 	Contradicts SupportType = "contradicts"
 )
 
@@ -163,11 +168,11 @@ const (
 // record (§2.3). QuoteLocator is a non-executable reference (offset/range/hash)
 // that never carries the original text.
 type MemoryEvidenceLink struct {
-	MemoryUnitID  UUID
-	EvidenceID    UUID
-	QuoteLocator  map[string]any
-	SupportType   SupportType
-	CreatedAt     time.Time
+	MemoryUnitID UUID
+	EvidenceID   UUID
+	QuoteLocator map[string]any
+	SupportType  SupportType
+	CreatedAt    time.Time
 }
 
 // RetentionPolicy governs evidence retention per workspace + memory_type
@@ -175,14 +180,14 @@ type MemoryEvidenceLink struct {
 // this struct only carries the shape. A NULL MemoryType means the workspace
 // default across all types.
 type RetentionPolicy struct {
-	ID           UUID
-	WorkspaceID  UUID
-	MemoryType   *MemoryType
-	RetainFor    time.Duration
-	PurgeAfter   *time.Duration
-	IsSystem     bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID          UUID
+	WorkspaceID UUID
+	MemoryType  *MemoryType
+	RetainFor   time.Duration
+	PurgeAfter  *time.Duration
+	IsSystem    bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // FeedbackType is the human/agent signal on a memory unit (D8).
@@ -198,14 +203,14 @@ const (
 
 // MemoryFeedback is a useful/incorrect/stale signal on a memory unit (§2.5).
 type MemoryFeedback struct {
-	ID                   UUID
-	MemoryUnitID         UUID
-	FeedbackType         FeedbackType
-	GivenByType          OwnerType
-	GivenByID            UUID
-	RationaleRedacted    string
-	RevalidateTriggered  bool
-	CreatedAt            time.Time
+	ID                  UUID
+	MemoryUnitID        UUID
+	FeedbackType        FeedbackType
+	GivenByType         OwnerType
+	GivenByID           UUID
+	RationaleRedacted   string
+	RevalidateTriggered bool
+	CreatedAt           time.Time
 }
 
 // DedupSuggestionType is the relation a dedup suggestion proposes (D7).
@@ -213,10 +218,10 @@ type MemoryFeedback struct {
 type DedupSuggestionType string
 
 const (
-	DedupDuplicate    DedupSuggestionType = "duplicate"
-	DedupExtends      DedupSuggestionType = "extends"
+	DedupDuplicate   DedupSuggestionType = "duplicate"
+	DedupExtends     DedupSuggestionType = "extends"
 	DedupContradicts DedupSuggestionType = "contradicts"
-	DedupUnrelated    DedupSuggestionType = "unrelated"
+	DedupUnrelated   DedupSuggestionType = "unrelated"
 )
 
 // DedupSuggestionOrigin is how a dedup suggestion was produced (§2.6).
@@ -241,19 +246,19 @@ const (
 // or a knowledge_relations(relation_type='contradicts') row; the suggestion
 // itself never mutates the unit.
 type MemoryDedupSuggestion struct {
-	ID              UUID
-	WorkspaceID     UUID
-	UnitAID         UUID
-	UnitBID         UUID
-	SuggestionType  DedupSuggestionType
-	Origin          DedupSuggestionOrigin
-	Confidence      *float64
-	EvidenceRef     map[string]any
-	State           DedupSuggestionState
-	ResolvedByType  *OwnerType
-	ResolvedByID    *UUID
-	ResolvedAt      *time.Time
-	CreatedAt       time.Time
+	ID             UUID
+	WorkspaceID    UUID
+	UnitAID        UUID
+	UnitBID        UUID
+	SuggestionType DedupSuggestionType
+	Origin         DedupSuggestionOrigin
+	Confidence     *float64
+	EvidenceRef    map[string]any
+	State          DedupSuggestionState
+	ResolvedByType *OwnerType
+	ResolvedByID   *UUID
+	ResolvedAt     *time.Time
+	CreatedAt      time.Time
 }
 
 // EvidenceWriteOpts controls storage split (D4, §4.2): small fragments are

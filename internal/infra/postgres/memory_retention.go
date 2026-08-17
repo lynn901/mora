@@ -118,7 +118,7 @@ func (r *RetentionPolicyRepo) PurgeDue(ctx context.Context, now time.Time, limit
 		       source_asset_id, source_asset_version_id, visibility, captured_authz_revision,
 		       content_hash, encrypted_content, storage_key, key_version,
 		       redacted_excerpt, classification, retention_policy_id, state,
-		       created_at, expires_at, purged_at, deleted_at
+		       created_at, expires_at, pending_purged_at, purged_at, deleted_at
 		FROM memory_evidence
 		WHERE state = 'active' AND expires_at IS NOT NULL AND expires_at <= $1
 		ORDER BY expires_at
@@ -130,12 +130,41 @@ func (r *RetentionPolicyRepo) PurgeDue(ctx context.Context, now time.Time, limit
 	return collectEvidence(rows)
 }
 
+// PurgeReady returns pending_purge evidence whose grace window has elapsed
+// (pending_purged_at + purge_after ≤ now), for the reaper's second half
+// (D3 pending_purge → purged). The grace comes from the linked policy's
+// purge_after when present, else the caller's defaultGrace (an interval passed
+// by the reaper from config / the migration seed's 30-day default) — so an
+// explicitly-deleted evidence with no policy row is not stranded in
+// pending_purge. Rows whose pending_purged_at is NULL (never entered
+// pending_purge via the 019 column) are skipped. Limited per tick.
+func (r *RetentionPolicyRepo) PurgeReady(ctx context.Context, now time.Time, defaultGrace time.Duration, limit int) ([]domain.MemoryEvidence, error) {
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT e.id, e.workspace_id, e.owner_type, e.owner_id, e.source_kind, e.source_ref,
+		       e.source_asset_id, e.source_asset_version_id, e.visibility, e.captured_authz_revision,
+		       e.content_hash, e.encrypted_content, e.storage_key, e.key_version,
+		       e.redacted_excerpt, e.classification, e.retention_policy_id, e.state,
+		       e.created_at, e.expires_at, e.pending_purged_at, e.purged_at, e.deleted_at
+		FROM memory_evidence e
+		LEFT JOIN memory_retention_policies p ON p.id = e.retention_policy_id
+		WHERE e.state = 'pending_purge'
+		  AND e.pending_purged_at IS NOT NULL
+		  AND e.pending_purged_at + COALESCE(p.purge_after, $2::interval) <= $1
+		ORDER BY e.pending_purged_at
+		LIMIT $3`, now, durationToInterval(defaultGrace), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return collectEvidence(rows)
+}
+
 func scanPolicy(scan scanFunc) (domain.RetentionPolicy, error) {
 	var p domain.RetentionPolicy
 	var (
 		mtStr      *string
-		retain      pgtype.Interval
-		purgeAfter  pgtype.Interval
+		retain     pgtype.Interval
+		purgeAfter pgtype.Interval
 	)
 	err := scan(
 		&p.ID, &p.WorkspaceID, &mtStr, &retain, &purgeAfter, &p.IsSystem,

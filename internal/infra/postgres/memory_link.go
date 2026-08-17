@@ -60,6 +60,29 @@ func (r *MemoryEvidenceLinkRepo) ListForEvidence(ctx context.Context, evidenceID
 	return collectLinks(rows)
 }
 
+// CountAvailableEvidence counts a unit's links whose backing evidence is still
+// readable (state != 'purged' AND deleted_at IS NULL), excluding the evidence
+// being purged. The deletion propagation path uses this to decide whether to
+// flag the unit evidence_missing: when the purged evidence was the unit's last
+// independent support, the count drops to 0 (§9.2 → evidence_missing).
+// Joining through the evidence row (rather than relying on the link's existence
+// alone) means an already-purged-but-not-yet-link-removed row does not inflate
+// the count — the read reflects post-purge truth without a separate sweep.
+func (r *MemoryEvidenceLinkRepo) CountAvailableEvidence(ctx context.Context, memoryUnitID, excludeEvidenceID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM memory_evidence_links l
+		JOIN memory_evidence e ON e.id = l.evidence_id
+		WHERE l.memory_unit_id = $1
+		  AND l.evidence_id <> $2
+		  AND e.state <> 'purged'
+		  AND e.deleted_at IS NULL`, memoryUnitID, excludeEvidenceID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func collectLinks(rows pgx.Rows) ([]domain.MemoryEvidenceLink, error) {
 	var out []domain.MemoryEvidenceLink
 	for rows.Next() {
