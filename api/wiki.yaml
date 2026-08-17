@@ -136,7 +136,11 @@ paths:
                   code: { type: integer, example: 0 }
                   data: { $ref: '#/components/schemas/MaintenanceRun' }
 
-  /api/v1/wiki-spaces/{id}:lint:
+  # AIP-190 custom verb expressed as a /lint sub-resource: Gin v1.12's route
+  # tree parses ':id:lint' as two path params (':id' + ':lint') in one segment
+  # and panics at startup, so the wire path is {id}/lint, not {id}:lint. The
+  # handler still reads c.Param("id"); only the path form changed.
+  /api/v1/wiki-spaces/{id}/lint:
     post:
       tags: [Wiki]
       summary: 触发 lint 扫描
