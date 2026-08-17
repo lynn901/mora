@@ -174,11 +174,22 @@ func (s *DedupService) landSuggestion(ctx context.Context, a, b domain.MemoryUni
 		// relation is a fact (two statements conflict), the suggestion is the
 		// workflow state. This is the 验收门禁 split: contradicts lands in
 		// knowledge_relations, the suggestion row tracks disposition.
+		//
+		// Per-unit granularity (021): unitA/unitB may share one
+		// knowledge_assets(memory) row (intra-asset — same evidence source's
+		// sibling units). The relaxed CHECK permits from_asset_id=to_asset_id
+		// for contradicts; FromUnitID/ToUnitID disambiguate which two units the
+		// edge joins, so recall (§8.2) reads the unit ids directly instead of
+		// joining memory_units per query. Cross-asset contradicts is not a
+		// memory-dedup case (dedup only pairs units within a workspace + type).
+		unitAID, unitBID := unitA.ID, unitB.ID
 		rel := domain.KnowledgeRelation{
 			WorkspaceID:   unitA.WorkspaceID,
 			FromAssetID:   unitA.AssetID,
 			RelationType:  domain.RelationContradicts,
 			ToAssetID:     unitB.AssetID,
+			FromUnitID:    &unitAID,
+			ToUnitID:      &unitBID,
 			Origin:        domain.RelationOriginGenerated,
 			Confidence:    &conf,
 			CreatedByType: unitA.CreatedByType.ToSubjectType(),

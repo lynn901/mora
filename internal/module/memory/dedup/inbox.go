@@ -29,8 +29,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/module/memory/evidence"
@@ -277,6 +279,46 @@ func (s *InboxService) supersede(ctx context.Context, auth AuthContext, unit dom
 	// guards WHERE state <> 'published'; a published unit surfaces as
 	// ErrMemoryUnitNotFound → we map to ErrPublishConflict so the reviewer
 	// knows the unit is already published (cannot be superseded).
+	//
+	// Ordering for defect-3 correctness: the `supersedes` knowledge_relation
+	// edge is written FIRST (step a). If it hard-errors (SQLSTATE 23xxx — a
+	// constraint violation, not a transient network blip), the disposition
+	// aborts BEFORE any state mutation — superseded_by is not written, the
+	// unit is not deprecated, and the reviewer sees a real error instead of a
+	// silent success with a missing edge (the old best-effort swallow lost the
+	// edge on the same CHECK that defect 2 relaxed; with 021 the intra-asset
+	// case no longer errors, but a genuine constraint violation must still
+	// surface). Transient errors (nil pointer, context cancellation, a
+	// connection drop mid-write) stay best-effort — the edge is recall metadata
+	// and a transient miss is preferable to failing an otherwise-complete
+	// disposition. The relation write precedes the state write so a hard error
+	// needs no compensating rollback.
+	if s.relations != nil {
+		survivorID, deprecatedID := survivor.ID, unit.ID
+		rel := domain.KnowledgeRelation{
+			WorkspaceID:   unit.WorkspaceID,
+			FromAssetID:   survivor.AssetID, // survivor supersedes …
+			RelationType:  domain.RelationSupersedes,
+			ToAssetID:     unit.AssetID, // … the deprecated unit
+			FromUnitID:    &survivorID, // per-unit granularity (021)
+			ToUnitID:      &deprecatedID,
+			Origin:        domain.RelationOriginHuman,
+			CreatedByType: auth.SubjectType,
+			CreatedByID:   auth.PrincipalID,
+		}
+		if _, err := s.relations.InsertRelation(ctx, rel); err != nil {
+			if isHardRelationError(err) {
+				// SQLSTATE 23xxx (integrity constraint violation): a real
+				// schema violation. Abort the disposition before any state
+				// mutation — no silent edge loss (defect 3).
+				return DispositionResult{}, fmt.Errorf("memory inbox: supersede relation edge (hard error, disposition aborted): %w", err)
+			}
+			// Transient: best-effort. The edge is recall-surfacing metadata,
+			// not the disposition of record; a transient miss is auditable
+			// and preferable to failing an otherwise-complete supersede.
+			s.auditRelationFailure(ctx, auth, unit.ID, err)
+		}
+	}
 	if err := s.units.SetSupersededBy(ctx, unit.ID, *req.SupersedeBy); err != nil {
 		if errors.Is(err, domain.ErrMemoryUnitNotFound) {
 			return DispositionResult{}, fmt.Errorf("%w: unit %s is published (cannot supersede)", ErrPublishConflict, unit.ID)
@@ -285,30 +327,6 @@ func (s *InboxService) supersede(ctx context.Context, auth AuthContext, unit dom
 	}
 	if err := s.units.SetState(ctx, unit.ID, domain.MemoryDeprecated); err != nil {
 		return DispositionResult{}, err
-	}
-	// §6.2 / memory_relation.go: a reviewer-confirmed supersede writes a
-	// `supersedes` knowledge_relation edge between the two memory assets
-	// (origin=human — a reviewer decided it, not the Provider). The edge is
-	// directed from the surviving asset to the superseded asset ("survivor
-	// supersedes deprecated"); recall surfaces it via idx_relations_from/to.
-	// This is the only place the inbox writes a relation — the dedup service
-	// only ever writes `contradicts` edges (附录 A 不变量 9).
-	if s.relations != nil {
-		rel := domain.KnowledgeRelation{
-			WorkspaceID:   unit.WorkspaceID,
-			FromAssetID:   survivor.AssetID, // survivor supersedes …
-			RelationType:  domain.RelationSupersedes,
-			ToAssetID:     unit.AssetID, // … the deprecated unit
-			Origin:        domain.RelationOriginHuman,
-			CreatedByType: auth.SubjectType,
-			CreatedByID:   auth.PrincipalID,
-		}
-		if _, err := s.relations.InsertRelation(ctx, rel); err != nil {
-			// Best-effort: the unit state + superseded_by already landed; a
-			// relation-write failure must not roll back the disposition. The
-			// edge is recall-surfacing metadata, not the disposition of record.
-			s.auditRelationFailure(ctx, auth, unit.ID, err)
-		}
 	}
 	s.auditDisposition(ctx, auth, unit.ID, string(req.Disposition))
 	return DispositionResult{UnitID: unit.ID, State: domain.MemoryDeprecated}, nil
@@ -373,9 +391,10 @@ func (s *InboxService) auditDisposition(ctx context.Context, auth AuthContext, u
 		"unit", &uid, "action="+action, "", "")
 }
 
-// auditRelationFailure records that the supersede edge write failed after the
-// unit state already landed — so an operator can reconcile the missing edge.
-// Best-effort itself (if audit is nil, nothing to record).
+// auditRelationFailure records that a relation edge write failed transiently
+// (a hard error aborts the disposition before this audit path; only transient
+// failures reach here). The disposition completes without the edge, so the row
+// lets an operator reconcile the missing recall-surfacing edge.
 func (s *InboxService) auditRelationFailure(ctx context.Context, auth AuthContext, unitID uuid.UUID, cause error) {
 	if s.audit == nil {
 		return
@@ -388,4 +407,23 @@ func (s *InboxService) auditRelationFailure(ctx context.Context, auth AuthContex
 	uid := unitID
 	s.audit.Record(ctx, actor, &principal, "memory.relation.write_failed",
 		"unit", &uid, cause.Error(), "", "")
+}
+
+// isHardRelationError reports whether err is a PostgreSQL integrity-constraint
+// violation (SQLSTATE class 23 — 23502 NOT NULL, 23503 FK, 23505 unique, 23514
+// CHECK, 23P01 exclusion). A hard error means the edge genuinely cannot land
+// (a real schema violation), so the caller must abort the disposition rather
+// than swallow it — swallowing would leave the reviewer with a silent success
+// and a missing recall edge (defect 3). Transient errors (connection drops,
+// context cancellation, timeouts — not class 23) stay best-effort.
+//
+// Errors that are not a *pgconn.PgError (e.g. a wrapped network error, a
+// context.DeadlineExceeded) are treated as transient — they are not a verdict
+// that the edge is impossible, only that it did not land this attempt.
+func isHardRelationError(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return strings.HasPrefix(pgErr.Code, "23")
 }

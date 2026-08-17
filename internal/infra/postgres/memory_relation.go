@@ -36,10 +36,15 @@ func NewMemoryRelationRepo(db *DB) evidence.KnowledgeRelationWriter {
 }
 
 // InsertRelation inserts a knowledge_relations row. The caller pins the
-// workspace_id and supplies the from/to asset ids; the DB CHECK (from_asset_id
-// <> to_asset_id) + the workspace FK enforce integrity. origin defaults to
-// 'generated' for dedup-produced edges and 'human' for reviewer-confirmed
-// supersedes; the caller sets it explicitly.
+// workspace_id and supplies the from/to asset ids; the 021-relaxed CHECK
+// (from_asset_id <> to_asset_id OR relation_type IN ('contradicts','supersedes'))
+// permits same-asset memory intra-asset edges, and the workspace FK enforces
+// integrity. origin defaults to 'generated' for dedup-produced edges and
+// 'human' for reviewer-confirmed supersedes; the caller sets it explicitly.
+//
+// FromUnitID/ToUnitID are written when set (memory intra-asset contradicts/
+// supersede edges, 021); nil → NULL, which is the correct value for cross-asset
+// edges whose join key is the asset id, not a unit id.
 func (r *MemoryRelationRepo) InsertRelation(ctx context.Context, rel domain.KnowledgeRelation) (uuid.UUID, error) {
 	var id uuid.UUID
 	origin := string(rel.Origin)
@@ -49,13 +54,14 @@ func (r *MemoryRelationRepo) InsertRelation(ctx context.Context, rel domain.Know
 	err := r.db.Pool.QueryRow(ctx, `
 		INSERT INTO knowledge_relations
 		  (workspace_id, from_asset_id, from_version_id, relation_type,
-		   to_asset_id, to_version_id, origin, confidence,
-		   created_by_type, created_by_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		   to_asset_id, to_version_id, from_unit_id, to_unit_id,
+		   origin, confidence, created_by_type, created_by_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING id`,
 		rel.WorkspaceID, rel.FromAssetID, uuidPtr(rel.FromVersionID),
 		string(rel.RelationType),
 		rel.ToAssetID, uuidPtr(rel.ToVersionID),
+		uuidPtr(rel.FromUnitID), uuidPtr(rel.ToUnitID),
 		origin, floatPtr(rel.Confidence),
 		string(rel.CreatedByType), rel.CreatedByID,
 	).Scan(&id)
