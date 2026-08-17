@@ -50,4 +50,23 @@ const (
 	AggKnowledgeAsset = "knowledge_asset"
 	AggAgent          = "agent"
 	AggAuthz          = "workspace_authz"
+	AggMemoryEvidence = "memory_evidence" // Phase 4 (18 §7.4)
 )
+
+// Phase 4 memory event types (design-docs/18 §3.3, §7.4). These flow on the
+// memory_events Stream + memory_distill consumer group; the knowledge-worker
+// maps them to memory_extract / memory_dedup / memory_revalidate jobs.
+const (
+	KEEvidenceCaptured    = "evidence.captured"    // → memory_extract Job
+	KEEvidenceExtracted   = "evidence.extract"     // → memory_dedup Job
+	KEvidenceRevalidate   = "evidence.revalidate"  // → memory_revalidate Job
+)
+
+// MemoryEventsStream is the Valkey Stream memory events are published to
+// (design-docs/18 §3.3, D5; the 12 §6.2 pre-reserved split). The outbox
+// dispatcher publishes here; the knowledge-worker's memory_distill consumer
+// group reads it. Phase 4 first version wires capture + extract.
+const MemoryEventsStream = "memory_events"
+
+// MemoryDistillGroup is the consumer group over memory_events (18 §3.3, D5).
+const MemoryDistillGroup = "memory_distill"

@@ -33,25 +33,33 @@ import (
 
 	"github.com/lynn901/mora/internal/domain"
 	codegraphinfra "github.com/lynn901/mora/internal/infra/codegraph"
+	"github.com/lynn901/mora/internal/infra/crypto"
+	"github.com/lynn901/mora/internal/infra/extractor"
+	"github.com/lynn901/mora/internal/infra/objstore"
 	"github.com/lynn901/mora/internal/infra/postgres"
 	"github.com/lynn901/mora/internal/module/knowledge/worker"
 	wikiprovider "github.com/lynn901/mora/internal/module/knowledge/wiki/provider"
 	wikisvc "github.com/lynn901/mora/internal/module/knowledge/wiki/service"
+	"github.com/lynn901/mora/internal/module/memory/distill"
+	"github.com/lynn901/mora/internal/platform/config"
 	"github.com/lynn901/mora/internal/platform/outbox"
 )
 
-// Stream + consumer-group names (design-docs/14 §2.2, §5.1 + 16 §6.1). The
+// Stream + consumer-group names (design-docs/14 §2.2, §5.1 + 16 §6.1, 18 §3.3). The
 // outbox dispatcher ships events to these Streams; this worker consumes them.
 const (
 	StreamSourceEvents     = "source_events"
 	StreamKnowledgeEvents  = "knowledge_events"
 	StreamWikiEvents       = "wiki_events"
+	StreamMemoryEvents     = "memory_events"
 	GroupSourceSync        = "source_sync"
 	GroupKnowledgeProj     = "knowledge_projection"
 	GroupWikiMaintenance   = "wiki_maintenance"
+	GroupMemoryDistill     = "memory_distill"
 	SourceEventsDeadStream = "source_events:dead"
 	KnowEventsDeadStream   = "knowledge_events:dead"
 	WikiEventsDeadStream   = "wiki_events:dead"
+	MemoryEventsDeadStream = "memory_events:dead"
 
 	defaultLeaseTTL      = 5 * time.Minute // worker.DefaultLeaseTTL; mirrored to avoid an import cycle in main
 	readGroupBlock       = 5 * time.Second
@@ -72,6 +80,11 @@ func env(key, def string) string {
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Config: shared with mora-api (MORA_EVIDENCE_KEK, TEI_URL, MinIO). The
+	// worker reads the same env so the memory extract pipeline can decrypt
+	// inline evidence + reach the same object store + TEI endpoint.
+	cfg, _ := config.Load()
 
 	// --- Postgres ---
 	pool, err := pgxpool.New(ctx, env("DATABASE_URL", "postgres://mora:mora@postgres:5432/mora?sslmode=disable"))
@@ -96,6 +109,7 @@ func main() {
 		outbox.KnowledgeEventsStream: publisher, // "knowledge_events"
 		StreamSourceEvents:           publisher,
 		StreamWikiEvents:             publisher, // "wiki_events" (16 §6.1)
+		StreamMemoryEvents:           publisher, // "memory_events" (18 §3.3, D5)
 	}, dispatcherBatch, dispatcherInterval)
 
 	// Job handlers (§5.2 dispatch table). Each handler owns one job_type's
@@ -137,6 +151,25 @@ func main() {
 	wikiAdapter := &worker.ProviderAdapter{Inner: wikiProvider}
 	wikiSvc := wikisvc.NewService(wikiRepo, wikiSink, wikiAdapter)
 
+	// Phase 4 memory distill (design-docs/18 §5.3). The memory_extract Job
+	// handler drives the distill.ExtractService: it loads an Evidence row
+	// (decrypt inline / read object), hands the REDACTED excerpt to the
+	// ExtractionProvider, validates the JSON-Schema-constrained candidates,
+	// and lands them as memory_units(candidate) + evidence_links. The worker
+	// owns the provider adapter + the loader + the candidate writer so the
+	// service stays port-only (§9.1: the Provider never touches DB/storage).
+	// The KEK may be unset in dev — the loader's inline-decrypt path fails
+	// closed on first use (§4.2). The provider defaults to the local TEI/
+	// Ollama adapter; an empty endpoint is stub mode (returns no candidates,
+	// the Job succeeds with Written=0, the dedupe_key prevents re-run spam).
+	memDB := postgres.NewDB(pool)
+	memKEK, _ := crypto.NewEnvelopeKEK(cfg.MoraEvidenceKEK) // empty → fail-closed at use
+	memObjects := objstore.NewEvidenceObjectStore(objstore.New(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucket, cfg.MinioRegion))
+	memLoader := postgres.NewMemoryExtractLoader(memDB, memKEK, crypto.NewAESGCM(), memObjects, postgres.NewMemoryAssetResolver(memDB))
+	memProvider := extractor.NewLocalAdapter(cfg.TEIURL, env("MEMORY_EXTRACT_MODEL", ""))
+	memWriter := distill.NewCandidateWriter(postgres.NewMemoryUnitRepo(memDB), postgres.NewMemoryEvidenceLinkRepo(memDB))
+	memExtractSvc := distill.NewExtractService(memProvider, memLoader, memWriter)
+
 	handlers := worker.Handlers{
 		worker.JobSourceSync:      &worker.SourceSyncHandler{Pool: pool, Jobs: jobStore},
 		worker.JobProjectionBuild: &worker.ProjectionBuildHandler{Pool: pool, Jobs: jobStore, Assets: assets},
@@ -158,6 +191,10 @@ func main() {
 		worker.JobWikiProposalApply:  &worker.WikiProposalApplyHandler{Repo: wikiRepo},
 		worker.JobWikiIndexRebuild:   &worker.WikiIndexRebuildHandler{Repo: wikiRepo},
 		worker.JobWikiLintScan:       &worker.WikiLintScanHandler{Repo: wikiRepo},
+		// Phase 4 (18 §5.3): memory extract. The handler maps a purged/
+		// missing Evidence to permanent-dead (nothing to extract, §9.2) and
+		// a Provider/load failure to transient retry.
+		worker.JobMemoryExtract: &worker.MemoryExtractHandler{Extract: memExtractSvc},
 	}
 	runner := worker.NewRunner(worker.RunnerConfig{
 		Jobs:      jobStore,
@@ -186,10 +223,18 @@ func main() {
 	go consumeStream(ctx, rdb, StreamWikiEvents, GroupWikiMaintenance,
 		env("CONSUMER_NAME", "knowledge-worker-1"), mapWikiEvent(jobStore))
 
+	// Phase 4 memory distill consumer (18 §5.3): memory_events → memory_extract
+	// jobs. An evidence.captured event enqueues a memory_extract job keyed by
+	// the evidence id (dedupe = `memory_extract:{evidence_id}` so a redelivered
+	// event does not produce duplicate candidates, §6.5 idempotency).
+	go consumeStream(ctx, rdb, StreamMemoryEvents, GroupMemoryDistill,
+		env("CONSUMER_NAME", "knowledge-worker-1"), mapMemoryEvent(jobStore))
+
 	// Crash-recovery reclaim for idle stream messages (mirrors rag-worker).
 	go reclaimLoop(ctx, rdb, StreamSourceEvents, GroupSourceSync, env("CONSUMER_NAME", "knowledge-worker-1"))
 	go reclaimLoop(ctx, rdb, StreamKnowledgeEvents, GroupKnowledgeProj, env("CONSUMER_NAME", "knowledge-worker-1"))
 	go reclaimLoop(ctx, rdb, StreamWikiEvents, GroupWikiMaintenance, env("CONSUMER_NAME", "knowledge-worker-1"))
+	go reclaimLoop(ctx, rdb, StreamMemoryEvents, GroupMemoryDistill, env("CONSUMER_NAME", "knowledge-worker-1"))
 
 	// Reconcile ticker (§3.3): run the consistency scan for each workspace.
 	go reconcileLoop(ctx, pool)
@@ -417,6 +462,38 @@ func mapKnowledgeEvent(jobs worker.JobStore) func(ctx context.Context, msgID, pa
 		switch ev.EventType {
 		case domain.KEAssetVersionRequested:
 			return enqueueProjectionJobs(ctx, jobs, &ev)
+		default:
+			return nil
+		}
+	}
+}
+
+// mapMemoryEvent routes a memory_events message to a memory_extract job (18
+// §5.3). An evidence.captured event carries evidence_id + workspace_id in its
+// payload (§7.4); the job's TargetKey is the evidence_id (the handler parses
+// it back). DedupeKey = `memory_extract:{evidence_id}` so a redelivered event
+// is idempotent (§6.5 — no duplicate candidate memory_units). Other event
+// types (evidence.extract → memory_dedup) are reserved for sub-issue C/D and
+// no-op here.
+func mapMemoryEvent(jobs worker.JobStore) func(ctx context.Context, msgID, payload string) error {
+	return func(ctx context.Context, msgID, payload string) error {
+		var ev domain.KnowledgeEvent
+		if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+			return err
+		}
+		switch ev.EventType {
+		case domain.KEEvidenceCaptured:
+			evidenceID, err := uuid.Parse(payloadString(ev.Payload, "evidence_id"))
+			if err != nil {
+				return nil // malformed evidence_id → dead-letter via the mapper caller
+			}
+			_, _ = jobs.Create(ctx, nil, domain.Job{
+				JobType:     worker.JobMemoryExtract,
+				TargetKey:   evidenceID.String(),
+				DedupeKey:   worker.DedupeKey(worker.JobMemoryExtract, evidenceID.String()),
+				MaxAttempt:  5,
+			})
+			return nil
 		default:
 			return nil
 		}
