@@ -219,48 +219,51 @@ func (s *BindingSink) BatchUpsert(ctx context.Context, agentID, workspaceID uuid
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck — documented pgx pattern
 
-	// 1. Idempotency gate: INSERT the batch record. ON CONFLICT DO NOTHING
-	//    → if 0 rows, a batch with this key already exists → resolve.
+	// 1. Idempotency gate: INSERT the batch record with a no-op ON CONFLICT
+	//    branch so the row is returned on BOTH a real insert and a key collision.
+	//    Distinguish the two with the xmax idiom (Postgres): a freshly INSERTed
+	//    row has xmax=0; a row that took the ON CONFLICT DO UPDATE branch has
+	//    xmax<>0 (the row's old xmax, set during the conflict update). pgx never
+	//    returns ErrNoRows here — the DO UPDATE branch always returns a row — so
+	//    the previous `inserted` flag (set false only on ErrNoRows) was dead and
+	//    same-key/same-payload retries fell through to the rewrite path, creating
+	//    duplicate bindings + a second revision bump (YS-162 DEFECT-1).
+	//
+	//    The returned payload_hash is the row's CURRENT value:
+	//      - real insert   → our payloadHash (just written).
+	//      - same payload  → the original hash (== ours) → idempotent retry.
+	//      - diff payload  → the original hash (!= ours) → conflict (§11.1).
+	//    The no-op `SET id = id` ensures the conflict branch does NOT overwrite
+	//    the original payload_hash, payload, or authz_revision.
 	var batchID uuid.UUID
 	var existingHash string
-	inserted := true
+	var inserted bool
 	err = tx.QueryRow(ctx, `
 		INSERT INTO agent_binding_batches
 		  (idempotency_key, agent_id, workspace_id, payload_hash, binding_count,
 		   authz_revision, actor_type, actor_id)
 		VALUES ($1, $2, $3, $4, $5, 0, $6, $7)
 		ON CONFLICT (idempotency_key) DO UPDATE
-		  SET idempotency_key = agent_binding_batches.idempotency_key
-		RETURNING id, payload_hash`, idempotencyKey, agentID, workspaceID,
+		  SET id = agent_binding_batches.id
+		RETURNING id, payload_hash, (xmax = 0) AS inserted`, idempotencyKey, agentID, workspaceID,
 		payloadHash, len(inputs), string(actor.Type), nilIfZero(actorIDPtr)).
-		Scan(&batchID, &existingHash)
+		Scan(&batchID, &existingHash, &inserted)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// ON CONFLICT DO UPDATE returning nothing means the DO UPDATE
-			// branch's RETURNING was suppressed — actually pgx returns ErrNoRows
-			// only when the DO UPDATE produces 0 rows, which can't happen here.
-			// Treat defensively as a collision resolution path.
-			inserted = false
-		} else {
-			return binding.BatchResult{}, err
-		}
+		return binding.BatchResult{}, err
 	}
-	// Distinguish: a real INSERT (existingHash == payloadHash because we wrote
-	// it) vs a collision (existingHash is the original batch's hash). The
-	// trick: ON CONFLICT DO UPDATE SET <no-op col> = <same col> returns the
-	// EXISTING row's columns, so existingHash is the original payload_hash.
-	// If it equals ours → idempotent retry; else → conflict.
-	_ = batchID
+	// Same key, different payload → conflict (§11.1). The original batch is left
+	// intact (the no-op ON CONFLICT branch did not mutate it).
 	if existingHash != payloadHash {
-		// Same key, different payload → conflict (§11.1).
 		return binding.BatchResult{}, binding.ErrIdempotencyConflict
 	}
-	// If the row pre-existed with the SAME hash → idempotent retry. The caller
-	// (service) re-fetches by idempotency_key and returns the originals. Signal
-	// via ErrIdempotentRetry only if we did NOT insert (the row pre-existed).
+	// Same key, same payload but the row pre-existed (took the ON CONFLICT branch,
+	// inserted=false) → idempotent retry. The service re-fetches by
+	// idempotency_key and returns the original bindings; we write nothing and do
+	// NOT bump the revision (§5.2 / §11.1).
 	if !inserted {
 		return binding.BatchResult{IdempotentHit: true}, binding.ErrIdempotentRetry
 	}
+	_ = batchID // written in step 4 via the idempotency_key; not needed here
 
 	// 2. Write each binding (create or ETag-gated update).
 	written := make([]domain.AgentBinding, 0, len(inputs))
