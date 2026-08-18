@@ -35,14 +35,17 @@ type Service struct {
 }
 
 // rbacEngine is the minimal authz seam the service needs (the full
-// rbac.Engine satisfies it). Kept as an interface so the service does not
-// import platform/rbac directly here — production wires the real engine via
-// WithAuthz in sub-task D, mirroring module/binding's WithAuthz.
+// rbac.Engine satisfies it via the SkillAuthz adapter wired in sub-task D).
+// Kept as an interface so the service does not import platform/rbac directly
+// here — production wires the real engine via WithAuthz in sub-task D,
+// mirroring module/binding's WithAuthz.
 type rbacEngine interface {
-	// CheckAssign asserts the caller may `assign` on the workspace. A denial
-	// returns ErrPackageNotFound (no existence leak, same convention as the
-	// binding service). IsAdmin / nil-engine short-circuits to allow.
-	CheckAssign(ctx context.Context, workspaceID uuid.UUID, subject domain.SubjectType, principalID uuid.UUID, groupIDs []uuid.UUID, isAdmin bool) error
+	// CheckAssign asserts the caller may `assign` on the workspace that owns
+	// assetVersionID. The adapter resolves asset_version_id → workspace_id
+	// (mirrors the memory-unit ACL gate: resolve asset id before Check, YS-146).
+	// A denial returns ErrPackageNotFound (no existence leak, same convention
+	// as the binding service). IsAdmin / nil-engine short-circuits to allow.
+	CheckAssign(ctx context.Context, assetVersionID uuid.UUID, subject domain.SubjectType, principalID uuid.UUID, groupIDs []uuid.UUID, isAdmin bool) error
 }
 
 // AuthContext carries the caller identity for RBAC (mirrors
@@ -200,6 +203,23 @@ func (s *Service) Revalidate(ctx context.Context, auth AuthContext, assetVersion
 	return pkg, nil
 }
 
+// GetPackage returns the stored skill_packages row for an asset version (the
+// §6.1 GET version route). It is a READ path: it does NOT re-run validation
+// (use Revalidate for that). Authorization: the caller must hold `assign` on
+// the workspace that owns the asset version (§6.1 management visibility — the
+// skill_packages view is management, not the default Agent tool set). A denial
+// returns ErrPackageNotFound (no existence leak).
+func (s *Service) GetPackage(ctx context.Context, auth AuthContext, assetVersionID uuid.UUID) (domain.SkillPackage, error) {
+	if err := s.requireAuthorized(ctx, auth, assetVersionID); err != nil {
+		return domain.SkillPackage{}, err
+	}
+	pkg, err := s.repo.Get(ctx, assetVersionID)
+	if err != nil {
+		return domain.SkillPackage{}, ErrPackageNotFound
+	}
+	return pkg, nil
+}
+
 // Export losslessly re-derives the archive from the stored manifest and
 // asserts the content_hash equals the import content_hash (§9 往返门禁).
 // The opener yields the file content for each manifest entry (the MinIO-
@@ -304,15 +324,13 @@ func declaredRuntime(fm map[string]any) string {
 
 // requireAuthorized gates management operations on the `assign` action on the
 // workspace that owns the asset version. A nil engine (tests) allows. The
-// workspace id is resolved by the RBAC layer from the asset version; this
-// service delegates the lookup to the engine (sub-task D wires the real
-// engine, which holds the AssetVersionRepo).
+// workspace id is resolved by the RBAC layer from the asset version; the
+// adapter (sub-task D) resolves asset_version_id → workspace_id, then runs
+// rbac.Engine.Check (mirrors the memory-unit ACL gate pattern: resolve asset
+// id before Check, YS-146).
 func (s *Service) requireAuthorized(ctx context.Context, auth AuthContext, assetVersionID uuid.UUID) error {
 	if s.rbac == nil || auth.IsAdmin {
 		return nil
 	}
-	// The real engine resolves workspace_id from assetVersionID; we pass the
-	// version id and let the engine's AssetLocator do the resolution (mirrors
-	// the memory-unit ACL gate pattern: resolve asset id before Check).
-	return s.rbac.CheckAssign(ctx, uuid.Nil, auth.SubjectType, auth.PrincipalID, auth.GroupIDs, auth.IsAdmin)
+	return s.rbac.CheckAssign(ctx, assetVersionID, auth.SubjectType, auth.PrincipalID, auth.GroupIDs, auth.IsAdmin)
 }

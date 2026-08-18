@@ -49,7 +49,32 @@ var (
 	_ binding.Repository    = (*BindingRepo)(nil)
 	_ binding.BatchUpsert   = (*BindingSink)(nil)
 	_ binding.RevokeRevoker = (*BindingSink)(nil)
+	_ binding.PinnedVersionChecker = (*PinnedVersionChecker)(nil)
 )
+
+// PinnedVersionChecker implements binding.PinnedVersionChecker: a pinned
+// version is usable when build_status='ready' AND governance_status='published'
+// (§5.1 — the same gate the authz pinnedVersionGate enforces at decision time;
+// this checker surfaces the alert at batch time so the caller sees §5.1's
+// "阻断+告警" before the binding is used). It reuses AssetReadRepo's
+// GetVersionByID so there is one canonical version-read path.
+type PinnedVersionChecker struct{ versions AssetVersionResolver }
+
+// NewPinnedVersionChecker wires the pinned-version checker over the asset
+// read repo (or any AssetVersionResolver).
+func NewPinnedVersionChecker(versions AssetVersionResolver) *PinnedVersionChecker {
+	return &PinnedVersionChecker{versions: versions}
+}
+
+// IsUsable reports whether versionID is build_status='ready' AND
+// governance_status='published'. A missing version is not usable (alert).
+func (c *PinnedVersionChecker) IsUsable(ctx context.Context, versionID uuid.UUID) (bool, error) {
+	v, _, err := c.versions.GetVersionByID(ctx, versionID)
+	if err != nil || v == nil {
+		return false, nil
+	}
+	return v.BuildStatus == domain.VersionBuildReady && v.GovernanceStatus == domain.VersionGovPublished, nil
+}
 
 // bindingColumns is the shared SELECT list (matches the 013 schema).
 const bindingColumns = `id, agent_id, workspace_id, scope_kind, asset_id, asset_type,
@@ -135,6 +160,31 @@ func (r *BindingRepo) Get(ctx context.Context, id uuid.UUID) (domain.AgentBindin
 		return b, err
 	}
 	return b, nil
+}
+
+// ActiveForAgent returns all active bindings for (agent, workspace) — the
+// unpaginated delivery-path read (§6.2 → §5.3 effective-set resolution). The
+// delivery service resolves the winner in-memory (deny>allow, priority,
+// scope-narrowness); this port stays a plain SELECT so the precedence rule
+// lives in one testable place. A binding set is small (tens), so no LIMIT.
+func (r *BindingRepo) ActiveForAgent(ctx context.Context, agentID, workspaceID uuid.UUID) ([]domain.AgentBinding, error) {
+	rows, err := r.db.Pool.Query(ctx,
+		fmt.Sprintf(`SELECT %s FROM agent_bindings
+			WHERE agent_id = $1 AND workspace_id = $2 AND revoked_at IS NULL
+			ORDER BY id`, bindingColumns), agentID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]domain.AgentBinding, 0)
+	for rows.Next() {
+		b, err := scanBinding(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
 }
 
 // GetByIdempotencyKey loads the bindings written by a batch (§5.2 retry).
