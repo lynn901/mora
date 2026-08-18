@@ -80,6 +80,9 @@ func (r *fakeBindingRepo) GetByIdempotencyKey(_ context.Context, key string) ([]
 	}
 	return nil, ErrBindingNotFound
 }
+func (r *fakeBindingRepo) ActiveForAgent(_ context.Context, _, _ uuid.UUID) ([]domain.AgentBinding, error) {
+	return r.listed, nil
+}
 
 // fakePinnedChecker reports a per-version usable map; a missing entry is
 // not-usable (matches the authz AssetVersionRepo's not-found → deny).

@@ -30,8 +30,10 @@ import (
 	cgservice "github.com/lynn901/mora/internal/module/knowledge/codegraph/service"
 	srcsvc "github.com/lynn901/mora/internal/module/knowledge/source/service"
 	wikisvc "github.com/lynn901/mora/internal/module/knowledge/wiki/service"
+	binding "github.com/lynn901/mora/internal/module/binding"
 	"github.com/lynn901/mora/internal/module/memory/evidence"
 	"github.com/lynn901/mora/internal/module/memory/recall"
+	skill "github.com/lynn901/mora/internal/module/skill"
 	"github.com/lynn901/mora/internal/module/mora/collab"
 	"github.com/lynn901/mora/internal/module/mora/event"
 	wh "github.com/lynn901/mora/internal/module/mora/handler"
@@ -170,7 +172,6 @@ func main() {
 	assetReadSvc := asset.NewReadService(postgres.NewAssetReadRepo(db)).
 		WithAuthz(engine, auditLogger)
 	assetH := wh.NewAssetHandler(assetReadSvc)
-
 	// CodeGraph query API (design-docs/17 §6.1): the read-side code_* surfaces
 	// (status / files / search / explore / node / callers / callees / impact).
 	// The service resolves the codebase through asset.ReadService (resource-level
@@ -187,6 +188,51 @@ func main() {
 		codegraph.NewNoopProvider(),
 	)
 	codegraphH := wh.NewCodeGraphHandler(codegraphSvc)
+
+	// Phase 5-3 Skill package governance REST control plane (design-docs/19
+	// §6.1, YS-163). The skill service owns parse/classify/validate/persist
+	// (B/YS-161) + the read/export seams added here; the pgx Repository +
+	// MinIO ArchiveOpener + the SkillAuthzAdapter (asset_version → workspace
+	// → ActionAssign, mirroring the YS-146 unit-id resolution pattern) are
+	// wired here so the service stays pgx/objstore-free. The SkillAssetRegistrar
+	// creates the knowledge_assets (asset_type=skill) + knowledge_asset_versions
+	// rows + stores the immutable archive original in MinIO (§3.1 1:1 mount).
+	// Management operations (import/validate/export) are gated on `assign` and
+	// do NOT enter the default Agent MCP tool set (§6.3).
+	skillRepo := postgres.NewSkillRepo(db)
+	skillOpener := postgres.NewSkillArchiveOpener(objStore)
+	skillSvc := skill.NewService(skillRepo).
+		WithAuthz(postgres.NewSkillAuthzAdapter(engine, postgres.NewAssetReadRepo(db)))
+	skillRegistrar := postgres.NewSkillRegistrar(pool, objStore)
+	skillH := wh.NewSkillHandler(skillSvc, skillRegistrar, skillOpener)
+
+	// Phase 5-3 §6.2 internal delivery API (MCP → Mora, YS-163). The delivery
+	// service composes the skill package repo + an asset resolver (asset_id →
+	// type/workspace/version) + a binding resolver (agent → effective binding
+	// → delivery_mode) + the archive opener (progressive resource reads). It
+	// does NOT run authz — the AuthMiddleware already enforced that the bearer
+	// is a delegated agent context (AgentID + WorkspaceID); the service then
+	// enforces the agent-level gate (an allow binding for the skill). The
+	// INTERNAL_SERVICE_TOKEN alone (no agent context) is refused by the
+	// service — the token never authorizes skill delivery alone (§11.2).
+	skillDelivery := skill.NewDeliveryService(skillRepo,
+		postgres.NewSkillAssetResolver(postgres.NewAssetReadRepo(db)),
+		postgres.NewSkillBindingResolver(postgres.NewBindingRepo(db)),
+		skillOpener)
+	skillInternalH := wh.NewSkillInternalHandler(skillDelivery)
+
+	// Phase 5-3 Agent 配装（Binding）management REST control plane (design-docs/19
+	// §6.1, YS-163). The binding service owns batch upsert + revoke + the
+	// pinned-version alert (C/YS-162); the pgx BindingRepo + BindingSink (tx +
+	// outbox + workspace revision bump) + the PinnedVersionChecker are wired
+	// here. Management operations (list/batch/patch/revoke) are gated on
+	// `assign` and do NOT enter the default Agent MCP tool set (§6.3).
+	bindingRepo := postgres.NewBindingRepo(db)
+	bindingSink := postgres.NewBindingSink(pool, outbox.NewStore())
+	bindingPinned := postgres.NewPinnedVersionChecker(postgres.NewAssetReadRepo(db))
+	bindingSvc := binding.NewService(bindingRepo, bindingSink, bindingSink, bindingPinned).
+		WithAuthz(engine, auditLogger)
+	bindingH := wh.NewBindingHandler(bindingSvc)
 
 	// Wiki maintenance API (design-docs/16 §7.1 / api/wiki.yaml). The service
 	// enforces resource-level RBAC (§8.2: a missing/cross-workspace Wiki Space
@@ -379,6 +425,50 @@ func main() {
 	authed.GET("/knowledge/assets/:id", assetH.Get)
 	authed.GET("/knowledge/assets/:id/versions", assetH.ListVersions)
 	authed.GET("/knowledge/assets/:id/relations", assetH.ListRelations)
+
+	// Phase 5-3 Skill package governance REST control plane (design-docs/19
+	// §6.1). Management operations (import/validate/export) gated on `assign`;
+	// do NOT enter the default Agent MCP tool set (§6.3). Custom verbs
+	// (:validate/:export) are expressed as /validate /export sub-resources
+	// because Gin's route tree parses ':vid:validate' as two path params in
+	// one segment and panics at startup (same root cause as the
+	// /memory/evidence/:id/read and /wiki-spaces/:id/lint routes, YS-110).
+	// The import route is the asset create route; asset_type=skill is carried
+	// as a form field (the multipart upload names the archive), so a future
+	// non-skill asset-type importer can share the same POST path.
+	authed.POST("/workspaces/:workspace_id/knowledge/assets", skillH.Import)
+	authed.GET("/knowledge/assets/:id/versions/:vid", skillH.GetVersion)
+	authed.POST("/knowledge/assets/:id/versions/:vid/validate", skillH.Validate)
+	authed.GET("/knowledge/assets/:id/versions/:vid/export", skillH.Export)
+
+	// Phase 5-3 §6.2 internal delivery API (MCP → Mora). These routes are the
+	// surface the MCP Server's skill_list/skill_read/skill_resources tool layer
+	// calls (via moraclient). They live under /internal/v1 (NOT /api/v1) to
+	// mark them as the service-to-service surface, but they reuse the SAME
+	// AuthMiddleware so the service-token + delegated-context model (§11.2) is
+	// enforced: a caller presents INTERNAL_SERVICE_TOKEN (service identity) +
+	// a delegated JWT carrying AgentID + WorkspaceID. The handler pulls those
+	// from the resolved AuthState — it does NOT trust any client header for the
+	// agent identity. Existence never leaks (§8.2): every not-found / denied /
+	// cross-workspace path returns the same 404 + 40400.
+	//
+	// The :version segment accepts "latest" or a version id; the resource path
+	// is a Gin wildcard (*path) so nested resource paths (a/b/c.md) route.
+	internal := r.Group("/internal/v1")
+	internal.Use(wh.AuthMiddleware(tm, cfg.InternalToken, delegatedMgr))
+	internal.Use(wh.AuditMiddleware(auditLogger))
+	internal.GET("/skills/:id/versions/:version", skillInternalH.Deliver)
+	internal.GET("/skills/:id/resources/*path", skillInternalH.ReadResource)
+
+	// Phase 5-3 Agent 配装（Binding）management REST control plane (§6.1).
+	// Management operations (list/batch/patch/revoke) gated on `assign`; do
+	// NOT enter the default Agent MCP tool set (§6.3). The :batch and :revoke
+	// custom verbs are expressed as /batch /revoke sub-resources for the same
+	// Gin route-tree reason as the skill verbs above.
+	authed.GET("/agents/:id/bindings", bindingH.List)
+	authed.POST("/agents/:id/bindings/batch", bindingH.Batch)
+	authed.PATCH("/agents/:id/bindings/:binding_id", bindingH.Patch)
+	authed.POST("/agents/:id/bindings/:binding_id/revoke", bindingH.Revoke)
 
 	// CodeGraph query API (§6.1). Reads only; resource-level RBAC enforced in
 	// the codegraph service (via asset.ReadService.GetAsset). A codebase with no

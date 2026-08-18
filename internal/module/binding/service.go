@@ -214,6 +214,28 @@ func (s *Service) ListBindings(ctx context.Context, auth AuthContext, agentID, w
 	return s.bindings.List(ctx, agentID, workspaceID, after, limit)
 }
 
+// GetBinding returns a single binding by id (§6.1 PATCH carry-forward). The
+// caller must hold `assign` on the workspace; a missing or cross-workspace
+// binding returns ErrBindingNotFound (no leak). Used by the PATCH handler to
+// load the current binding's carry-forward fields before issuing the update
+// (the update path is revoke-old + create-new, so the new binding must repeat
+// the full shape — only delivery_mode/priority are overridden).
+func (s *Service) GetBinding(ctx context.Context, auth AuthContext, bindingID, agentID, workspaceID uuid.UUID) (domain.AgentBinding, error) {
+	if err := s.authorize(ctx, auth, domain.TargetWorkspace, workspaceID, domain.ActionAssign, true); err != nil {
+		return domain.AgentBinding{}, err
+	}
+	cur, err := s.bindings.Get(ctx, bindingID)
+	if err != nil {
+		return domain.AgentBinding{}, ErrBindingNotFound
+	}
+	// Cross-workspace / cross-agent guard (no existence leak): a binding in
+	// another workspace or for another agent is surfaced as not-found.
+	if cur.WorkspaceID != workspaceID || cur.AgentID != agentID {
+		return domain.AgentBinding{}, ErrBindingNotFound
+	}
+	return cur, nil
+}
+
 // authorize runs an rbac.Engine.Check for the workspace target. A denial
 // returns ErrBindingNotFound on both read and write management paths — the
 // existence of an agent's binding set never leaks (§8.2 / §1.2). An admin
