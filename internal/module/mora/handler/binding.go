@@ -57,15 +57,19 @@ func (h *BindingHandler) List(c *gin.Context) {
 		}
 	}
 	limit, _ := strconv.Atoi(c.Query("page_size"))
-	items, err := h.svc.ListBindings(c.Request.Context(), bindingAuth(MustAuth(c)), agentID, wsID, after, limit)
+	items, effectiveLimit, err := h.svc.ListBindings(c.Request.Context(), bindingAuth(MustAuth(c)), agentID, wsID, after, limit)
 	if err != nil {
 		response.Fail(c, mapBindingErr(err))
 		return
 	}
 	// Cursor = the last item's id (uuid-keyed, monotonic per agent — see
-	// BindingRepo.List's id > after cursor). nil/empty → no next page.
+	// BindingRepo.List's id > after cursor). A next page exists only when the
+	// query returned a full page (len == effectiveLimit); a 缺省 page_size
+	// normalizes to 50, so we compare against the EFFECTIVE limit the service
+	// applied, not the raw query value (which is 0 on 缺省) — otherwise
+	// next_cursor would always be set on a 缺省 request (YS-163 DEFECT-4).
 	var next string
-	if n := len(items); n > 0 && (limit == 0 || n >= limit) {
+	if n := len(items); n > 0 && n >= effectiveLimit {
 		next = items[n-1].ID.String()
 	}
 	c.Header("X-Next-Cursor", next)

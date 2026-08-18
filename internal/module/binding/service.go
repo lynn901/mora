@@ -116,12 +116,16 @@ func (s *Service) BatchUpsertBindings(ctx context.Context, auth AuthContext, age
 		}
 		if errors.Is(err, ErrIdempotentRetry) {
 			// Same payload, original batch already exists — re-fetch by key
-			// and return the original (§5.2 idempotent retry).
-			orig, gerr := s.bindings.GetByIdempotencyKey(ctx, idempotencyKey)
+			// and return the original (§5.2 idempotent retry). The repo also
+			// returns the authz_revision the original batch stamped, so the
+			// retry echoes the SAME revision the caller saw on the first
+			// attempt — a stable, monotonic value rather than a regression to
+			// zero (YS-163 DEFECT-1: NewRevision must not be 0 on a hit).
+			orig, origRev, gerr := s.bindings.GetByIdempotencyKey(ctx, idempotencyKey)
 			if gerr != nil || len(orig) == 0 {
 				return BatchResult{}, ErrIdempotencyConflict
 			}
-			out := BatchResult{IdempotentHit: true}
+			out := BatchResult{IdempotentHit: true, NewRevision: origRev}
 			for _, b := range orig {
 				out.Results = append(out.Results, BindingResult{Binding: b})
 			}
@@ -203,15 +207,21 @@ func (s *Service) RevokeBinding(ctx context.Context, auth AuthContext, bindingID
 
 // ListBindings returns the active bindings for an agent (§6.1 list). The
 // caller must hold `assign` on the workspace; a denial returns
-// ErrBindingNotFound (no leak of the binding set's existence).
-func (s *Service) ListBindings(ctx context.Context, auth AuthContext, agentID, workspaceID uuid.UUID, after *uuid.UUID, limit int) ([]domain.AgentBinding, error) {
+// ErrBindingNotFound (no leak of the binding set's existence). The returned
+// effective limit is the page size the query actually used (after the
+// <=0/>200 → 50 normalization) so the handler can decide the next-cursor on
+// the same value the query was bounded by — a 缺省 page_size must NOT leave
+// next_cursor set when fewer than the effective page were returned
+// (YS-163 DEFECT-4).
+func (s *Service) ListBindings(ctx context.Context, auth AuthContext, agentID, workspaceID uuid.UUID, after *uuid.UUID, limit int) ([]domain.AgentBinding, int, error) {
 	if err := s.authorize(ctx, auth, domain.TargetWorkspace, workspaceID, domain.ActionAssign, true); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	return s.bindings.List(ctx, agentID, workspaceID, after, limit)
+	items, err := s.bindings.List(ctx, agentID, workspaceID, after, limit)
+	return items, limit, err
 }
 
 // GetBinding returns a single binding by id (§6.1 PATCH carry-forward). The

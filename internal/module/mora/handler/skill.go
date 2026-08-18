@@ -120,15 +120,21 @@ func (h *SkillHandler) Import(c *gin.Context) {
 		response.Fail(c, mapSkillErr(err))
 		return
 	}
+	// Mirror GetVersion's response shape: a flat set of governance fields PLUS
+	// the full skill_packages object under the "skill_packages" key, so the
+	// Import and GetVersion envelopes are consistent (YS-163 DEFECT-3: Import
+	// previously returned only flat fields, diverging from GetVersion).
+	pkg := res.Package
 	response.Created(c, gin.H{
-		"asset_id":        reg.AssetID,
-		"asset_version_id": res.Package.AssetVersionID,
-		"storage_key":      res.Package.StorageKey,
-		"content_hash":     res.ContentHash,
-		"format_id":        string(res.Package.FormatID),
-		"validation_status": string(res.Package.ValidationStatus),
-		"validation_report": res.Package.ValidationReport,
-		"compatibility_report": res.Package.CompatibilityReport,
+		"asset_id":          reg.AssetID,
+		"asset_version_id":  pkg.AssetVersionID,
+		"storage_key":       pkg.StorageKey,
+		"content_hash":      res.ContentHash,
+		"format_id":         string(pkg.FormatID),
+		"validation_status": string(pkg.ValidationStatus),
+		"validation_report": pkg.ValidationReport,
+		"compatibility_report": pkg.CompatibilityReport,
+		"skill_packages":    pkg, // the full skill_packages清单 (§6.1, matches GetVersion)
 	})
 }
 
