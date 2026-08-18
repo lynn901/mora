@@ -81,7 +81,12 @@ awk '/^require \(/,/^)/' "$ROOT/go.mod" \
     done >> "$COMPONENTS"
 
 # ---- Reference baselines (spec / selection framework, non-runtime). ----
-echo '{"ecosystem":"reference","name":"CodeGraph","version":"TBD","digest":"TBD","digest_type":"tbd","source_url":"TBD","license":"TBD","notice_path":"third-party/NOTICES/CodeGraph.NOTICE","capability":"code-symbol/call/impact-query","adr":"third-party/adr/0001-codegraph-selection.md","status":"selection-pending-phase3"}' >> "$COMPONENTS"
+# CodeGraph: ADR-0001 accepted (2026-08-15), baseline locked to
+# @colbymchenry/codegraph v1.5.0, commit c6aaa20358cd6adcd04b87bdef8e5803ad146f3a
+# (MIT, PGP-verified). The npm tarball dist.shasum is a supplemental SBOM-traceability
+# field filled at sidecar landing; until then digest stays TBD (warn, not fail) per
+# check.sh. The status must read selected-baseline-phase3 — regressing it fails the gate.
+echo '{"ecosystem":"reference","name":"CodeGraph","version":"1.5.0","digest":"TBD","digest_type":"tbd","source_url":"https://github.com/colbymchenry/codegraph","license":"MIT","notice_path":"third-party/NOTICES/CodeGraph.NOTICE","capability":"code-symbol/call/impact-query","adr":"third-party/adr/0001-codegraph-selection.md","status":"selected-baseline-phase3"}' >> "$COMPONENTS"
 echo '{"ecosystem":"reference","name":"Agent Skills spec","version":"1.0","digest":"spec-v1.0","digest_type":"spec-version","source_url":"https://agentskills.io/","license":"spec-declared","notice_path":"third-party/NOTICES/agent-skills-spec.NOTICE","capability":"skill-package-format-profile","adr":"third-party/adr/0002-skill-spec-baseline.md","status":"accepted"}' >> "$COMPONENTS"
 
 if [ ! -s "$COMPONENTS" ]; then

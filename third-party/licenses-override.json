@@ -1,6 +1,7 @@
 {
   "_comment": "Go modules carry no license metadata in go.sum, so SPDX identifiers for direct Go deps are curated here. npm licenses are authoritative (from package-lock.json) and not overridden. When `make sbom` runs, the generated SBOM is the cross-check; any mismatch is a data fix here, not a gate exception.",
   "github.com/gin-gonic/gin": "MIT",
+  "github.com/goccy/go-yaml": "MIT",
   "github.com/golang-jwt/jwt/v5": "MIT",
   "github.com/google/uuid": "BSD-3-Clause",
   "github.com/gorilla/websocket": "BSD-2-Clause",
