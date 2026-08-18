@@ -462,7 +462,7 @@ POST /api/v1/memory/units/{id}:approve|reject|merge|supersede|promote
 # api/memory.yaml（节选，对齐 12 §11.1）
 paths:
   /api/v1/memory/evidence:           # POST 提交证据（memory_remember / 会话导入入口）
-  /api/v1/memory/evidence/{id}:read: # POST 展开最小脱敏片段（§4.3 ACL 链）
+  /api/v1/memory/evidence/{id}/read: # POST 展开最小脱敏片段（§4.3 ACL 链；{id}/read 而非 {id}:read，同 wiki-spaces {id}/lint，避 Gin v1.12 单段双通配符 panic）
   /api/v1/memory/inbox:              # GET candidate inbox（§6.3）
   /api/v1/memory/units:              # GET 结构化召回（§8，owner/reviewer 视图）
   /api/v1/memory/units/{id}:approve|reject|merge|supersede|promote:  # POST reviewer 处置

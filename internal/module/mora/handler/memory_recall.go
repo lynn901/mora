@@ -206,7 +206,7 @@ type evidenceReadResponse struct {
 	EvidenceMissing    bool   `json:"evidence_missing,omitempty"`
 }
 
-// EvidenceRead handles POST /api/v1/memory/evidence/{id}:read (§4.3 ACL chain).
+// EvidenceRead handles POST /api/v1/memory/evidence/{id}/read (§4.3 ACL chain).
 // The caller supplies the unit id the evidence is read THROUGH (step 1 of the
 // §4.3 chain). Leak-safe (§9.3): a missing/purged/denied evidence returns
 // Readable=false with the same shape — no 403/404 distinction.

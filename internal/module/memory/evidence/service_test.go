@@ -59,14 +59,6 @@ func (f *fakeRetention) PurgeReady(ctx context.Context, now time.Time, defaultGr
 	return nil, nil
 }
 
-// PurgeReady satisfies the second reaper half (D3 → purged). The capture
-// service never exercises reaping, so this returns no purge work — mirrors
-// PurgeDue. Required so the compile-time port-satisfaction check at line 82
-// holds after RetentionPolicyRepo grew PurgeReady (propagation commit).
-func (f *fakeRetention) PurgeReady(ctx context.Context, now time.Time, defaultGrace time.Duration, limit int) ([]domain.MemoryEvidence, error) {
-	return nil, nil
-}
-
 // fakeKEK + fakeCrypto satisfy the ports for the inline path.
 type fakeKEK struct{ version int }
 

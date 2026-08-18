@@ -421,7 +421,12 @@ func main() {
 	// never edits the statement (§8.5).
 	authed.GET("/memory/units", recallH.Recall)
 	authed.POST("/memory/units/:id/feedback", recallH.Feedback)
-	authed.POST("/memory/evidence/:id:read", recallH.EvidenceRead)
+	// AIP-190 custom verb expressed as a /read sub-resource: Gin v1.12's
+	// route tree parses ':id:read' as two path params (':id' + ':read') in
+	// one segment and panics at startup, so the wire path is {id}/read, not
+	// {id}:read (same root cause as the wiki-spaces {id}/lint route). The
+	// handler still reads c.Param("id"); only the path form changed.
+	authed.POST("/memory/evidence/:id/read", recallH.EvidenceRead)
 
 	// health
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
