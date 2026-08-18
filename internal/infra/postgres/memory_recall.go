@@ -96,7 +96,6 @@ func (r *RecallRepo) Recall(ctx context.Context, q recall.KnowledgeQuery, includ
 			LIMIT 1
 		) l ON true
 		WHERE u.workspace_id = @workspace_id
-		  AND u.deleted_at IS NULL
 		  AND u.state = ANY(@states)
 		  AND (@memory_type::text IS NULL OR u.memory_type = @memory_type)
 		  AND (@owner_id::uuid IS NULL OR u.created_by_id = @owner_id)
