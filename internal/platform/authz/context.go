@@ -24,6 +24,15 @@ type AuthzContext struct {
 	Reason          string
 	AllowedAssetIDs []uuid.UUID // empty = workspace-level (server-resolved)
 	DecisionID      *uuid.UUID  // present when issued as a signed capability
+	// DeliveryMode is the resolved delivery contract for an allowed agent
+	// binding on the target (Phase 5 §5.3): tool (deliver SKILL.md head +
+	// resource list) / summary (description + resource list only) / inline
+	// (progressive resources fetched on demand). Empty for non-agent principals
+	// or denied decisions — the MCP/internal delivery layer treats empty as
+	// "no content to deliver" and the decision is the authoritative gate.
+	// A denied decision surfaces ErrNotFound, so an empty DeliveryMode never
+	// leaks which binding was evaluated.
+	DeliveryMode domain.BindingDeliveryMode
 }
 
 // AuthzRequest is the input to Service.Authorize (13 §3.4).
