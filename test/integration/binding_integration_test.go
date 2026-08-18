@@ -280,6 +280,11 @@ func (s *BindingSuite) Test_Binding_IdempotentRetrySamePayloadReturnsOriginal() 
 	require.Len(s.T(), r2.Results, 1)
 	assert.Equal(s.T(), firstID, r2.Results[0].Binding.ID,
 		"the original binding id must be returned (no new binding created)")
+	// The retry must echo the ORIGINAL new_revision (not 0) — a caller polling the
+	// authz revision must see a stable, monotonic value, never a regression to
+	// zero (YS-163 DEFECT-1).
+	assert.Equal(s.T(), origRev, r2.NewRevision,
+		"the retry must echo the original revision (not 0, YS-163 DEFECT-1)")
 
 	// No duplicate binding row was created: exactly one active binding for the
 	// agent on this asset.
