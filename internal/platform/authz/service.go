@@ -136,10 +136,14 @@ func (s *Service) Authorize(ctx context.Context, req AuthzRequest) (AuthzContext
 	}
 
 	// 3 & 4. Agent use + binding deny (only when principal is an agent).
+	// Phase 5 §5.3: evalBindings also resolves the winning allow binding's
+	// delivery_mode (tool/summary/inline) so the decision carries the delivery
+	// contract for the MCP/internal delivery layer.
 	bindingAllow := true // non-agent principals: no binding narrowing.
 	bindingDeny := false
+	delivery := domain.BindingDeliveryTool // default for non-agent / no-binding
 	if req.PrincipalType == domain.SubjectAgent && req.AgentID != nil {
-		bindingAllow, bindingDeny, err = s.evalBindings(ctx, *req.AgentID, req.WorkspaceID, req.TargetType, req.TargetID)
+		delivery, bindingAllow, bindingDeny, err = s.evalBindings(ctx, *req.AgentID, req.WorkspaceID, req.TargetType, req.TargetID)
 		if err != nil {
 			return out, err
 		}
@@ -166,6 +170,7 @@ func (s *Service) Authorize(ctx context.Context, req AuthzRequest) (AuthzContext
 	}
 	out.Allowed = true
 	out.Reason = "authorized"
+	out.DeliveryMode = delivery
 	return out, nil
 }
 
@@ -289,28 +294,43 @@ func (s *Service) rbacForTarget(ctx context.Context, req AuthzRequest, loc Locat
 	return false, "rbac default deny", nil
 }
 
-// evalBindings returns (allowCovered, explicitDeny, err) for an agent's
-// bindings against the target. A binding covers the target when its scope
-// matches (asset / workspace / asset_type). Explicit deny anywhere → deny.
-// Otherwise the agent needs at least one allow covering the target.
-func (s *Service) evalBindings(ctx context.Context, agentID, workspaceID uuid.UUID, t TargetType, targetID uuid.UUID) (bool, bool, error) {
+// evalBindings returns (deliveryMode, allowCovered, explicitDeny, err) for
+// an agent's bindings against the target (Phase 5 §5.3). A binding covers the
+// target when its scope matches (asset / workspace / asset_type). Explicit
+// deny anywhere → deny (deny beats allow, §8.2 用例 4). Otherwise the agent
+// needs at least one allow covering the target.
+//
+// delivery_mode resolution (§5.3): bindings are read priority DESC (the
+// repo's ORDER BY). The winning allow is the highest-priority allow that
+// covers the target — its DeliveryMode is the delivery contract for the
+// MCP/internal layer (tool/summary/inline). A deny covering the target at
+// equal-or-higher priority would already have returned (deny wins); among
+// allow bindings the first allow encountered in priority order wins. If no
+// allow covers the target, delivery defaults to tool (the decision is denied
+// anyway, so the value is not delivered).
+func (s *Service) evalBindings(ctx context.Context, agentID, workspaceID uuid.UUID, t TargetType, targetID uuid.UUID) (domain.BindingDeliveryMode, bool, bool, error) {
 	bindings, err := s.binding.ActiveForAgent(ctx, agentID, workspaceID)
 	if err != nil {
-		return false, false, err
+		return domain.BindingDeliveryTool, false, false, err
 	}
 	allowCovered := false
+	delivery := domain.BindingDeliveryTool
 	for _, b := range bindings {
 		if !bindingCoversTarget(b, t, targetID) {
 			continue
 		}
 		if b.Effect == domain.BindingDeny {
-			return false, true, nil // explicit deny beats allow (§8.2 用例 4)
+			return domain.BindingDeliveryTool, false, true, nil // explicit deny beats allow (§8.2 用例 4)
 		}
 		if b.Effect == domain.BindingAllow {
 			allowCovered = true
+			// First allow in priority-DESC order wins (bindings are ordered).
+			if delivery == domain.BindingDeliveryTool && b.DeliveryMode != "" {
+				delivery = b.DeliveryMode
+			}
 		}
 	}
-	return allowCovered, false, nil
+	return delivery, allowCovered, false, nil
 }
 
 // lifecycleGate checks the target's status permits the action (§8.2 用例 5).
