@@ -12,6 +12,7 @@ import {
   X,
   Boxes,
   Inbox,
+  Link2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -32,6 +33,7 @@ import { SearchPanel } from "@/components/search/SearchPanel"
 import { RBACPanel } from "@/components/rbac/RBACPanel"
 import { AssetsPanel } from "@/components/assets/AssetsPanel"
 import { ReviewInboxPage } from "@/components/assets/ReviewInboxPage"
+import { BindingPanel } from "@/components/binding/BindingPanel"
 import { CollabSidebar } from "@/components/collab/CollabSidebar"
 import { VersionHistory } from "@/components/history/VersionHistory"
 import { ThemeToggle } from "@/components/mora/ThemeToggle"
@@ -43,7 +45,14 @@ import { useParseStore } from "@/stores/parse"
 import { useCollabStore } from "@/stores/collab"
 import { useAuthStore } from "@/stores/auth"
 
-type SidePanel = "tree" | "search" | "rbac" | "history" | "assets" | "review"
+type SidePanel =
+  | "tree"
+  | "search"
+  | "rbac"
+  | "history"
+  | "assets"
+  | "review"
+  | "bindings"
 
 export function MoraLayout({ children }: { children?: React.ReactNode }) {
   const {
@@ -105,6 +114,7 @@ export function MoraLayout({ children }: { children?: React.ReactNode }) {
     history: <VersionHistory />,
     assets: <AssetsPanel />,
     review: <ReviewInboxPage />,
+    bindings: <BindingPanel />,
   }
 
   const panelLabels: Record<SidePanel, string> = {
@@ -114,6 +124,7 @@ export function MoraLayout({ children }: { children?: React.ReactNode }) {
     history: "历史",
     assets: "资产",
     review: "审核",
+    bindings: "配装",
   }
 
   const panelIcons: Record<SidePanel, React.ReactNode> = {
@@ -123,6 +134,7 @@ export function MoraLayout({ children }: { children?: React.ReactNode }) {
     history: <Clock className="size-4" />,
     assets: <Boxes className="size-4" />,
     review: <Inbox className="size-4" />,
+    bindings: <Link2 className="size-4" />,
   }
 
   if (error) {
@@ -214,7 +226,7 @@ export function MoraLayout({ children }: { children?: React.ReactNode }) {
         </div>
 
         <div className="flex border-b">
-          {(["tree", "search", "rbac", "history"] as SidePanel[]).map(
+          {(["tree", "search", "rbac", "history", "bindings"] as SidePanel[]).map(
             (panel) => (
               <Tooltip key={panel}>
                 <TooltipTrigger asChild>
@@ -297,9 +309,11 @@ export function MoraLayout({ children }: { children?: React.ReactNode }) {
 
           {children ? (
             <div className="flex-1 overflow-hidden">{children}</div>
-          ) : activePanel === "assets" || activePanel === "review" ? (
-            // Full-area asset / review views — these are primary destinations,
-            // not sidebar sub-panels, so they take the main stage.
+          ) : activePanel === "assets" ||
+            activePanel === "review" ||
+            activePanel === "bindings" ? (
+            // Full-area asset / review / bindings views — these are primary
+            // destinations, not sidebar sub-panels, so they take the main stage.
             <div className="flex-1 overflow-hidden">{panelContent[activePanel]}</div>
           ) : monitoringOpen ? (
             <div className="relative flex-1 overflow-hidden">
