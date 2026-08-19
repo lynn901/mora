@@ -143,7 +143,7 @@ export interface SkillPackage {
 // ---- Batch upsert (§5.2) --------------------------------------------------
 
 /**
- * One item in a batch upsert (§6.1 POST /agents/{id}/bindings:batch).
+ * One item in a batch upsert (§6.1 POST /agents/{id}/bindings/batch).
  * id empty → create; id set → update (gated by etag via If-Match).
  * version_policy=pinned requires scope_kind=asset AND pinned_version_id.
  */

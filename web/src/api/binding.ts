@@ -59,10 +59,17 @@ export async function apiGetBindings(
 }
 
 /**
- * §6.1 POST /agents/{id}/bindings:batch — batch upsert in one transaction
+ * §6.1 POST /agents/{id}/bindings/batch — batch upsert in one transaction
  * (§5.2). Idempotency-Key is required: a duplicate key for a DIFFERENT
  * payload is a 409; the same payload returns the original batch. The caller
  * generates the key (uuid or content-hash) per logical batch.
+ *
+ * The :batch custom verb is expressed as a /batch sub-resource because
+ * Gin's route tree parses an in-segment `:batch` as a second path param and
+ * panics at startup (same root cause as the YS-110 /:id:read routes). The
+ * backend registers `/agents/:id/bindings/batch`, so the client mirrors the
+ * slash form — a colon-form path would 404 even after the route lands on
+ * main.
  */
 export async function apiBatchUpsertBindings(
   agentId: string,
@@ -71,7 +78,7 @@ export async function apiBatchUpsertBindings(
   idempotencyKey: string,
 ): Promise<BatchResult> {
   return http.post<BatchResult>(
-    `/agents/${agentId}/bindings:batch`,
+    `/agents/${agentId}/bindings/batch`,
     {
       workspace_id: workspaceId,
       inputs,
@@ -98,15 +105,22 @@ export async function apiUpdateBinding(
 }
 
 /**
- * §6.1 POST /agents/{id}/bindings/{binding_id}:revoke — revoke a binding.
+ * §6.1 POST /agents/{id}/bindings/{binding_id}/revoke — revoke a binding.
  * Sets revoked_at=now() and bumps the workspace authz revision in the same tx
  * (§5.4: revoke → revision+1 → cache invalidates → next request denies).
+ *
+ * The :revoke custom verb is expressed as a /revoke sub-resource because
+ * Gin's route tree parses an in-segment `:revoke` as a second path param and
+ * panics at startup (same root cause as the YS-110 /:id:read routes). The
+ * backend registers `/agents/:id/bindings/:binding_id/revoke`, so the client
+ * mirrors the slash form — a colon-form path would 404 even after the route
+ * lands on main.
  */
 export async function apiRevokeBinding(
   agentId: string,
   bindingId: string,
 ): Promise<void> {
-  await http.post(`/agents/${agentId}/bindings/${bindingId}:revoke`)
+  await http.post(`/agents/${agentId}/bindings/${bindingId}/revoke`)
 }
 
 /**
