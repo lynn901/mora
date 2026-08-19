@@ -20,6 +20,7 @@ type fakeAssetResolver struct {
 	version domain.AssetVersion
 	missAsset bool // return not-found for GetAsset
 	missVer   bool // return not-found for ResolveVersion
+	skills  []domain.KnowledgeAsset // ListSkillsByWorkspace backing
 }
 
 func (f fakeAssetResolver) GetAsset(_ context.Context, _ uuid.UUID) (domain.KnowledgeAsset, error) {
@@ -34,6 +35,10 @@ func (f fakeAssetResolver) ResolveVersion(_ context.Context, _ uuid.UUID, _ stri
 		return domain.AssetVersion{}, ErrPackageNotFound
 	}
 	return f.version, nil
+}
+
+func (f fakeAssetResolver) ListSkillsByWorkspace(_ context.Context, _ uuid.UUID) ([]domain.KnowledgeAsset, error) {
+	return f.skills, nil
 }
 
 // fakeBindingResolver returns a fixed candidate binding set for any
