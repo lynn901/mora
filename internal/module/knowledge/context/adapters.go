@@ -1,4 +1,4 @@
-// Package context — type adapter skeletons (design-docs/19 §3.3).
+// Package contextbroker — type adapter skeletons (design-docs/19 §3.3).
 //
 // Each adapter wraps an existing type engine and maps its result into the
 // unified KnowledgeCandidate (candidate.go). The Broker orchestrates these via
@@ -13,7 +13,7 @@
 // correctness. Full Broker orchestration (parallel fan-out, dedup, budget,
 // citation build) lands in later Phase 6 stages.
 
-package context
+package contextbroker
 
 import (
 	"context"

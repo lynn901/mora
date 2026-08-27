@@ -1,4 +1,4 @@
-// Package context — typed query ports (design-docs/19 §3.3, doc 12 §9.4).
+// Package contextbroker — typed query ports (design-docs/19 §3.3, doc 12 §9.4).
 //
 // The four type-query ports are the seam the Broker orchestrates. Each port
 // returns the unified KnowledgeCandidate (candidate.go) so the Broker ranks,
@@ -12,7 +12,7 @@
 // platform/authz.AuthzContext (pushed down as a hard pre-filter, §0 D10). The
 // Broker also runs a batch post-check after the fetch — the port's own
 // hard-filter is necessary but not the sole gate.
-package context
+package contextbroker
 
 import (
 	"context"

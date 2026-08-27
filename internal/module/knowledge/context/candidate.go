@@ -1,4 +1,4 @@
-// Package context is the Phase 6 Context Broker — the delivery-convergence
+// Package contextbroker is the Phase 6 Context Broker — the delivery-convergence
 // layer of the knowledge base (design-docs/19-phase6-context-broker.md, doc 12
 // §3.1 目录预留 knowledge/context). It routes a query by intent to typed query
 // ports, runs parallel fetches under a shared deadline, dedups while keeping
@@ -12,7 +12,7 @@
 // type's adapter converts into this unified shape. This keeps Phase 4's REST
 // serialization stable (YS-98 done) while giving the Broker one shape to rank,
 // dedup, and cite across document/codebase/memory/skill.
-package context
+package contextbroker
 
 import (
 	"time"

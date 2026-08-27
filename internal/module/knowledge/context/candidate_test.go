@@ -1,4 +1,4 @@
-package context
+package contextbroker
 
 // candidate_test.go verifies the four type adapters' candidate conversion
 // correctness (design-docs/19 §3.3, YS-202 验收门禁 "四个 adapter 单测覆盖
