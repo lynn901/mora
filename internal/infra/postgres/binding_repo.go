@@ -49,7 +49,32 @@ var (
 	_ binding.Repository    = (*BindingRepo)(nil)
 	_ binding.BatchUpsert   = (*BindingSink)(nil)
 	_ binding.RevokeRevoker = (*BindingSink)(nil)
+	_ binding.PinnedVersionChecker = (*PinnedVersionChecker)(nil)
 )
+
+// PinnedVersionChecker implements binding.PinnedVersionChecker: a pinned
+// version is usable when build_status='ready' AND governance_status='published'
+// (§5.1 — the same gate the authz pinnedVersionGate enforces at decision time;
+// this checker surfaces the alert at batch time so the caller sees §5.1's
+// "阻断+告警" before the binding is used). It reuses AssetReadRepo's
+// GetVersionByID so there is one canonical version-read path.
+type PinnedVersionChecker struct{ versions AssetVersionResolver }
+
+// NewPinnedVersionChecker wires the pinned-version checker over the asset
+// read repo (or any AssetVersionResolver).
+func NewPinnedVersionChecker(versions AssetVersionResolver) *PinnedVersionChecker {
+	return &PinnedVersionChecker{versions: versions}
+}
+
+// IsUsable reports whether versionID is build_status='ready' AND
+// governance_status='published'. A missing version is not usable (alert).
+func (c *PinnedVersionChecker) IsUsable(ctx context.Context, versionID uuid.UUID) (bool, error) {
+	v, _, err := c.versions.GetVersionByID(ctx, versionID)
+	if err != nil || v == nil {
+		return false, nil
+	}
+	return v.BuildStatus == domain.VersionBuildReady && v.GovernanceStatus == domain.VersionGovPublished, nil
+}
 
 // bindingColumns is the shared SELECT list (matches the 013 schema).
 const bindingColumns = `id, agent_id, workspace_id, scope_kind, asset_id, asset_type,
@@ -137,40 +162,21 @@ func (r *BindingRepo) Get(ctx context.Context, id uuid.UUID) (domain.AgentBindin
 	return b, nil
 }
 
-// GetByIdempotencyKey loads the bindings written by a batch (§5.2 retry).
-// The batch row carries the agent_id; we return all bindings for that agent
-// that were created/updated by the batch — identified by created_at falling
-// at/between the batch's created_at (approximate; the batch is one tx so all
-// its bindings share the same tx timestamp). For an exact match we tag each
-// binding's id into the batch's payload at write time and read them back by id.
-// (See BatchUpsert: the batch payload stores the written binding ids.)
-func (r *BindingRepo) GetByIdempotencyKey(ctx context.Context, key string) ([]domain.AgentBinding, error) {
-	var payloadJSON []byte
-	err := r.db.Pool.QueryRow(ctx,
-		`SELECT payload FROM agent_binding_batches WHERE idempotency_key = $1`, key).
-		Scan(&payloadJSON)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, binding.ErrBindingNotFound
-		}
-		return nil, err
-	}
-	// The batch payload carries the written binding ids (see BatchUpsert).
-	var rec batchPayload
-	if err := json.Unmarshal(payloadJSON, &rec); err != nil {
-		return nil, err
-	}
-	if len(rec.BindingIDs) == 0 {
-		return nil, nil
-	}
+// ActiveForAgent returns all active bindings for (agent, workspace) — the
+// unpaginated delivery-path read (§6.2 → §5.3 effective-set resolution). The
+// delivery service resolves the winner in-memory (deny>allow, priority,
+// scope-narrowness); this port stays a plain SELECT so the precedence rule
+// lives in one testable place. A binding set is small (tens), so no LIMIT.
+func (r *BindingRepo) ActiveForAgent(ctx context.Context, agentID, workspaceID uuid.UUID) ([]domain.AgentBinding, error) {
 	rows, err := r.db.Pool.Query(ctx,
-		fmt.Sprintf(`SELECT %s FROM agent_bindings WHERE id = ANY($1)`, bindingColumns),
-		rec.BindingIDs)
+		fmt.Sprintf(`SELECT %s FROM agent_bindings
+			WHERE agent_id = $1 AND workspace_id = $2 AND revoked_at IS NULL
+			ORDER BY id`, bindingColumns), agentID, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]domain.AgentBinding, 0, len(rec.BindingIDs))
+	out := make([]domain.AgentBinding, 0)
 	for rows.Next() {
 		b, err := scanBinding(rows)
 		if err != nil {
@@ -179,6 +185,56 @@ func (r *BindingRepo) GetByIdempotencyKey(ctx context.Context, key string) ([]do
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+// GetByIdempotencyKey loads the bindings written by a batch (§5.2 retry) plus
+// the workspace authz revision the batch stamped onto its row. The batch row
+// carries the agent_id; we return all bindings for that agent that were
+// created/updated by the batch — identified by created_at falling
+// at/between the batch's created_at (approximate; the batch is one tx so all
+// its bindings share the same tx timestamp). For an exact match we tag each
+// binding's id into the batch's payload at write time and read them back by id.
+// (See BatchUpsert: the batch payload stores the written binding ids.)
+//
+// The authz_revision is read from the batch row (not recomputed) so an
+// idempotent retry echoes the ORIGINAL revision — a stable, monotonic value
+// the caller can poll, never a regression to zero (YS-163 DEFECT-1).
+func (r *BindingRepo) GetByIdempotencyKey(ctx context.Context, key string) ([]domain.AgentBinding, int64, error) {
+	var payloadJSON []byte
+	var rev int64
+	err := r.db.Pool.QueryRow(ctx,
+		`SELECT payload, authz_revision FROM agent_binding_batches WHERE idempotency_key = $1`, key).
+		Scan(&payloadJSON, &rev)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, 0, binding.ErrBindingNotFound
+		}
+		return nil, 0, err
+	}
+	// The batch payload carries the written binding ids (see BatchUpsert).
+	var rec batchPayload
+	if err := json.Unmarshal(payloadJSON, &rec); err != nil {
+		return nil, 0, err
+	}
+	if len(rec.BindingIDs) == 0 {
+		return nil, rev, nil
+	}
+	rows, err := r.db.Pool.Query(ctx,
+		fmt.Sprintf(`SELECT %s FROM agent_bindings WHERE id = ANY($1)`, bindingColumns),
+		rec.BindingIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := make([]domain.AgentBinding, 0, len(rec.BindingIDs))
+	for rows.Next() {
+		b, err := scanBinding(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, b)
+	}
+	return out, rev, rows.Err()
 }
 
 // --- BindingSink: batch upsert + revoke (transactional) ---
@@ -307,8 +363,16 @@ func (s *BindingSink) BatchUpsert(ctx context.Context, agentID, workspaceID uuid
 		return binding.BatchResult{}, err
 	}
 	wsID := workspaceID
-	for _, b := range written {
-		ev := bindingChangedEvent(b, actor, newRev, &wsID)
+	for i, b := range written {
+		// action=create when the input had no ID (a fresh binding), action=update
+		// when the input carried an ID (revoke-old + create-new). The batch path
+		// never emits revoke — that's the single-binding Revoke path.
+		// (YS-163 DEFECT-2: the event previously omitted action on create/update.)
+		action := "create"
+		if i < len(inputs) && inputs[i].ID != nil && *inputs[i].ID != uuid.Nil {
+			action = "update"
+		}
+		ev := bindingChangedEvent(b, actor, newRev, &wsID, action)
 		if err := s.outbox.Record(ctx, tx, ev, []string{outbox.KnowledgeEventsStream}); err != nil {
 			return binding.BatchResult{}, err
 		}
@@ -438,8 +502,7 @@ func (s *BindingSink) Revoke(ctx context.Context, bindingID, agentID, workspaceI
 	}
 	// agent.binding_changed outbox event (action=revoke).
 	b := domain.AgentBinding{ID: bindingID, AgentID: agentID, WorkspaceID: workspaceID}
-	ev := bindingChangedEvent(b, actor, newRev, &workspaceID)
-	ev.Payload["action"] = "revoke"
+	ev := bindingChangedEvent(b, actor, newRev, &workspaceID, "revoke")
 	if err := s.outbox.Record(ctx, tx, ev, []string{outbox.KnowledgeEventsStream}); err != nil {
 		return 0, err
 	}
@@ -452,8 +515,12 @@ func (s *BindingSink) Revoke(ctx context.Context, bindingID, agentID, workspaceI
 // bindingChangedEvent builds an agent.binding_changed KnowledgeEvent for a
 // written/revoked binding. Carries only IDs + revision — no content, no
 // secrets (§5.1 envelope). AggregateID is the binding; WorkspaceID is set so
-// the dispatcher can route and consumers can scope.
-func bindingChangedEvent(b domain.AgentBinding, actor domain.EventActor, rev int64, wsID *uuid.UUID) domain.KnowledgeEvent {
+// the dispatcher can route and consumers can scope. action distinguishes
+// create/update (the batch upsert path) from revoke (the single-binding
+// revoke path), so consumers need not reverse-engineer intent from the
+// presence of fields (YS-163 DEFECT-2: action was absent on create/update,
+// present only on revoke).
+func bindingChangedEvent(b domain.AgentBinding, actor domain.EventActor, rev int64, wsID *uuid.UUID, action string) domain.KnowledgeEvent {
 	return domain.KnowledgeEvent{
 		EventID:       uuid.NewString(),
 		EventType:     domain.KEAgentBindingChanged,
@@ -467,6 +534,7 @@ func bindingChangedEvent(b domain.AgentBinding, actor domain.EventActor, rev int
 			"agent_id":       b.AgentID.String(),
 			"binding_id":     b.ID.String(),
 			"authz_revision": rev,
+			"action":         action,
 			"scope_kind":     string(b.ScopeKind),
 			"effect":         string(b.Effect),
 			"version_policy": string(b.VersionPolicy),

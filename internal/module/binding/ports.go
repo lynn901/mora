@@ -129,8 +129,19 @@ type Repository interface {
 	// Get returns a single binding by id (active or revoked).
 	Get(ctx context.Context, id uuid.UUID) (domain.AgentBinding, error)
 	// GetByIdempotencyKey loads a batch's bindings by the idempotency_key stored
-	// on the batch. Used to satisfy an idempotent retry (§5.2).
-	GetByIdempotencyKey(ctx context.Context, key string) ([]domain.AgentBinding, error)
+	// on the batch, plus the workspace authz revision the batch stamped onto the
+	// batch row. Used to satisfy an idempotent retry (§5.2): the retry path must
+	// echo the ORIGINAL new_revision (not 0) so a caller polling the revision
+	// sees a stable, monotonic value rather than a regression to zero.
+	GetByIdempotencyKey(ctx context.Context, key string) ([]domain.AgentBinding, int64, error)
+	// ActiveForAgent returns ALL active (revoked_at IS NULL) bindings for an
+	// agent in a workspace — unpaginated, for the §6.2 delivery path's
+	// effective-binding resolution (§5.3 precedence: the delivery service picks
+	// the winner by deny>allow, priority, scope-narrowness). A binding set is
+	// small (tens), so loading the full set in one query is cheaper than a
+	// per-scope fan-out. The caller MUST hold `assign` on the workspace (the
+	// delivery service gates this; this port does not re-check).
+	ActiveForAgent(ctx context.Context, agentID, workspaceID uuid.UUID) ([]domain.AgentBinding, error)
 }
 
 // PinnedVersionChecker reports whether a pinned version is usable

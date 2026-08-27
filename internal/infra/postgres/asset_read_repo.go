@@ -227,6 +227,64 @@ func (r *AssetReadRepo) ListVersions(ctx context.Context, assetID uuid.UUID) ([]
 	return out, rows.Err()
 }
 
+// ResolveVersion resolves a version spec for an asset to a concrete
+// knowledge_asset_versions row (§6.2 delivery path). versionSpec is:
+//   - "" or "latest": the newest version whose governance_status='published'
+//     (falling back to the newest version whose build_status='ready' when no
+//     published version exists — follow_published semantics, §5.1). A missing
+//     asset or no ready/published version → ErrAssetNotFound (no leak).
+//   - a uuid: the version id directly (an explicit version pin). The version
+//     is returned regardless of build/governance status — the binding's
+//     pinnedVersionGate enforces usability at decision time (§5.1).
+//   - any other string: ErrAssetNotFound.
+//
+// The returned AssetVersion carries the version_no + build/governance status
+// the delivery service echoes in its response.
+func (r *AssetReadRepo) ResolveVersion(ctx context.Context, assetID uuid.UUID, versionSpec string) (domain.AssetVersion, error) {
+	if vid, err := uuid.Parse(versionSpec); err == nil && vid != uuid.Nil {
+		// Explicit version id: honor as-is (pinnedVersionGate decides usability).
+		row := r.db.Pool.QueryRow(ctx,
+			`SELECT `+versionColumnList+` FROM knowledge_asset_versions WHERE id = $1 AND asset_id = $2`,
+			vid, assetID)
+		v, err := scanAssetVersion(row.Scan)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.AssetVersion{}, asset.ErrAssetNotFound
+			}
+			return domain.AssetVersion{}, err
+		}
+		return *v, nil
+	}
+	// "latest" / "" → newest published, else newest ready.
+	row := r.db.Pool.QueryRow(ctx,
+		`SELECT `+versionColumnList+` FROM knowledge_asset_versions
+		 WHERE asset_id = $1 AND governance_status = 'published'
+		 ORDER BY version_no DESC, created_at DESC LIMIT 1`, assetID)
+	v, err := scanAssetVersion(row.Scan)
+	if err == nil {
+		return *v, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.AssetVersion{}, err
+	}
+	// No published version — fall back to newest ready (follow_published does
+	// not auto-fallback across policies, but the delivery path's "latest" spec
+	// resolves to the newest usable version; a version that is neither published
+	// nor ready is not deliverable).
+	row = r.db.Pool.QueryRow(ctx,
+		`SELECT `+versionColumnList+` FROM knowledge_asset_versions
+		 WHERE asset_id = $1 AND build_status = 'ready'
+		 ORDER BY version_no DESC, created_at DESC LIMIT 1`, assetID)
+	v, err = scanAssetVersion(row.Scan)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.AssetVersion{}, asset.ErrAssetNotFound
+		}
+		return domain.AssetVersion{}, err
+	}
+	return *v, nil
+}
+
 // GetVersionByID loads a single asset version by id, joined to its owning
 // knowledge_assets row for the workspace id (Phase 3 codegraph build path,
 // design-docs/17 §4.1 step 1 — the CodeGraphBuildHandler reads the snapshot

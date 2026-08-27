@@ -58,11 +58,14 @@ func (f *fakeBatchSink) Revoke(ctx context.Context, bindingID, agentID, workspac
 }
 
 // fakeBindingRepo for the service tests: GetByIdempotencyKey returns a
-// programmable slice (to satisfy an idempotent retry).
+// programmable slice (to satisfy an idempotent retry) and the revision the
+// original batch stamped (so the retry path echoes a stable, monotonic
+// revision rather than 0 — YS-163 DEFECT-1).
 type fakeBindingRepo struct {
-	byKey  map[string][]domain.AgentBinding
-	byID   map[uuid.UUID]domain.AgentBinding
-	listed []domain.AgentBinding
+	byKey      map[string][]domain.AgentBinding
+	byKeyRev   map[string]int64
+	byID       map[uuid.UUID]domain.AgentBinding
+	listed     []domain.AgentBinding
 }
 
 func (r *fakeBindingRepo) List(_ context.Context, _, _ uuid.UUID, _ *uuid.UUID, _ int) ([]domain.AgentBinding, error) {
@@ -74,11 +77,14 @@ func (r *fakeBindingRepo) Get(_ context.Context, id uuid.UUID) (domain.AgentBind
 	}
 	return domain.AgentBinding{}, ErrBindingNotFound
 }
-func (r *fakeBindingRepo) GetByIdempotencyKey(_ context.Context, key string) ([]domain.AgentBinding, error) {
+func (r *fakeBindingRepo) GetByIdempotencyKey(_ context.Context, key string) ([]domain.AgentBinding, int64, error) {
 	if b, ok := r.byKey[key]; ok {
-		return b, nil
+		return b, r.byKeyRev[key], nil
 	}
-	return nil, ErrBindingNotFound
+	return nil, 0, ErrBindingNotFound
+}
+func (r *fakeBindingRepo) ActiveForAgent(_ context.Context, _, _ uuid.UUID) ([]domain.AgentBinding, error) {
+	return r.listed, nil
 }
 
 // fakePinnedChecker reports a per-version usable map; a missing entry is
@@ -156,18 +162,22 @@ func Test_BatchUpsert_PinnedVersionUsableNotFlagged(t *testing.T) {
 // Test_BatchUpsert_IdempotentRetryReturnsOriginal (DoD §5.2): a duplicate
 // Idempotency-Key for the SAME payload returns the original batch, not a
 // conflict. The sink signals ErrIdempotentRetry; the service re-fetches by
-// key and returns the originals.
+// key and returns the originals. The retry MUST also echo the ORIGINAL
+// new_revision (not 0) so a caller polling the authz revision sees a stable,
+// monotonic value — never a regression to zero (YS-163 DEFECT-1).
 func Test_BatchUpsert_IdempotentRetryReturnsOriginal(t *testing.T) {
 	ws, agent, user := uuid.New(), uuid.New(), uuid.New()
 	asset := uuid.New()
 	orig := domain.AgentBinding{ID: uuid.New(), AgentID: agent, WorkspaceID: ws,
 		ScopeKind: domain.BindingScopeAsset, AssetID: &asset,
 		Effect: domain.BindingAllow, DeliveryMode: domain.BindingDeliveryTool}
+	const origRev int64 = 42 // the revision the first attempt stamped
 
 	sink := &fakeBatchSink{err: ErrIdempotentRetry}
-	repo := &fakeBindingRepo{byKey: map[string][]domain.AgentBinding{
-		"dup-key": {orig},
-	}}
+	repo := &fakeBindingRepo{
+		byKey:    map[string][]domain.AgentBinding{"dup-key": {orig}},
+		byKeyRev: map[string]int64{"dup-key": origRev},
+	}
 	svc := NewService(repo, sink, sink, nil)
 
 	in := BindingInput{
@@ -181,6 +191,7 @@ func Test_BatchUpsert_IdempotentRetryReturnsOriginal(t *testing.T) {
 	assert.True(t, res.IdempotentHit, "a same-payload retry must be marked an idempotent hit")
 	require.Len(t, res.Results, 1)
 	assert.Equal(t, orig.ID, res.Results[0].Binding.ID, "the original batch is returned")
+	assert.Equal(t, origRev, res.NewRevision, "the retry echoes the original revision (not 0, YS-163 DEFECT-1)")
 }
 
 // Test_BatchUpsert_IdempotencyConflictPropagates (DoD §5.2): a duplicate
