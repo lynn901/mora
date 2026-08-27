@@ -388,7 +388,7 @@ func DedupAndKeepConflicts(candidates []KnowledgeCandidate, policy AuthorityPoli
   - 不把扩展标签塞进 `relation_type`（DB CHECK 不允许新值，且它们不是资产间边）；不新建 `knowledge_relations` 行承载自身属性。
 - **冲突保留**：若 `Relations` 含 `contradicts`/`supersedes` 且 policy 声明该冲突类型必须展示，**两方并列**，不合并、不择一。
 - **排除条件**（§7.2）：被废弃（deprecated）、过期、版本不匹配的资产**默认不进结果**；权限是检索前硬过滤，不参与乘法评分。
-- **`exclude_when` vs `must_surface_conflicts` 语义互斥**（架构评审裁定，防 PM 配置死锁）：排除发生在去重/评分**之前**，被排除的候选不进 `DedupAndKeepConflicts`，故**同一标签不得同时出现在一个策略的 `exclude_when` 与 `must_surface_conflicts`**——否则该冲突永远无法被展示（候选早已被排除）。四内置策略中 `version_mismatch` 出现在 `procedure`/`spec` 的 `must_surface_conflicts`，故其 `exclude_when` **不得含 `version_mismatch`**（PM §2.3 默认 `exclude_when=["deprecated","version_mismatch"]` 需对这两意图裁为 `["deprecated"]`）。PUT 校验须拒绝该互斥冲突。
+- **`exclude_when` vs `must_surface_conflicts` 语义互斥**（架构评审裁定，防 PM 配置死锁）：排除发生在去重/评分**之前**，被排除的候选不进 `DedupAndKeepConflicts`，故**同一标签不得同时出现在一个策略的 `exclude_when` 与 `must_surface_conflicts`**——否则该冲突永远无法被展示（候选早已被排除）。四内置策略中 `version_mismatch` 仅出现在 `procedure` 的 `must_surface_conflicts`（§5.1 表，procedure 的「版本不匹配或缺少权限」），故**仅 `procedure` 的 `exclude_when` 不得含 `version_mismatch`**，裁为 `["deprecated"]`（PM §2.3 `procedure` 已据本裁定修订）。`spec`/`revision`/`rationale` 的 `must_surface_conflicts` 不含 `version_mismatch`（见 §5.1 表），其 `exclude_when` 保留默认 `["deprecated","version_mismatch"]`——这三意图下版本不匹配的候选是**过时候选、应静默排除**（spec 要当前有效文档、revision 要固定 commit、rationale 要有效决策记录），不进冲突展示通路。PUT 校验须拒绝同一策略内 `exclude_when ∩ must_surface_conflicts ≠ ∅` 的配置。
 
 ### 7.3 降级与 partial response（D8）
 
