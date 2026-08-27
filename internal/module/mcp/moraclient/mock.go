@@ -46,6 +46,34 @@ type Mock struct {
 	// files / edges so explore/search/node/callers/callees/impact return
 	// non-empty results in mock mode.
 	codebases map[string]*mockCodebase
+
+	// skill store for the skill_* tools (design-docs/19 §6.2/§6.3). A skill is
+	// a knowledge_assets row owned by a workspace; the mock models the delivery
+	// surface: a skill id → workspace + SKILL.md header + manifest (files) +
+	// delivery_mode the agent's effective binding yields. The agent-level gate
+	// is approximated by the workspace read ACL (canRead on the skill's
+	// workspace) — an unbound agent sees ErrNotExist (no leak — §8.2). Proposals
+	// land a candidate in-memory (never published).
+	skills    map[string]*mockSkill
+	proposals map[string]*SkillProposeResult
+}
+
+// mockSkill is the in-memory model the skill_* tools query. It binds a skill
+// id to its workspace (so canRead gates it — §8.2 no-leak) and holds the
+// SKILL.md header frontmatter + the file manifest (paths + hashes) so
+// skill_read / skill_resources are exercisable. DeliveryMode models the
+// agent's effective binding: tool/inline permit raw reads; summary does not.
+type mockSkill struct {
+	WorkspaceID   string
+	Header        map[string]any
+	DeliveryMode  string
+	ContentHash   string
+	Manifest      SkillManifest
+	// resource bytes keyed by manifest path (progressive read backing).
+	Resources     map[string][]byte
+	// VersionNo + AssetVersionID for the skill_read envelope.
+	VersionNo     int64
+	AssetVersionID string
 }
 
 // AddWikiSpace seeds a Wiki Space status record for wiki_status tests.
@@ -84,6 +112,8 @@ func NewMock() *Mock {
 		wikiSpaces:  make(map[string]*WikiSpaceStatus),
 		wikiRuns:    make(map[string]*WikiPageProposeResult),
 		codebases:   make(map[string]*mockCodebase),
+		skills:      make(map[string]*mockSkill),
+		proposals:   make(map[string]*SkillProposeResult),
 	}
 }
 
@@ -538,6 +568,217 @@ func (m *Mock) resolveCodebase(auth *AuthContext, codebaseID string) (*mockCodeb
 		return nil, false
 	}
 	return cb, true
+}
+
+// --- Skill mock surface (design-docs/19 §6.2 / §6.3, Phase 5-4) ---
+
+// MockSkill is the seeder shape for AddSkill: the skill's workspace binding
+// (for RBAC), the SKILL.md header frontmatter, the effective delivery_mode,
+// and the manifest files (path + bytes + hash). A nil/empty header Name falls
+// back to id-derived so skill_list always carries a name.
+type MockSkill struct {
+	ID            string
+	WorkspaceID   string
+	Header        map[string]any
+	DeliveryMode  string
+	Manifest      []SkillFileEntry
+	Resources     map[string][]byte
+	VersionNo     int64
+	AssetVersionID string
+}
+
+// AddSkill seeds a skill for the skill_* tools. The id MUST be stable (the
+// skill_* tools key on it). DeliveryMode defaults to "tool" (full manifest +
+// progressive reads) when the seeder left it blank. ContentHash is filled
+// deterministically when blank so skill_read's content_hash anchor holds
+// without time/rand. Resources may be nil (skill_resources then yields
+// ErrNotExist — the manifest entry has no bytes, like a symlink).
+func (m *Mock) AddSkill(s MockSkill) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s.DeliveryMode == "" {
+		s.DeliveryMode = "tool"
+	}
+	if s.AssetVersionID == "" {
+		s.AssetVersionID = "aver-" + s.ID
+	}
+	skill := &mockSkill{
+		WorkspaceID:    s.WorkspaceID,
+		Header:         s.Header,
+		DeliveryMode:   s.DeliveryMode,
+		ContentHash:    "sha256:" + s.ID,
+		Resources:      s.Resources,
+		VersionNo:      s.VersionNo,
+		AssetVersionID: s.AssetVersionID,
+	}
+	if skill.Header == nil {
+		skill.Header = map[string]any{"name": s.ID}
+	}
+	if _, ok := skill.Header["name"].(string); !ok || skill.Header["name"] == "" {
+		skill.Header["name"] = s.ID
+	}
+	// Build the manifest: entry_count + total_size derived from the seeder's
+	// files; hashes filled deterministically when blank.
+	var total int64
+	for i := range s.Manifest {
+		f := s.Manifest[i]
+		if f.Hash == "" {
+			f.Hash = "sha256:" + f.Path
+		}
+		total += f.Size
+		skill.Manifest.Files = append(skill.Manifest.Files, f)
+	}
+	skill.Manifest.EntryCount = len(skill.Manifest.Files)
+	skill.Manifest.TotalSize = total
+	skill.Manifest.ContentHash = skill.ContentHash
+	m.skills[s.ID] = skill
+}
+
+// resolveSkill is the single RBAC chokepoint for the skill_* tools. A missing
+// skill OR a caller without read access on its workspace → ErrNotExist (§8.2
+// no-leak — the Agent cannot tell not-found from not-allowed). Caller must
+// hold the read lock.
+func (m *Mock) resolveSkill(auth *AuthContext, skillID string) (*mockSkill, bool) {
+	sk, ok := m.skills[skillID]
+	if !ok || !m.canRead(auth, sk.WorkspaceID) {
+		return nil, false
+	}
+	return sk, true
+}
+
+// SkillList (skill_list). Enumerates the skills the agent's workspace ACL
+// grants read on (the mock approximates the agent-level binding gate with the
+// workspace read ACL — an unbound agent sees an empty list, no leak — §8.2).
+// A nil auth → empty list.
+func (m *Mock) SkillList(_ context.Context, auth *AuthContext) (*SkillListResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	items := make([]SkillListItem, 0)
+	if auth == nil {
+		return &SkillListResult{Items: items, Total: 0}, nil
+	}
+	a := m.aclFor(auth.IdentityID)
+	for id, sk := range m.skills {
+		if a == nil {
+			continue
+		}
+		if _, ok := a.read[sk.WorkspaceID]; !ok {
+			continue // RBAC gate: invisible skills never returned
+		}
+		item := SkillListItem{
+			AssetID:      id,
+			Name:         id,
+			DeliveryMode: sk.DeliveryMode,
+			ContentHash:  sk.ContentHash,
+			VersionNo:    sk.VersionNo,
+		}
+		if n, ok := sk.Header["name"].(string); ok && n != "" {
+			item.Name = n
+		}
+		if d, ok := sk.Header["description"].(string); ok && d != "" {
+			item.Description = d
+		}
+		if v, ok := sk.Header["version"].(string); ok && v != "" {
+			item.Version = v
+		}
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	return &SkillListResult{Items: items, Total: len(items)}, nil
+}
+
+// SkillRead (skill_read). Returns the SKILL.md header + manifest, trimmed by
+// the skill's delivery_mode (summary mode gets a capability_summary projection,
+// no raw manifest). Missing/no-perm → ErrNotExist (no leak — §8.2).
+func (m *Mock) SkillRead(_ context.Context, auth *AuthContext, assetID, versionSpec string) (*SkillReadResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	sk, ok := m.resolveSkill(auth, assetID)
+	if !ok {
+		return nil, ErrNotExist()
+	}
+	_ = versionSpec // mock has a single version per skill
+	res := &SkillReadResult{
+		AssetID:            assetID,
+		AssetVersionID:     sk.AssetVersionID,
+		VersionNo:          sk.VersionNo,
+		DeliveryMode:       sk.DeliveryMode,
+		Header:             sk.Header,
+		CompatibilityReport: map[string]any{"status": "ok"},
+		ContentHash:        sk.ContentHash,
+	}
+	switch sk.DeliveryMode {
+	case "summary":
+		// Summary only: capability summary projection, no raw file list.
+		res.CapabilitySummary = map[string]any{
+			"entry_count": sk.Manifest.EntryCount,
+			"total_size":  sk.Manifest.TotalSize,
+		}
+	default: // tool / inline
+		manifest := sk.Manifest
+		res.Manifest = &manifest
+	}
+	return res, nil
+}
+
+// SkillResources (skill_resources). Progressively reads one manifest file.
+// Summary-mode bindings do not permit raw reads → ErrNotExist (no leak —
+// §8.2). The path must match a manifest entry. A manifest entry with no
+// resource bytes (symlink-like) → ErrNotExist.
+func (m *Mock) SkillResources(_ context.Context, auth *AuthContext, assetID, versionSpec, resourcePath string) (*SkillResourceContent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	sk, ok := m.resolveSkill(auth, assetID)
+	if !ok {
+		return nil, ErrNotExist()
+	}
+	_ = versionSpec
+	if sk.DeliveryMode == "summary" {
+		// Summary mode does not permit raw resource reads — the agent received
+		// only the capability summary, not the file inventory.
+		return nil, ErrNotExist()
+	}
+	for _, f := range sk.Manifest.Files {
+		if f.Path == resourcePath {
+			body, hasBytes := sk.Resources[resourcePath]
+			if !hasBytes {
+				// A manifest entry with no bytes (symlink-like) is not readable.
+				return nil, ErrNotExist()
+			}
+			return &SkillResourceContent{
+				Path:        f.Path,
+				Hash:        f.Hash,
+				Kind:        f.Kind,
+				Content:     body,
+				ContentHash: sk.ContentHash,
+			}, nil
+		}
+	}
+	return nil, ErrNotExist()
+}
+
+// SkillPropose (skill_propose). Lands a candidate proposal in-memory (never
+// published). Write perm on the workspace required (canWrite); a read-only /
+// no-context caller is refused as ErrNotExist (mapped upstream to 404, no
+// leak — §8.2). The candidate is stored so a follow-up could track it.
+func (m *Mock) SkillPropose(_ context.Context, auth *AuthContext, req SkillProposeRequest) (*SkillProposeResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.canWrite(auth, req.WorkspaceID) {
+		// Write-denied is indistinguishable from not-found (no leak — §8.2).
+		return nil, ErrNotExist()
+	}
+	n := len(m.proposals)
+	// Deterministic ids without time/rand: workspace + name + count.
+	assetID := "skill-" + req.WorkspaceID + "-" + req.Name + "-" + itoa(n+1)
+	res := &SkillProposeResult{
+		AssetID:         assetID,
+		AssetVersionID:  "aver-" + assetID,
+		ReviewRequestID: "review-" + assetID,
+		Status:          "candidate",
+	}
+	m.proposals[assetID] = res
+	return res, nil
 }
 
 // CodeStatus (code_status). Read-gated; missing/no-perm → ErrNotExist.

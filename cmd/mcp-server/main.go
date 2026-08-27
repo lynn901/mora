@@ -117,6 +117,14 @@ func main() {
 	srv.RegisterTool(tool.NewCodeCallersTool(moraClient))
 	srv.RegisterTool(tool.NewCodeCalleesTool(moraClient))
 	srv.RegisterTool(tool.NewCodeImpactTool(moraClient))
+	// Skill tools (design-docs/19 §6.3, Phase 5-4): read-only list/read/
+	// resources surfaces + the propose-write that lands a candidate (never
+	// publishes directly). The agent-level binding gate is enforced upstream
+	// by the DeliveryService; no-allow/missing → empty result (§8.2 no-leak).
+	srv.RegisterTool(tool.NewSkillListTool(moraClient))
+	srv.RegisterTool(tool.NewSkillReadTool(moraClient))
+	srv.RegisterTool(tool.NewSkillResourcesTool(moraClient))
+	srv.RegisterTool(tool.NewSkillProposeTool(moraClient))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

@@ -45,6 +45,13 @@ var (
 	// content_hash (§9 gate). 409 / 500 depending on caller; the service
 	// treats it as a delivery-blocking failure.
 	ErrRoundtripMismatch = errors.New("skill: roundtrip content_hash mismatch")
+	// ErrProposalRejected — the agent lacks write on the workspace to submit a
+	// skill proposal (§6.3 skill_propose). A deny surfaces as the same not-found
+	// shape the delivery path uses (§8.2 no-leak): the caller cannot tell a
+	// missing workspace from a write-denied one.
+	ErrProposalRejected = errors.New("skill: proposal not permitted")
+	// ErrInvalidProposal — a malformed proposal input (missing name / body).
+	ErrInvalidProposal = errors.New("skill: invalid proposal")
 )
 
 // ScannerVersion is the version of the skill scanner (parse + validate +
@@ -131,4 +138,50 @@ type Repository interface {
 	// UpdateValidationReport updates validation_status + validation_report +
 	// scanner_version for a stored package (the revalidate path).
 	UpdateValidationReport(ctx context.Context, assetVersionID uuid.UUID, status domain.SkillValidationStatus, report domain.ValidationReport, scannerVersion string) error
+}
+
+// ProposalSink is the candidate-submission port (§6.3 skill_propose). It
+// creates a CANDIDATE knowledge_asset + version (governance_status='candidate',
+// build_status='ready') + a pending review_request, in one tx, WITHOUT
+// publishing or binding the skill. The proposal enters the review/candidate
+// flow; a human approves it via the governance REST surface (§6.1), not here.
+//
+// The sink owns the transaction (asset + version + review_request in one
+// commit). It does NOT run the static validator or store a skill_packages row
+// — validation is the management-side import path (§6.1), gated on `assign`.
+// The agent's proposal is the human-reviewable candidate; a manager promotes
+// it (import + validate + publish) when they accept it. No script execution
+// occurs on the proposal path (§4.4 — the draft bytes are stored verbatim,
+// never materialized with an exec bit).
+type ProposalSink interface {
+	// Submit creates the candidate asset + version + pending review_request and
+	// returns the references the caller surfaces as the proposal tracking id.
+	// workspaceID scopes the asset (AC-4). submittedBy attributes the
+	// proposal to the acting agent. draftArchive is the minimal tar.gz the
+	// caller built from the draft SKILL.md content (stored verbatim in MinIO).
+	Submit(ctx context.Context, in ProposalInput) (ProposalResult, error)
+}
+
+// ProposalInput is the agent-submitted skill candidate (§6.3 skill_propose).
+// Name + DraftBody are required; Description / Version / SourceRef are
+// optional metadata the human reviewer reads.
+type ProposalInput struct {
+	WorkspaceID  uuid.UUID
+	Name         string
+	Description  string
+	Version      string
+	DraftArchive []byte
+	SourceRef    map[string]any
+	SubmittedBy  domain.EventActor
+}
+
+// ProposalResult is the candidate reference returned to the agent: the asset +
+// version ids + the review_request id (the human-review tracking handle) and
+// the storage_key of the stored draft archive. Nothing here is published — the
+// candidate awaits governance review.
+type ProposalResult struct {
+	AssetID          uuid.UUID
+	AssetVersionID   uuid.UUID
+	ReviewRequestID  uuid.UUID
+	StorageKey       string
 }
