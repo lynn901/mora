@@ -156,6 +156,12 @@ func TestToolWriteFlags(t *testing.T) {
 	// Wiki tools (design doc 16 §7.3): wiki_status is read-only, wiki_page_propose is a write.
 	assert.False(t, NewWikiStatusTool(m).IsWrite())
 	assert.True(t, NewWikiPageProposeTool(m).IsWrite())
+	// Skill tools (design-docs/19 §6.3): list/read/resources are read-only,
+	// skill_propose is a write.
+	assert.False(t, NewSkillListTool(m).IsWrite())
+	assert.False(t, NewSkillReadTool(m).IsWrite())
+	assert.False(t, NewSkillResourcesTool(m).IsWrite())
+	assert.True(t, NewSkillProposeTool(m).IsWrite())
 }
 
 // Tool definitions carry the expected names + input schemas.
@@ -170,6 +176,10 @@ func TestToolDefinitions(t *testing.T) {
 		"update_document":       false,
 		"wiki_status":           false,
 		"wiki_page_propose":     false,
+		"skill_list":            false,
+		"skill_read":            false,
+		"skill_resources":       false,
+		"skill_propose":         false,
 	}
 	// Each tool's Definition() returns a server.ToolDef whose .Name we check.
 	check := func(name string, got string) {
@@ -186,6 +196,10 @@ func TestToolDefinitions(t *testing.T) {
 	check("update_document", NewUpdateDocumentTool(m).Definition().Name)
 	check("wiki_status", NewWikiStatusTool(m).Definition().Name)
 	check("wiki_page_propose", NewWikiPageProposeTool(m).Definition().Name)
+	check("skill_list", NewSkillListTool(m).Definition().Name)
+	check("skill_read", NewSkillReadTool(m).Definition().Name)
+	check("skill_resources", NewSkillResourcesTool(m).Definition().Name)
+	check("skill_propose", NewSkillProposeTool(m).Definition().Name)
 	for name, seen := range expected {
 		assert.True(t, seen, "tool %s not registered", name)
 	}

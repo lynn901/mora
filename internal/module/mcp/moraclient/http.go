@@ -560,6 +560,110 @@ func (c *HTTPClient) CodeImpact(ctx context.Context, auth *AuthContext, codebase
 	return &hits, nil
 }
 
+// --- Skill read + propose surface (design-docs/19 §6.2, Phase 5-4) ---
+// All skill_* methods call the internal API (§6.2) under
+// /internal/v1/skills/... with the delegated agent context propagated via
+// identity headers. The upstream DeliveryService enforces the agent-level
+// binding gate (§5.3): a missing / no-allow / deny binding surfaces as 404
+// (→ ErrNotExist, no existence leak — §8.2). skill_propose is a write: a
+// read-only / no-context caller gets 404 (mapped to ErrNotExist — the
+// caller cannot tell write-denied from missing, §8.2).
+
+// SkillList calls GET /internal/v1/skills (skill_list). A nil agent context /
+// unbound agent yields an EMPTY list upstream — mapped here to an empty
+// SkillListResult (no leak — §8.2).
+func (c *HTTPClient) SkillList(ctx context.Context, auth *AuthContext) (*SkillListResult, error) {
+	var resp SkillListResult
+	if err := c.get(ctx, auth, "/internal/v1/skills", &resp); err != nil {
+		if isNotExist(err) {
+			return &SkillListResult{Items: []SkillListItem{}, Total: 0}, nil
+		}
+		return nil, err
+	}
+	if resp.Items == nil {
+		resp.Items = []SkillListItem{}
+	}
+	return &resp, nil
+}
+
+// SkillRead calls GET /internal/v1/skills/{id}/versions/{version} (skill_read).
+// versionSpec "latest" / a version id / "" (treated as latest upstream). An
+// unbound / missing skill → ErrNotExist (no leak — §8.2).
+func (c *HTTPClient) SkillRead(ctx context.Context, auth *AuthContext, assetID, versionSpec string) (*SkillReadResult, error) {
+	if versionSpec == "" {
+		versionSpec = "latest"
+	}
+	var res SkillReadResult
+	if err := c.get(ctx, auth, "/internal/v1/skills/"+assetID+"/versions/"+versionSpec, &res); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &res, nil
+}
+
+// SkillResources calls GET /internal/v1/skills/{id}/resources/{path}
+// (skill_resources). The path is a manifest entry path; the upstream handler
+// validates it against the manifest (no traversal). A summary-mode binding /
+// unbound skill / non-manifest path → ErrNotExist (no leak — §8.2).
+//
+// The resource bytes are returned as an octet-stream body, not an envelope —
+// so this method bypasses c.get (which unwraps the {code,data,message} JSON)
+// and reads the raw response. The content hash + kind travel as response
+// headers (X-Content-Hash / X-Resource-Kind) for integrity.
+func (c *HTTPClient) SkillResources(ctx context.Context, auth *AuthContext, assetID, versionSpec, resourcePath string) (*SkillResourceContent, error) {
+	path := "/internal/v1/skills/" + assetID + "/resources/" + resourcePath
+	if versionSpec != "" && versionSpec != "latest" {
+		path += "?version=" + versionSpec
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.internalToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.internalToken)
+	}
+	c.identityHeaders(auth, req.Header)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := mapStatus(resp.StatusCode); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read resource body: %w", err)
+	}
+	return &SkillResourceContent{
+		Path:        resourcePath,
+		Hash:        resp.Header.Get("X-Resource-Hash"),
+		Kind:        resp.Header.Get("X-Resource-Kind"),
+		Content:     body,
+		ContentHash: resp.Header.Get("X-Content-Hash"),
+	}, nil
+}
+
+// SkillPropose calls POST /internal/v1/skills/propose (skill_propose). Write:
+// a read-only / no-agent-context caller is refused upstream as 404 (no leak —
+// §8.2); a structurally invalid proposal is a 400. Never publishes directly —
+// the response carries the candidate + review references.
+func (c *HTTPClient) SkillPropose(ctx context.Context, auth *AuthContext, req SkillProposeRequest) (*SkillProposeResult, error) {
+	var res SkillProposeResult
+	if err := c.post(ctx, auth, "/internal/v1/skills/propose", req, &res); err != nil {
+		if isNotExist(err) {
+			return nil, ErrNotExist()
+		}
+		return nil, err
+	}
+	return &res, nil
+}
+
 func max1(n int) int {
 	if n < 1 {
 		return 1

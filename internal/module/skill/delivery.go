@@ -51,6 +51,13 @@ type AssetResolver interface {
 	// version — the §6.2 default for follow_published bindings). A missing
 	// version returns a not-found error.
 	ResolveVersion(ctx context.Context, assetID uuid.UUID, versionSpec string) (domain.AssetVersion, error)
+	// ListSkillsByWorkspace returns the skill-typed knowledge assets in a
+	// workspace (skill_list backing, §6.3). The repo MUST scope by workspace_id
+	// + asset_type='skill' so a non-member never sees another workspace's
+	// skills. An empty result is normal (no skills / no membership) — existence
+	// does not leak because the agent-level binding gate then trims this to
+	// only skills the agent is bound to (§8.2).
+	ListSkillsByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.KnowledgeAsset, error)
 }
 
 // BindingResolver resolves the effective binding governing one asset's
@@ -275,6 +282,106 @@ type ResourceContent struct {
 	Kind        string `json:"kind"`
 	Content     []byte `json:"-"`
 	ContentHash string `json:"content_hash"` // the package roundtrip anchor
+}
+
+// SkillListItem is one entry of the skill_list result (§6.3 skill_list /
+// §6.2 GET /internal/v1/skills). It is the trimmed, agent-visible projection
+// of a skill the agent is bound to: the SKILL.md header (name/description/
+// version) + the effective delivery_mode + the resolved version. Raw file
+// bytes / manifest are NOT inlined here (skill_read / skill_resources fetch
+// them progressively) — the list item is the directory entry, not the
+// contents.
+//
+// Existence never leaks (§8.2): a skill the agent has no allow binding for,
+// or whose effective binding is deny, is simply ABSENT from the list — the
+// agent cannot tell an unbound skill from one that does not exist.
+type SkillListItem struct {
+	AssetID       uuid.UUID                 `json:"asset_id"`
+	Name          string                    `json:"name"`
+	Description   string                    `json:"description,omitempty"`
+	Version       string                    `json:"version,omitempty"`
+	VersionNo     int64                     `json:"version_no,omitempty"`
+	DeliveryMode  domain.BindingDeliveryMode `json:"delivery_mode"`
+	FormatID      domain.SkillFormatID      `json:"format_id,omitempty"`
+	ContentHash   string                    `json:"content_hash,omitempty"`
+}
+
+// List enumerates the skills an agent is bound to in a workspace (§6.3
+// skill_list / §6.2 GET /internal/v1/skills). It is the listing counterpart
+// of Deliver: it walks the workspace's skill assets and keeps only those the
+// agent's effective binding allows (deny / no-binding dropped — no existence
+// leak, §8.2). Each kept item carries the SKILL.md header + the resolved
+// version + the effective delivery_mode, but no raw bytes (progressive reads
+// come via skill_read / skill_resources).
+//
+// A nil agentID (service_account caller with no agent context) → empty list
+// (§11.2 — the internal token alone never authorizes skill discovery). An
+// empty result is the normal, leak-safe outcome for an unbound agent; it is
+// indistinguishable from a workspace with no skills.
+func (s *DeliveryService) List(ctx context.Context, agentID, workspaceID uuid.UUID) ([]SkillListItem, error) {
+	if agentID == uuid.Nil {
+		return []SkillListItem{}, nil
+	}
+	assets, err := s.assets.ListSkillsByWorkspace(ctx, workspaceID)
+	if err != nil {
+		// A listing failure must not leak — return an empty result, never an
+		// error to the caller (§8.2 no-leak — the agent cannot infer whether
+		// skills exist from a transient repo fault).
+		return []SkillListItem{}, nil
+	}
+	if len(assets) == 0 {
+		return []SkillListItem{}, nil
+	}
+	// Resolve the agent's active bindings once; the in-memory precedence is
+	// applied per-asset by resolveEffectiveBinding among these candidates.
+	items := make([]SkillListItem, 0, len(assets))
+	for _, asset := range assets {
+		binding, err := s.resolveEffectiveBinding(ctx, agentID, workspaceID, asset.ID, asset.AssetType)
+		if err != nil {
+			// No allow binding (or deny wins) → drop the skill. Silence is the
+			// leak-safe outcome (the agent cannot tell unbound from absent).
+			continue
+		}
+		// Resolve the concrete version (pinned > latest published) so the list
+		// item reports the version the agent would receive. A version that
+		// fails to resolve (e.g. no published version yet) drops the skill —
+		// surfacing a header with no deliverable version would mislead.
+		versionSpec := "latest"
+		item := SkillListItem{
+			AssetID:      asset.ID,
+			Name:         asset.Name,
+			Description:  asset.Description,
+			DeliveryMode: binding.DeliveryMode,
+		}
+		versionID := binding.PinnedVersionID
+		if versionID != nil && *versionID != uuid.Nil {
+			versionSpec = versionID.String()
+		}
+		v, verr := s.assets.ResolveVersion(ctx, asset.ID, versionSpec)
+		if verr != nil {
+			continue
+		}
+		item.VersionNo = v.VersionNo
+		// The SKILL.md frontmatter (name/version) + format_id + content_hash
+		// come from the stored package, looked up by the resolved version.
+		if pkg, perr := s.packages.Get(ctx, v.ID); perr == nil {
+			item.ContentHash = pkg.ContentHash
+			item.FormatID = pkg.FormatID
+			if fm := pkg.OriginalFrontmatter; fm != nil {
+				if n, ok := fm["name"].(string); ok && n != "" {
+					item.Name = n
+				}
+				if d, ok := fm["description"].(string); ok && d != "" {
+					item.Description = d
+				}
+				if ver, ok := fm["version"].(string); ok && ver != "" {
+					item.Version = ver
+				}
+			}
+		}
+		items = append(items, item)
+	}
+	return items, nil
 }
 
 // resolveEffectiveBinding picks the binding governing delivery of one asset to

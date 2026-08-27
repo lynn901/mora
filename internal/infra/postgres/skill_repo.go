@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/infra/objstore"
+	"github.com/lynn901/mora/internal/module/knowledge/asset"
 	"github.com/lynn901/mora/internal/platform/rbac"
 	skill "github.com/lynn901/mora/internal/module/skill"
 )
@@ -297,6 +298,174 @@ func NewSkillRegistrar(pool *pgxpool.Pool, store *objstore.Store) *SkillRegistra
 	return &SkillRegistrar{pool: pool, store: store}
 }
 
+// SkillProposalSink implements skill.ProposalSink (§6.3 skill_propose). It
+// creates a CANDIDATE knowledge_asset + knowledge_asset_version
+// (governance_status='candidate', build_status='ready') + a pending
+// review_request in one tx, storing the draft archive verbatim in MinIO. It
+// NEVER publishes or binds the skill — the candidate enters the governance
+// review flow; a human promotes it (import + validate + publish) via §6.1.
+//
+// No script execution occurs (§4.4): the draft archive bytes are stored
+// verbatim, never materialized with an exec bit. Validation is NOT run on the
+// proposal path — the static validator runs on the management import path
+// (§6.1, `assign`-gated), not the agent candidate path.
+type SkillProposalSink struct {
+	pool  *pgxpool.Pool
+	store *objstore.Store
+}
+
+// NewSkillProposalSink wires the skill candidate-proposal sink. store may be
+// nil when object storage is not wired (dev); Submit then surfaces
+// objstore.ErrNotConfigured so the handler degrades to 503, not a leak.
+func NewSkillProposalSink(pool *pgxpool.Pool, store *objstore.Store) *SkillProposalSink {
+	return &SkillProposalSink{pool: pool, store: store}
+}
+
+// Compile-time check.
+var _ skill.ProposalSink = (*SkillProposalSink)(nil)
+
+// Submit creates the candidate asset + version + pending review_request.
+func (s *SkillProposalSink) Submit(ctx context.Context, in skill.ProposalInput) (skill.ProposalResult, error) {
+	if s.store == nil {
+		return skill.ProposalResult{}, objstore.ErrNotConfigured
+	}
+	if in.WorkspaceID == uuid.Nil || in.Name == "" || len(in.DraftArchive) == 0 {
+		return skill.ProposalResult{}, skill.ErrInvalidProposal
+	}
+	// Store the draft archive verbatim (content-addressed). No exec bit —
+	// MinIO objects carry no POSIX mode (§4.4).
+	contentHash := sha256HexBytes(in.DraftArchive)
+	storageKey := fmt.Sprintf("skills/proposal/%s/%s.tar.gz", in.WorkspaceID, contentHash)
+	if _, err := s.store.Put(ctx, storageKey, "application/gzip", in.DraftArchive); err != nil {
+		return skill.ProposalResult{}, fmt.Errorf("skill: store draft archive: %w", err)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return skill.ProposalResult{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck — documented pgx pattern
+
+	ownerType := string(in.SubmittedBy.Type)
+	if ownerType == "" {
+		ownerType = string(domain.SubjectAgent)
+	}
+	ownerID := in.SubmittedBy.ID
+	if ownerID == uuid.Nil {
+		return skill.ProposalResult{}, skill.ErrInvalidProposal
+	}
+
+	// Ensure a skill governance profile exists for the workspace (idempotent).
+	// review_roles=[] keeps the proposal out of an auto-promote path; a human
+	// must review it. transition_rules={} means no auto-publish on candidate.
+	profileID, err := ensureSkillProfile(ctx, tx, in.WorkspaceID)
+	if err != nil {
+		return skill.ProposalResult{}, fmt.Errorf("skill: ensure profile: %w", err)
+	}
+
+	// Create the candidate asset (asset_type=skill, status=draft,
+	// visibility=private). A proposal re-using an existing name bumps the
+	// version_no; a fresh name creates a new asset.
+	var (
+		assetID   uuid.UUID
+		versionNo int64
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT id, latest_requested_version_no FROM knowledge_assets
+		WHERE workspace_id = $1 AND asset_type = 'skill' AND name = $2`,
+		in.WorkspaceID, in.Name).Scan(&assetID, &versionNo)
+	if errors.Is(err, pgx.ErrNoRows) {
+		versionNo = 1
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO knowledge_assets
+			  (workspace_id, asset_type, name, description, owner_type, owner_id,
+			   status, visibility, governance_profile_id, latest_requested_version_no)
+			VALUES ($1,'skill',$2,$3,$4,$5,'draft','private',$6,1)
+			RETURNING id`,
+			in.WorkspaceID, in.Name, nullableStr(in.Description), ownerType, ownerID,
+			profileID).Scan(&assetID); err != nil {
+			return skill.ProposalResult{}, err
+		}
+	} else if err != nil {
+		return skill.ProposalResult{}, err
+	} else {
+		versionNo++
+		if _, err := tx.Exec(ctx, `
+			UPDATE knowledge_assets
+			SET latest_requested_version_no = $2, updated_at = now()
+			WHERE id = $1`, assetID, versionNo); err != nil {
+			return skill.ProposalResult{}, err
+		}
+	}
+
+	// Insert the candidate version. governance_status='candidate' so the
+	// asset-version is NOT authorized for delivery until a human publishes it
+	// (the authz lifecycle gate treats only 'published' as authorized).
+	// dedupe_key = 'skill_proposal:'||content_hash so a re-proposal of the
+	// same draft bytes is a no-op (returns the existing version id).
+	var versionID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO knowledge_asset_versions
+		  (asset_id, version_no, content_origin, content_hash, dedupe_key,
+		   build_status, governance_status, created_by_type, created_by_id)
+		VALUES ($1,$2,'imported',$3,$4,'ready','candidate',$5,$6)
+		ON CONFLICT (asset_id, dedupe_key) DO UPDATE SET updated_at = now()
+		RETURNING id`,
+		assetID, versionNo, contentHash, "skill_proposal:"+contentHash,
+		ownerType, ownerID).Scan(&versionID)
+	if err != nil {
+		return skill.ProposalResult{}, err
+	}
+
+	// Insert the pending review_request. status='pending' — the proposal
+	// awaits a human governance decision (approve → publish, reject → drop).
+	// requested_by carries the acting agent principal.
+	var reviewID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO review_requests
+		  (workspace_id, asset_id, asset_version_id, governance_profile_id,
+		   requested_by_type, requested_by_id, status, rationale)
+		VALUES ($1,$2,$3,$4,$5,$6,'pending','skill_propose candidate')
+		RETURNING id`,
+		in.WorkspaceID, assetID, versionID, profileID,
+		ownerType, ownerID).Scan(&reviewID)
+	if err != nil {
+		return skill.ProposalResult{}, fmt.Errorf("skill: insert review_request: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return skill.ProposalResult{}, err
+	}
+	return skill.ProposalResult{
+		AssetID:         assetID,
+		AssetVersionID:  versionID,
+		ReviewRequestID: reviewID,
+		StorageKey:      storageKey,
+	}, nil
+}
+
+// ensureSkillProfile idempotently ensures a skill governance profile exists for
+// the workspace and returns its id. transition_rules='{}' + review_roles='[]'
+// + auto_publish='{}' means no auto-promote: a human must review + approve a
+// candidate before it can publish. is_system=true marks it the platform's
+// default skill profile (not a user-authored policy).
+func ensureSkillProfile(ctx context.Context, tx pgx.Tx, workspaceID uuid.UUID) (uuid.UUID, error) {
+	var profileID uuid.UUID
+	err := tx.QueryRow(ctx, `
+		INSERT INTO governance_profiles
+		  (workspace_id, name, asset_type, transition_rules, review_roles,
+		   auto_publish, required_projections, is_system)
+		VALUES ($1,'skill_default','skill','{}'::jsonb,'[]'::jsonb,
+		        '{}'::jsonb,'[]'::jsonb,true)
+		ON CONFLICT (workspace_id, name) DO UPDATE SET updated_at = now()
+		RETURNING id`,
+		workspaceID).Scan(&profileID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return profileID, nil
+}
+
 // Compile-time check.
 var _ skill.SkillAssetRegistrar = (*SkillRegistrar)(nil)
 
@@ -473,6 +642,37 @@ func (a *SkillAssetResolver) ResolveVersion(ctx context.Context, assetID uuid.UU
 		return domain.AssetVersion{}, skill.ErrPackageNotFound
 	}
 	return v, nil
+}
+
+// ListSkillsByWorkspace returns the skill-typed knowledge assets in a workspace
+// (skill_list backing, §6.3). It pages through AssetReadRepo.List with
+// asset_type='skill' until exhausted; the per-workspace skill set is naturally
+// bounded so this is a bounded walk, not an unbounded scan. The repo scopes by
+// workspace_id so a non-member never sees another workspace's skills. A repo
+// fault surfaces as skill.ErrPackageNotFound so the delivery path returns an
+// empty list (no leak — a transient fault never reveals skill existence).
+func (a *SkillAssetResolver) ListSkillsByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.KnowledgeAsset, error) {
+	var out []domain.KnowledgeAsset
+	cursor := ""
+	for {
+		page, next, err := a.assets.List(ctx, asset.ListQuery{
+			WorkspaceID: workspaceID,
+			AssetType:   string(domain.AssetTypeSkill),
+			Cursor:      cursor,
+			PageSize:    100,
+		})
+		if err != nil {
+			return nil, skill.ErrPackageNotFound
+		}
+		for _, a := range page {
+			out = append(out, *a)
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	return out, nil
 }
 
 // SkillBindingResolver adapts BindingRepo to the skill.DeliveryService's

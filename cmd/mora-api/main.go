@@ -219,7 +219,13 @@ func main() {
 		postgres.NewSkillAssetResolver(postgres.NewAssetReadRepo(db)),
 		postgres.NewSkillBindingResolver(postgres.NewBindingRepo(db)),
 		skillOpener)
-	skillInternalH := wh.NewSkillInternalHandler(skillDelivery)
+	// Phase 5-4 §6.3 skill_propose candidate sink: creates a candidate asset +
+	// version + pending review_request from an agent-submitted draft (never
+	// publishes). MinIO-backed; nil store → the handler degrades to 503, not a
+	// leak (§8.2). List/Deliver/ReadResource back skill_list/skill_read/
+	// skill_resources above; this backs skill_propose.
+	skillProposals := postgres.NewSkillProposalSink(pool, objStore)
+	skillInternalH := wh.NewSkillInternalHandler(skillDelivery, skillProposals)
 
 	// Phase 5-3 Agent 配装（Binding）management REST control plane (design-docs/19
 	// §6.1, YS-163). The binding service owns batch upsert + revoke + the
@@ -457,6 +463,12 @@ func main() {
 	internal := r.Group("/internal/v1")
 	internal.Use(wh.AuthMiddleware(tm, cfg.InternalToken, delegatedMgr))
 	internal.Use(wh.AuditMiddleware(auditLogger))
+	// Phase 5-4 §6.3 skill_* backing surface (MCP → Mora). List enumerates the
+	// agent's bound skills (skill_list); Deliver + ReadResource back
+	// skill_read + skill_resources (delivery_mode-trimmed); Propose backs
+	// skill_propose (candidate, never publishes — §6.3 no-execute-endpoint).
+	internal.GET("/skills", skillInternalH.List)
+	internal.POST("/skills/propose", skillInternalH.Propose)
 	internal.GET("/skills/:id/versions/:version", skillInternalH.Deliver)
 	internal.GET("/skills/:id/resources/*path", skillInternalH.ReadResource)
 

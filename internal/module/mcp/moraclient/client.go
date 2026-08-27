@@ -215,6 +215,102 @@ type WikiPageProposeResult struct {
 	PageKey  string `json:"page_key,omitempty"`
 }
 
+// --- Skill read + propose DTOs (design-docs/19 §6.3 / §6.2, Phase 5-4) ---
+// These are the client-facing shapes the MCP skill_* tools return. They
+// mirror the §6.2 internal delivery response, trimmed by the agent's binding
+// delivery_mode (tool/summary/inline). Existence never leaks: an unbound /
+// missing skill yields ErrNotExist (→ empty result, §8.2). No execute
+// endpoint: skill_propose lands a candidate, never publishes (§6.3).
+
+// SkillListItem is one entry of skill_list: the agent-visible projection of a
+// skill the agent is bound to (the SKILL.md header + effective delivery_mode +
+// resolved version, no raw bytes).
+type SkillListItem struct {
+	AssetID      string `json:"asset_id"`
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	Version      string `json:"version,omitempty"`
+	VersionNo    int64  `json:"version_no,omitempty"`
+	DeliveryMode string `json:"delivery_mode"`
+	FormatID     string `json:"format_id,omitempty"`
+	ContentHash  string `json:"content_hash,omitempty"`
+}
+
+// SkillListResult is the skill_list response: the skills the agent is bound to.
+// Empty for an unbound agent / a workspace with no skills (no leak — §8.2).
+type SkillListResult struct {
+	Items []SkillListItem `json:"items"`
+	Total int             `json:"total"`
+}
+
+// SkillReadResult is the skill_read response (delivery_mode-trimmed). Header is
+// always the SKILL.md frontmatter; Manifest is nil in summary mode; Capability
+//Summary is set in summary mode only. CompatibilityReport is always present.
+type SkillReadResult struct {
+	AssetID             string            `json:"asset_id"`
+	AssetVersionID      string            `json:"asset_version_id"`
+	VersionNo           int64             `json:"version_no,omitempty"`
+	DeliveryMode        string            `json:"delivery_mode"`
+	Header              map[string]any    `json:"header"`
+	Manifest            *SkillManifest    `json:"manifest,omitempty"`
+	CapabilitySummary   map[string]any    `json:"capability_summary,omitempty"`
+	CompatibilityReport map[string]any    `json:"compatibility_report"`
+	ContentHash         string            `json:"content_hash,omitempty"`
+}
+
+// SkillManifest is the trimmed file inventory (mirrors domain.SkillManifest).
+// The Path/Hash fields let the agent fetch bytes progressively via
+// skill_resources; no bytes are inlined here.
+type SkillManifest struct {
+	Files             []SkillFileEntry `json:"files"`
+	CapabilitySummary map[string]any   `json:"capability_summary,omitempty"`
+	ContentHash       string           `json:"content_hash"`
+	EntryCount        int              `json:"entry_count"`
+	TotalSize         int64            `json:"total_size"`
+}
+
+// SkillFileEntry is one file in the skill manifest.
+type SkillFileEntry struct {
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	Hash    string `json:"hash"`
+	ExecBit bool   `json:"exec_bit"`
+	Kind    string `json:"kind"`
+}
+
+// SkillResourceContent is one progressive resource read (skill_resources).
+// Content is the decompressed file bytes; Hash is the manifest's sha256
+// (integrity anchor); Kind is metadata only, NEVER an exec hint.
+type SkillResourceContent struct {
+	Path        string `json:"path"`
+	Hash        string `json:"hash"`
+	Kind        string `json:"kind"`
+	Content     []byte `json:"-"`
+	ContentHash string `json:"content_hash"`
+}
+
+// SkillProposeRequest is the skill_propose input: the agent drafts a SKILL.md
+// body + optional metadata for the human reviewer. WorkspaceID scopes the
+// candidate (AC-4); upstream the delegated context's workspace is the real
+// gate, but the field lets the mock + tool layer pass it explicitly.
+type SkillProposeRequest struct {
+	WorkspaceID string          `json:"workspace_id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Version     string          `json:"version,omitempty"`
+	DraftBody   string          `json:"draft_body"`
+	SourceRef   map[string]any  `json:"source_ref,omitempty"`
+}
+
+// SkillProposeResult is the skill_propose response: the candidate + review
+// references. Status is always "candidate" — never published (§6.3).
+type SkillProposeResult struct {
+	AssetID         string `json:"asset_id"`
+	AssetVersionID  string `json:"asset_version_id"`
+	ReviewRequestID string `json:"review_request_id"`
+	Status          string `json:"status"`
+}
+
 // ListDocumentsParams filters the document listing.
 type ListDocumentsParams struct {
 	WorkspaceID string
@@ -380,6 +476,41 @@ type MoraClient interface {
 	// proposal for a page (§7.3/§11.3). Write: returns ErrForbidden on
 	// missing write perm; never publishes directly.
 	WikiPagePropose(ctx context.Context, auth *AuthContext, req WikiPageProposeRequest) (*WikiPageProposeResult, error)
+
+	// --- Skill read + propose surface (design-docs/19 §6.3, Phase 5-4) ---
+	// All skill_* methods are scoped to the delegated agent context
+	// (AgentID + WorkspaceID, §11.2): the internal service-token alone never
+	// authorizes skill delivery or proposal — a caller with no agent context
+	// gets ErrNotExist (skill_list/skill_read/skill_resources) or
+	// ErrForbidden (skill_propose), which the tool layer translates to an
+	// empty result / 403 per §8.2. Existence never leaks: an unbound skill
+	// is absent from skill_list and yields not-found on skill_read/skill_
+	// resources, indistinguishable from a missing skill. skill_read returns
+	// the delivery_mode-trimmed SKILL.md header + manifest; skill_resources
+	// progressively reads one declared resource file. skill_propose submits a
+	// candidate (never publishes — it lands a pending review_request).
+
+	// SkillList lists the skills the agent is bound to in the delegated
+	// workspace (skill_list). Returns ErrNotExist for a missing/no-permission
+	// context; the tool layer yields an empty list (no leak — §8.2).
+	SkillList(ctx context.Context, auth *AuthContext) (*SkillListResult, error)
+	// SkillRead returns the SKILL.md header + manifest, delivery_mode-trimmed
+	// (skill_read). assetID is the skill asset id; versionSpec is "latest" /
+	// a version id / "". Returns ErrNotExist for an unbound / missing skill
+	// (no leak — §8.2).
+	SkillRead(ctx context.Context, auth *AuthContext, assetID, versionSpec string) (*SkillReadResult, error)
+	// SkillResources progressively reads one declared resource file
+	// (skill_resources). assetID is the skill asset id; resourcePath is a
+	// manifest entry path; versionSpec is "latest" / a version id / "". The
+	// binding's delivery_mode gates raw reads (inline/tool allow; summary
+	// refuses — §6.2). Returns ErrNotExist for an unbound / summary-mode /
+	// non-manifest path (no leak — §8.2).
+	SkillResources(ctx context.Context, auth *AuthContext, assetID, versionSpec, resourcePath string) (*SkillResourceContent, error)
+	// SkillPropose submits a candidate skill proposal (skill_propose). Write:
+	// a read-only scope / no-agent-context caller is rejected; never publishes
+	// directly — it lands a pending review_request. Returns the candidate +
+	// review references.
+	SkillPropose(ctx context.Context, auth *AuthContext, req SkillProposeRequest) (*SkillProposeResult, error)
 
 	// --- CodeGraph query surface (design-docs/17 §6.2) ---
 	// All code_* methods are read-only, scoped to a codebase asset id. RBAC is
