@@ -1,16 +1,19 @@
-// Package context — authority policy domain + port (design-docs/19 §5).
+// Package context — authority policy domain + port + four built-in policies
+// (design-docs/19 §5).
 //
-// The AuthorityPolicy port + four built-in policies + the versioned
-// context_authority_policies repo port live here. This file is the domain +
-// port layer; the policy scoring logic (§5.2 Score / ConflictsToSurface) and
-// the Intent Router (§4) are Stage 2 (YS-203). Stage 1 ships the port, the
-// domain types, and the PG repo so Stage 2 can load + score against a real
-// versioned config.
+// The AuthorityPolicy port, the four built-in policies, the versioned
+// context_authority_policies repo port, and the policy factory live here. The
+// port scores + orders candidates for an intent and declares which conflict
+// relations must surface (§5.2). The four built-in policies carry the §5.1
+// default weights/must-surface conflicts; NewAuthorityPolicy overlays a DB
+// PolicyConfig onto those defaults so the PM-governed config (YS-212) overrides
+// weights and conflict-type lists WITHOUT touching the scoring logic (§5.3).
 package context
 
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -93,4 +96,211 @@ type PolicyRepo interface {
 	// CurrentVersion returns the highest policy_version for (workspace,
 	// intent); 0 when none. Used as a cache key (§0 D10 / §5.3).
 	CurrentVersion(ctx context.Context, workspaceID uuid.UUID, intent Intent) (int, error)
+}
+
+// ---------------------------------------------------------------------------
+// AuthorityPolicy port + four built-in policies (§5.1, §5.2)
+// ---------------------------------------------------------------------------
+
+// AuthorityPolicy scores and orders candidates for a given intent (doc 12 §9.5,
+// design-docs/19 §5.2). The policy is versioned (context_authority_policies.
+// policy_version); the Broker records the applied policy_version in the audit
+// summary (§9.2 step 10). The system does NOT maintain a single global
+// "document always beats code" ordering — the order changes with intent (§5.1).
+//
+// Scoring blends three signals the producing engine already emitted
+// (Authority / Freshness / Confidence) with the policy's per-asset_type weight
+// (§5.1). When high-authority candidates conflict, the Broker returns both with
+// their citations instead of silently picking one (11 §7.2); conflicts the
+// policy declares must-surface are kept side-by-side even if low-scoring (§7.2).
+type AuthorityPolicy interface {
+	// Intent is the intent this policy scores for (§4.1).
+	Intent() Intent
+	// Score blends authority/freshness/confidence with the policy weights
+	// (§5.2). The returned slice is sorted by blended Score descending; ties
+	// keep the input order (stable). Provider Score is preserved on the
+	// candidate; the blended Score is carried on ScoredCandidate.Score.
+	Score(candidates []KnowledgeCandidate, q KnowledgeQuery) []ScoredCandidate
+	// ConflictsToSurface returns the conflict relation types this policy must
+	// NOT drop (e.g. contradicts/old_spec/impl_drift) — they are kept even if
+	// low-scoring, so the Broker surfaces them side by side (§5.1 / §7.2).
+	ConflictsToSurface() []string
+}
+
+// Signal blend weights (§9.5 authority/freshness/confidence blend). These are
+// the architecture-provided defaults; the policy's per-asset_type authority
+// weight (PolicyConfig.Weights, §5.1) multiplies the blend, NOT these. YS-212
+// governs the per-type weights via DB config; the blend constants are stable
+// architecture defaults (changing them is a design-doc change, not a config).
+const (
+	weightAuthority  = 0.5
+	weightFreshness  = 0.3
+	weightConfidence = 0.2
+)
+
+// defaultPolicyConfigs is the four built-in policies' defaults (§5.1 table).
+// PrimaryBasis is informational (it documents the intent's primary source; the
+// Intent Router does the type selection). Weights are the per-asset_type
+// authority weights the Score blend multiplies. MustSurfaceConflicts are the
+// conflict relation types the policy must keep side-by-side. The PM (YS-212)
+// overrides Weights + MustSurfaceConflicts via DB config; the Go defaults here
+// are the architecture-provided baseline (§5.1 "默认值由架构提供，PM 治理").
+var defaultPolicyConfigs = map[Intent]PolicyConfig{
+	IntentSpec: {
+		PrimaryBasis:        []domain.AssetType{domain.AssetTypeDocument},
+		MustSurfaceConflicts: []string{"old_spec", "impl_drift"},
+		Weights: map[domain.AssetType]float64{
+			domain.AssetTypeDocument: 0.9,
+			domain.AssetTypeCodebase: 0.5,
+			domain.AssetTypeMemory:   0.4,
+			domain.AssetTypeSkill:    0.3,
+		},
+		ExcludeWhen: []string{"deprecated", "version_mismatch"},
+	},
+	IntentRevision: {
+		PrimaryBasis:        []domain.AssetType{domain.AssetTypeCodebase},
+		MustSurfaceConflicts: []string{"contradicts", "impl_drift"},
+		Weights: map[domain.AssetType]float64{
+			domain.AssetTypeDocument: 0.5,
+			domain.AssetTypeCodebase: 0.9,
+			domain.AssetTypeMemory:   0.3,
+			domain.AssetTypeSkill:    0.4,
+		},
+		ExcludeWhen: []string{"deprecated", "version_mismatch"},
+	},
+	IntentRationale: {
+		PrimaryBasis:        []domain.AssetType{domain.AssetTypeDocument, domain.AssetTypeMemory},
+		MustSurfaceConflicts: []string{"contradicts", "old_spec"},
+		Weights: map[domain.AssetType]float64{
+			domain.AssetTypeDocument: 0.8,
+			domain.AssetTypeCodebase: 0.3,
+			domain.AssetTypeMemory:   0.9,
+			domain.AssetTypeSkill:    0.3,
+		},
+		ExcludeWhen: []string{"deprecated", "version_mismatch"},
+	},
+	IntentProcedure: {
+		PrimaryBasis:        []domain.AssetType{domain.AssetTypeSkill, domain.AssetTypeDocument},
+		MustSurfaceConflicts: []string{"version_mismatch", "impl_drift"},
+		Weights: map[domain.AssetType]float64{
+			domain.AssetTypeDocument: 0.6,
+			domain.AssetTypeCodebase: 0.4,
+			domain.AssetTypeMemory:   0.4,
+			domain.AssetTypeSkill:    0.9,
+		},
+		ExcludeWhen: []string{"deprecated", "version_mismatch"},
+	},
+}
+
+// builtInPolicy is the Go implementation of one built-in authority policy
+// (§5.1). Its config is the §5.1 defaults overlaid with a DB PolicyConfig
+// (NewAuthorityPolicy): the DB overrides Weights + MustSurfaceConflicts +
+// ExcludeWhen + PrimaryBasis, but NOT the scoring logic — that stays in Score
+// (§5.3 "DB 配置覆盖权重与冲突类型，不覆盖策略逻辑").
+type builtInPolicy struct {
+	intent Intent
+	cfg    PolicyConfig
+}
+
+// Intent returns the policy's intent.
+func (p *builtInPolicy) Intent() Intent { return p.intent }
+
+// ConflictsToSurface returns the must-surface conflict types (§5.1 / §7.2).
+// These candidates are kept side-by-side by the Broker even if low-scoring —
+// the policy never silently picks one answer when high-authority sources
+// conflict (11 §7.2).
+func (p *builtInPolicy) ConflictsToSurface() []string {
+	return p.cfg.MustSurfaceConflicts
+}
+
+// Score blends authority/freshness/confidence with the policy's per-type
+// weight (§5.2, §9.5). The blend is:
+//
+//	blended = typeWeight * (weightAuthority*Authority
+//	                       + weightFreshness*Freshness
+//	                       + weightConfidence*Confidence)
+//
+// Confidence defaults to 0 when the engine emitted none (nil). The returned
+// slice is sorted by blended score descending; ties preserve input order
+// (sort.SliceStable, so the provider's ranking survives among equal scores).
+//
+// Exclusion conditions (ExcludeWhen: deprecated/version_mismatch, §7.2) are
+// applied by the Broker's dedup pass (§7.2 step 6) BEFORE scoring — this
+// method scores every candidate it is given. Keeping exclusion out of Score
+// means the policy's only output is the ordering signal, and the dedup step
+// stays the single gate for "does this candidate enter the result" (§7.2).
+func (p *builtInPolicy) Score(candidates []KnowledgeCandidate, _ KnowledgeQuery) []ScoredCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	out := make([]ScoredCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		blend := weightAuthority*c.Authority + weightFreshness*c.Freshness
+		blend += weightConfidence * confidenceOrZero(c.Confidence)
+		typeWeight := p.typeWeight(c.AssetType)
+		out = append(out, ScoredCandidate{
+			Candidate: c,
+			Score:     typeWeight * blend,
+		})
+	}
+	// Stable sort so equal-blended candidates keep the provider's ranking
+	// (§5.2 — policy re-scores ON TOP of the provider score, not replacing it).
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Score > out[j].Score
+	})
+	return out
+}
+
+// typeWeight resolves the per-asset_type authority weight, defaulting to 0 for
+// an unknown type (§5.1 — an unweighted type contributes no authority; it is
+// not silently promoted). The default config covers all four asset types.
+func (p *builtInPolicy) typeWeight(t domain.AssetType) float64 {
+	if w, ok := p.cfg.Weights[t]; ok {
+		return w
+	}
+	return 0
+}
+
+// confidenceOrZero dereferences a nil-safe confidence pointer (§9.5 — the
+// engine may emit no confidence; it then contributes 0 to the blend).
+func confidenceOrZero(c *float64) float64 {
+	if c == nil {
+		return 0
+	}
+	return *c
+}
+
+// NewAuthorityPolicy returns the built-in policy for an intent, overlaid with a
+// DB PolicyConfig (§5.3). The DB config overrides Weights, MustSurfaceConflicts,
+// ExcludeWhen, and PrimaryBasis; the scoring logic (Score) is NOT overridable
+// (§5.3). When cfg is the zero value (no DB row — ErrPolicyNotFound), the §5.1
+// defaults are used as-is. Unknown intent → nil (the caller — the Broker —
+// treats a nil policy as a fatal wiring error, never a silent fallback, so a
+// typo in the intent enum surfaces at startup, not at query time).
+func NewAuthorityPolicy(intent Intent, overlay PolicyConfig) AuthorityPolicy {
+	base := defaultPolicyConfigs[intent] // copy
+	// Overlay non-zero DB fields onto the defaults. A zero PolicyConfig (no DB
+	// row) leaves the §5.1 defaults intact. Map/slice nil checks: an empty
+	// overlay field does NOT clear the default — only a non-empty field
+	// overrides (§5.3 "覆盖", not "replace-with-empty").
+	if len(overlay.PrimaryBasis) > 0 {
+		base.PrimaryBasis = overlay.PrimaryBasis
+	}
+	if len(overlay.MustSurfaceConflicts) > 0 {
+		base.MustSurfaceConflicts = overlay.MustSurfaceConflicts
+	}
+	if len(overlay.Weights) > 0 {
+		base.Weights = overlay.Weights
+	}
+	if len(overlay.ExcludeWhen) > 0 {
+		base.ExcludeWhen = overlay.ExcludeWhen
+	}
+	return &builtInPolicy{intent: intent, cfg: base}
+}
+
+// policyFor is a convenience for tests/wiring: the §5.1 defaults with no DB
+// overlay (the path the Broker takes when PolicyRepo returns ErrPolicyNotFound,
+// §5.3). NewAuthorityPolicy(zero) does the same; this names that intent.
+func policyFor(intent Intent) AuthorityPolicy {
+	return NewAuthorityPolicy(intent, PolicyConfig{})
 }
