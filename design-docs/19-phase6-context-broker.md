@@ -11,7 +11,8 @@
 | # | 决策 | 结论 | 依据 / 权衡 |
 |---|---|---|---|
 | D1 | 模块归属 | 新增 `internal/module/knowledge/context/`（12 §3.1 已预留目录），作为知识底座的**交付收敛层**。不新增一级资产类型、不新增状态数据库；编排已有类型查询端口，不复制业务逻辑 | 12 §3.1 目录预留 `context/ # 类型路由、排序、预算、引用`；§3.2「`knowledge/context` 可以编排类型查询端口，但不能绕过 `platform/authz`」；§0 决策 1「控制面留在 Mora API」 |
-| D2 | Candidate 标准化收敛 | 统一 `KnowledgeCandidate`（12 §9.3）为跨类型交付的唯一形状。现有 `recall.KnowledgeCandidate`（memory 维度，含 `UnitID/MemoryType`）通过 **adapter** 收敛到统一 shape，**不破坏**已稳定的 Phase 4 召回契约与 REST 序列化；新增 `document/code/skill` 维度 candidate | 12 §9.3 标准 Candidate；`internal/module/memory/recall/types.go` 已有 memory 维度 candidate；避免 Phase 4 REST 返回形状回归（YS-98 已 done） |
+
+| D2 | Candidate 标准化收敛 | 统一 `KnowledgeCandidate`（12 §9.3）为跨类型交付的唯一形状。现有 `recall.KnowledgeCandidate`（memory 维度，含 `UnitID/MemoryType`）通过 **adapter** 收敛到统一 shape，**不破坏**已稳定的 Phase 4 召回契约与 REST 序列化；新增 `document/code/skill` 维度 candidate。统一 shape 新增 `ConflictTags []string`（架构评审采纳，§7.2）承载候选自身语义标签（`old_spec`/`impl_drift` 等），与 `Relations`（Phase 1 `relation_type` 有向边）分工 | 12 §9.3 标准 Candidate；`internal/module/memory/recall/types.go` 已有 memory 维度 candidate；避免 Phase 4 REST 返回形状回归（YS-98 已 done）；`relation_type` DB CHECK（迁移 014）不接受扩展语义标签，须以 candidate 字段承载 |
 | D3 | 类型查询端口对齐 | 四端口 `DocumentQuery.Search` / `CodeQuery.Search` / `MemoryQuery.Recall` / `SkillQuery.Discover`（12 §9.4）首版复用**现有实现 seam**：Memory=已实现（`recall.RecallService`）；Document=适配 `mora/search` HybridSearcher；Code=适配 `codegraph/service` 只读查询；Skill=适配 `skill/delivery` ArchiveReader。端口返回统一 candidate，但保留专用工具不强制压成通用 Search | 12 §9.4「类型端口返回标准 Candidate，但保留专用工具」；现有 `recall.RecallService` 已是 `MemoryQuery` 实现 |
 | D4 | Intent Router 规则化 | 首版 Intent Router 用**规则路由**（关键词/AssetTypes 显式/默认 fallback），不引入意图分类器模型。意图枚举四值：`spec`（规范要求）/ `revision`（revision 实现）/ `rationale`（决策原因）/ `procedure`（执行流程），对齐 §9.5 四策略 | 12 §9.5 四策略表；§7.2「权威顺序随查询意图变化」；避免首版引入模型推理的延迟与不确定性，意图分类留作后续演进（§9 开放决策） |
 | D5 | Authority Policy 版本化配置 | 四个内置策略存于新增 `context_authority_policies` 表（workspace + intent 维度，版本化 `policy_version`），查询审计记录所用 policy version。**不维护单一全局「文档永远高于代码」排序** | 12 §9.5「策略保存在版本化配置中，查询审计记录所用 policy version」「系统不维护单一全局排序」；§7.2 权威顺序随意图变化 |
@@ -271,6 +272,7 @@ type IntentRouter interface {
 - **系统不维护单一全局「文档永远高于代码」排序**（12 §9.5）。
 - 当高权威资产互相冲突时，返回冲突及各自引用，**不静默选择一个答案**（11 §7.2）。
 - 代码资产只能说明所锚定 revision 的静态实现；不得据未验证的部署/运行时证据宣称生产当前行为（11 §7.2）。
+- **`must_surface_conflicts` 的两类来源**（架构评审，详见 §7.2）：`contradicts`/`supersedes` 走 `Relations`（Phase 1 `relation_type`，有向边、带 `TargetID`）；`old_spec`/`impl_drift`/`doc_inconsistency`/`low_confidence`/`superseded_memory`/`version_mismatch`/`missing_permission` 走 candidate 新增 `ConflictTags []string`（候选自身属性、无对端）。PM 配置的冲突标签集须据此拆分到两个字段。
 
 ### 5.2 AuthorityPolicy 端口
 
@@ -282,8 +284,10 @@ type AuthorityPolicy interface {
     Intent() Intent
     // Score blends authority/freshness/confidence/task-match per §9.5 + the policy weights.
     Score(candidates []KnowledgeCandidate, q KnowledgeQuery) []ScoredCandidate
-    // ConflictsToSurface returns the conflict relations this policy must not drop
-    // (e.g. contradicts/old_spec/impl_drift) — they are kept even if low-scoring.
+    // ConflictsToSurface returns the conflict tags this policy must not drop
+    // (e.g. contradicts/old_spec/impl_drift) — matched against the union of
+    // candidate.Relations[i].RelationType ∪ candidate.ConflictTags (§7.2).
+    // They are kept even if low-scoring.
     ConflictsToSurface() []string
 }
 ```
@@ -310,7 +314,14 @@ type Budget struct {
 
 type Quota struct {
     MaxItems   int     // 该类型最大条目
-    TokenShare float64 // 该类型 token 占比（0..1），单资产不能占满
+    TokenShare float64 // 该类型 token 占比上限（0..1）
+    // PerAssetTokenShare caps a single asset's token footprint within this
+    // type's quota (架构评审采纳，§6.2 单资产降级；0 = 不启用单资产层约束，
+    // 回退到仅类型层 TokenShare）。单资产 token ≥ MaxTokens·PerAssetTokenShare
+    // 时降级为「目录+引用」并记 TruncationReport.reason=single_asset_capped。
+    // PM 默认 0.30（占预算 30%）；与 TokenShare 取交集：单资产既不超过类型
+    // quota 也不超过单资产 ratio。
+    PerAssetTokenShare float64
 }
 ```
 
@@ -321,13 +332,15 @@ Budgeter.Select(scored []ScoredCandidate, budget Budget) (selected []KnowledgeCa
 
 1. 按 policy 排序后的 candidate 列表
 2. 优先入选「资产目录 + 摘要 + 引用」（默认不返回正文，12 §9.6）
-3. 逐条累计 token，达到该类型 quota 或总预算时停止
-4. 剩余候选：返回「继续读取工具提示」（指向 asset_read/code_node/memory_evidence_read/skill_resources）
-5. 输出 TruncationReport：截断原因（quota_exhausted / budget_full / deadline）、被截断候选的 asset_id 列表、继续读取工具名
+3. 单资产 cap：若 candidate token 估算 ≥ MaxTokens·Quota.PerAssetTokenShare（>0），
+   该资产降级为「目录+引用」（不返回摘要正文），记 TruncationReport.reason=single_asset_capped
+4. 逐条累计 token，达到该类型 quota 或总预算时停止
+5. 剩余候选：返回「继续读取工具提示」（指向 asset_read/code_node/memory_evidence_read/skill_resources）
+6. 输出 TruncationReport：截断原因（single_asset_capped / quota_exhausted / budget_full / deadline）、被截断候选的 asset_id 列表、继续读取工具名
 ```
 
 - **不静默截断引用**（12 §11.4）：截断必须返回原因 + 继续读取工具。
-- **单资产不能占满预算**（12 §9.6）：每类型 quota 的 `TokenShare` 上限，避免一个长文档挤掉所有其他类型。
+- **单资产不能占满预算**（12 §9.6）：两层约束——类型层 `Quota.TokenShare` 避免一个长文档挤掉其他**类型**；单资产层 `Quota.PerAssetTokenShare`（架构评审采纳）避免一个长文档挤掉**同类型其他条目**，超额即降级为「目录+引用」。PM 默认 `PerAssetTokenShare=0.30`，研发可置 0 回退到仅类型层。
 - 默认先目录后正文，正文由 Agent 再调用类型工具读取（11 §7.3、12 §9.6）。
 
 ### 6.3 预算来源
@@ -369,8 +382,14 @@ func DedupAndKeepConflicts(candidates []KnowledgeCandidate, policy AuthorityPoli
 ```
 
 - **去重键**：`asset_id`（同资产不同版本取最新 ready）→ `content_hash`（同内容不同资产保留一条但记录同源）。
+- **冲突来源（架构评审采纳增量）**：候选冲突信号由两个并集承载——
+  - `Relations`（`RelationSummary`，复用 Phase 1 `relation_type` 枚举 `contradicts`/`supersedes`，DB CHECK 约束，迁移 014）——这是指向**另一资产**的有向边，带 `TargetID`；
+  - `ConflictTags []string`（candidate 自身语义标签，`KnowledgeCandidate` 新增字段）——这是**候选自身属性**（无对端资产），承载 `old_spec`/`impl_drift`/`doc_inconsistency`/`low_confidence`/`superseded_memory`/`version_mismatch`/`missing_permission` 等扩展标签，由各类型 adapter 在收敛时标记（memory 侧复用 `Confidence`/`State`，code 侧复用 commit/revision 校验结果，skill 侧复用 version 校验）。
+  - `DedupAndKeepConflicts` 按 `policy.ConflictsToSurface()`（=`config.must_surface_conflicts`）匹配 `Relations[i].RelationType ∪ ConflictTags`，命中即并列保留。
+  - 不把扩展标签塞进 `relation_type`（DB CHECK 不允许新值，且它们不是资产间边）；不新建 `knowledge_relations` 行承载自身属性。
 - **冲突保留**：若 `Relations` 含 `contradicts`/`supersedes` 且 policy 声明该冲突类型必须展示，**两方并列**，不合并、不择一。
 - **排除条件**（§7.2）：被废弃（deprecated）、过期、版本不匹配的资产**默认不进结果**；权限是检索前硬过滤，不参与乘法评分。
+- **`exclude_when` vs `must_surface_conflicts` 语义互斥**（架构评审裁定，防 PM 配置死锁）：排除发生在去重/评分**之前**，被排除的候选不进 `DedupAndKeepConflicts`，故**同一标签不得同时出现在一个策略的 `exclude_when` 与 `must_surface_conflicts`**——否则该冲突永远无法被展示（候选早已被排除）。四内置策略中 `version_mismatch` 仅出现在 `procedure` 的 `must_surface_conflicts`（§5.1 表，procedure 的「版本不匹配或缺少权限」），故**仅 `procedure` 的 `exclude_when` 不得含 `version_mismatch`**，裁为 `["deprecated"]`（PM §2.3 `procedure` 已据本裁定修订）。`spec`/`revision`/`rationale` 的 `must_surface_conflicts` 不含 `version_mismatch`（见 §5.1 表），其 `exclude_when` 保留默认 `["deprecated","version_mismatch"]`——这三意图下版本不匹配的候选是**过时候选、应静默排除**（spec 要当前有效文档、revision 要固定 commit、rationale 要有效决策记录），不进冲突展示通路。PUT 校验须拒绝同一策略内 `exclude_when ∩ must_surface_conflicts ≠ ∅` 的配置。
 
 ### 7.3 降级与 partial response（D8）
 
