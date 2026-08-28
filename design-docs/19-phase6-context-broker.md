@@ -11,6 +11,7 @@
 | # | 决策 | 结论 | 依据 / 权衡 |
 |---|---|---|---|
 | D1 | 模块归属 | 新增 `internal/module/knowledge/context/`（12 §3.1 已预留目录），作为知识底座的**交付收敛层**。不新增一级资产类型、不新增状态数据库；编排已有类型查询端口，不复制业务逻辑 | 12 §3.1 目录预留 `context/ # 类型路由、排序、预算、引用`；§3.2「`knowledge/context` 可以编排类型查询端口，但不能绕过 `platform/authz`」；§0 决策 1「控制面留在 Mora API」 |
+
 | D2 | Candidate 标准化收敛 | 统一 `KnowledgeCandidate`（12 §9.3）为跨类型交付的唯一形状。现有 `recall.KnowledgeCandidate`（memory 维度，含 `UnitID/MemoryType`）通过 **adapter** 收敛到统一 shape，**不破坏**已稳定的 Phase 4 召回契约与 REST 序列化；新增 `document/code/skill` 维度 candidate。统一 shape 新增 `ConflictTags []string`（架构评审采纳，§7.2）承载候选自身语义标签（`old_spec`/`impl_drift` 等），与 `Relations`（Phase 1 `relation_type` 有向边）分工 | 12 §9.3 标准 Candidate；`internal/module/memory/recall/types.go` 已有 memory 维度 candidate；避免 Phase 4 REST 返回形状回归（YS-98 已 done）；`relation_type` DB CHECK（迁移 014）不接受扩展语义标签，须以 candidate 字段承载 |
 | D3 | 类型查询端口对齐 | 四端口 `DocumentQuery.Search` / `CodeQuery.Search` / `MemoryQuery.Recall` / `SkillQuery.Discover`（12 §9.4）首版复用**现有实现 seam**：Memory=已实现（`recall.RecallService`）；Document=适配 `mora/search` HybridSearcher；Code=适配 `codegraph/service` 只读查询；Skill=适配 `skill/delivery` ArchiveReader。端口返回统一 candidate，但保留专用工具不强制压成通用 Search | 12 §9.4「类型端口返回标准 Candidate，但保留专用工具」；现有 `recall.RecallService` 已是 `MemoryQuery` 实现 |
 | D4 | Intent Router 规则化 | 首版 Intent Router 用**规则路由**（关键词/AssetTypes 显式/默认 fallback），不引入意图分类器模型。意图枚举四值：`spec`（规范要求）/ `revision`（revision 实现）/ `rationale`（决策原因）/ `procedure`（执行流程），对齐 §9.5 四策略 | 12 §9.5 四策略表；§7.2「权威顺序随查询意图变化」；避免首版引入模型推理的延迟与不确定性，意图分类留作后续演进（§9 开放决策） |
