@@ -91,7 +91,10 @@ func (c *HTTPClient) identityHeaders(auth *AuthContext, h http.Header) {
 }
 
 // mapStatus translates Mora API HTTP status into a domain error for the
-// existence-leak / forbidden semantics (design doc 06 §6.4).
+// existence-leak / forbidden semantics (design doc 06 §6.4). 503 is mapped to
+// ErrProviderDown (not the generic "upstream status 503") so the knowledge_*
+// tool layer can distinguish a Broker provider fault from authorized-empty /
+// no-results (§11.5 three-state — a fault is never "no knowledge").
 func mapStatus(status int) error {
 	switch status {
 	case http.StatusOK, http.StatusCreated:
@@ -102,6 +105,8 @@ func mapStatus(status int) error {
 		return ErrNotExist()
 	case http.StatusUnauthorized:
 		return domainerr.ErrUnauthorized
+	case http.StatusServiceUnavailable:
+		return ErrProviderDown
 	default:
 		return fmt.Errorf("upstream status %d", status)
 	}
@@ -662,6 +667,46 @@ func (c *HTTPClient) SkillPropose(ctx context.Context, auth *AuthContext, req Sk
 		return nil, err
 	}
 	return &res, nil
+}
+
+// --- Knowledge Context Broker surface (design-docs/19 §11.2, Phase 6-5) ---
+// knowledge_search / knowledge_context call the Broker's internal routes via
+// sendJSON, which propagates the caller's delegated identity (X-Identity-* +
+// the service token — §11.2). The Broker enforces two-pass authz server-side;
+// the MCP layer never imports the context package (D12). A 503 maps to
+// ErrProviderDown (three-state — §11.5); a 200 with empty Candidates is a
+// normal authorized-empty / no-results result (no leak — §8.2).
+
+// KnowledgeSearch calls POST /internal/v1/knowledge/search (§11.2). The Broker
+// runs the typed-search pipeline; the response shape is the same as
+// KnowledgeContext. ErrProviderDown on a 503 (provider fault).
+func (c *HTTPClient) KnowledgeSearch(ctx context.Context, auth *AuthContext, req KnowledgeQueryRequest) (*KnowledgeContextResponse, error) {
+	return c.knowledgeBrokerCall(ctx, auth, "/internal/v1/knowledge/search", req)
+}
+
+// KnowledgeContext calls POST /internal/v1/knowledge/context (§11.2). The
+// Broker runs the full ten-step pipeline (intent → authz → parallel → dedup →
+// budget → citation). ErrProviderDown on a 503 (provider fault).
+func (c *HTTPClient) KnowledgeContext(ctx context.Context, auth *AuthContext, req KnowledgeQueryRequest) (*KnowledgeContextResponse, error) {
+	return c.knowledgeBrokerCall(ctx, auth, "/internal/v1/knowledge/context", req)
+}
+
+// knowledgeBrokerCall is the shared POST for both knowledge_* internal routes.
+// The Broker's leak-safe envelope means a 200 always unwraps to a response
+// (possibly with an empty candidate list); a 503 surfaces as ErrProviderDown
+// so the tool layer can emit the §15/§11.5 diagnostic, distinct from empty.
+func (c *HTTPClient) knowledgeBrokerCall(ctx context.Context, auth *AuthContext, path string, req KnowledgeQueryRequest) (*KnowledgeContextResponse, error) {
+	var resp KnowledgeContextResponse
+	if err := c.post(ctx, auth, path, req, &resp); err != nil {
+		// A provider fault (503 → ErrProviderDown) is NOT collapsed to an
+		// empty result here: the tool layer surfaces it as a diagnostic so the
+		// three Broker states stay distinguishable (§11.5).
+		return nil, err
+	}
+	if resp.Candidates == nil {
+		resp.Candidates = []KnowledgeCandidateDTO{}
+	}
+	return &resp, nil
 }
 
 func max1(n int) int {

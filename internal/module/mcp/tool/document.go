@@ -18,11 +18,16 @@ func NewGetDocumentTool(client moraclient.MoraClient) *GetDocumentTool {
 	return &GetDocumentTool{base: base{client: client}}
 }
 
-// Definition returns the tool schema.
+// Definition returns the tool schema. Deprecated alias (§11.4): for
+// converged retrieval prefer knowledge_search / knowledge_context (Context
+// Broker); get_document remains the single-document body read the Broker's
+// truncation continue-tools point at (§6.2). Kept for the compatibility
+// migration window; deprecated:true in tools/list. Permission semantics
+// unchanged.
 func (t *GetDocumentTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "get_document",
-		Description: "读取文档正文（Block JSON 或 Markdown）。无权限时返回空结果而非错误，防止存在性泄露。",
+		Description: "[deprecated 别名] 读取单个文档正文（Block JSON 或 Markdown）。检索推荐 knowledge_search/knowledge_context；本工具仍是 Broker 截断后 continue_tools 指向的单文档读取入口。无权限时返回空结果而非错误，防止存在性泄露。兼容期保留，权限语义不变。",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"document_id"},
@@ -32,6 +37,7 @@ func (t *GetDocumentTool) Definition() server.ToolDef {
 				"version_no":  map[string]any{"type": "integer", "description": "指定版本（可选，默认最新）"},
 			},
 		},
+		Deprecated: true,
 	}
 }
 
