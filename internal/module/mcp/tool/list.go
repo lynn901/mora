@@ -19,11 +19,15 @@ func NewListDocumentsTool(client moraclient.MoraClient) *ListDocumentsTool {
 	return &ListDocumentsTool{base: base{client: client}}
 }
 
-// Definition returns the tool schema.
+// Definition returns the tool schema. Deprecated alias (§11.4): for converged
+// retrieval prefer knowledge_search / knowledge_context (Context Broker).
+// list_documents remains the directory-browsing surface; kept for the
+// compatibility migration window with deprecated:true in tools/list.
+// Permission semantics unchanged.
 func (t *ListDocumentsTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "list_documents",
-		Description: "列出工作区/目录下的文档（受权限过滤）。无权限工作区返回空列表。",
+		Description: "[deprecated 别名] 列出工作区/目录下的文档（受权限过滤）。检索推荐 knowledge_search/knowledge_context。无权限工作区返回空列表。兼容期保留，权限语义不变。",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"workspace_id"},
@@ -36,6 +40,7 @@ func (t *ListDocumentsTool) Definition() server.ToolDef {
 				"page_size":    map[string]any{"type": "integer", "default": 20},
 			},
 		},
+		Deprecated: true,
 	}
 }
 

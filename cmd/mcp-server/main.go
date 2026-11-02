@@ -125,6 +125,19 @@ func main() {
 	srv.RegisterTool(tool.NewSkillReadTool(moraClient))
 	srv.RegisterTool(tool.NewSkillResourcesTool(moraClient))
 	srv.RegisterTool(tool.NewSkillProposeTool(moraClient))
+	// Knowledge Context Broker tools (design-docs/19 §11.4, Phase 6-5/YS-210):
+	// knowledge_search + knowledge_context call the Broker's internal API
+	// (POST /internal/v1/knowledge/{search,context}) via moraclient — the MCP
+	// layer depends only on the internal API client, never on the context
+	// Broker implementation package (D12). The Broker's two-pass authz runs
+	// server-side; the tool layer is leak-safe (§8.2) and surfaces the
+	// three-state contract (§11.5: provider-down → diagnostic, authorized-empty
+	// / no-results → indistinguishable empty). The legacy search_knowledge_base
+	// / get_document / list_documents are registered above as deprecated
+	// aliases (Deprecated:true in tools/list) — type-specialized tools
+	// (code_*/skill_*) are NOT flattened (D12).
+	srv.RegisterTool(tool.NewKnowledgeSearchTool(moraClient))
+	srv.RegisterTool(tool.NewKnowledgeContextTool(moraClient))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

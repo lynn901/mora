@@ -27,6 +27,7 @@ import (
 	"github.com/lynn901/mora/internal/infra/qdrant"
 	"github.com/lynn901/mora/internal/infra/ragwiring"
 	"github.com/lynn901/mora/internal/module/knowledge/asset"
+	knowledgectx "github.com/lynn901/mora/internal/module/knowledge/context"
 	cgservice "github.com/lynn901/mora/internal/module/knowledge/codegraph/service"
 	srcsvc "github.com/lynn901/mora/internal/module/knowledge/source/service"
 	wikisvc "github.com/lynn901/mora/internal/module/knowledge/wiki/service"
@@ -292,6 +293,49 @@ func main() {
 		WithUnits(recallUnitReader).WithAuthz(engine, auditLogger)
 	recallH := wh.NewMemoryRecallHandler(recallSvc, feedbackSvc)
 
+	// Phase 6 Context Broker (design-docs/19 §3.3, YS-209). The Broker
+	// orchestrates the typed query ports under a shared deadline, dedups while
+	// keeping conflicts, scores under a versioned authority policy, trims to a
+	// budget, and returns candidates with traceable citations — never bypassing
+	// platform/authz (§3.2 two-pass: Authorize pre-fetch + VisibleAssets
+	// post-check).
+	//
+	// authz.Service is the §3.2 gate, constructed from the same repos the
+	// legacy engine + handlers use. This is the first wiring of the unified
+	// authz.Service entrypoint in mora-api (prior handlers used the legacy
+	// rbac.Engine directly via .WithAuthz); the Broker is its first consumer
+	// because §3.2 requires the two-pass Authorize + VisibleAssets shape only
+	// authz.Service exposes. The composite locator is shared with the engine
+	// (newAuthzLocator) so target resolution is identical.
+	authzLocator := newAuthzLocator(permRepo, dirRepo, docRepo, db)
+	authzSvc := authz.NewService(
+		authzLocator,
+		engine,
+		bindingRepo,
+		postgres.NewAuthzAgentRepo(db),
+		postgres.NewAuthzAssetRepo(db),
+		postgres.NewAuthzAssetVersionRepo(db),
+		postgres.NewRevisionsRepo(db),
+		postgres.NewDecisionRepo(db),
+	)
+
+	// Phase 6 authority policy repo (context_authority_policies, YS-202
+	// migration 024). LoadCurrent falls back to the built-in default on
+	// ErrPolicyNotFound (§5.3); the Broker's DefaultPolicyLoader wraps that.
+	contextPolicyRepo := postgres.NewContextPolicyRepo(db)
+
+	// Audit sink for the §9.3 Broker query summary. Best-effort: a sink
+	// failure never aborts the response (same precedent as audit.Logger). The
+	// summary carries IDs + counts + redacted degraded/truncation — never the
+	// candidate bodies (§13.4).
+	contextAuditSink := func(ctx context.Context, summary knowledgectx.AuditSummary) {
+		wsID := summary.WorkspaceID
+		auditLogger.Record(ctx, string(summary.Intent), &wsID, "knowledge.context.query",
+			"workspace", &wsID, summary, "", "")
+	}
+	// contextH is wired after ragSearcher is constructed (the Document port
+	// adapts it); see the block following ragSearcher below.
+
 	tm := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
 	userLookup := &pgUserLookup{db: db}
 	collabHub := collab.NewHub(cfg.CollabMaxConcurrent)
@@ -336,6 +380,13 @@ func main() {
 		FTS:     &pg.FTSStore{Pool: pool, Config: cfg.FTSConfig},
 		RBAC:    pg.NewRBACResolver(pool),
 	})
+
+	// Phase 6 Broker assembly (continued). The Document port adapts ragSearcher
+	// (NewDocumentAdapterFromFunc); the Memory port adapts recallSvc; Code/Skill
+	// ports are unwired in this stage (degraded as provider_error, §9.6; the
+	// code adapter port shape needs a wiring shim — pending_code_port_shape).
+	contextBroker := newContextBroker(recallSvc, ragSearcher, contextPolicyRepo, authzSvc, contextAuditSink)
+	contextH := wh.NewContextBrokerHandler(contextBroker, contextPolicyRepo)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -471,6 +522,15 @@ func main() {
 	internal.POST("/skills/propose", skillInternalH.Propose)
 	internal.GET("/skills/:id/versions/:version", skillInternalH.Deliver)
 	internal.GET("/skills/:id/resources/*path", skillInternalH.ReadResource)
+	// Phase 6 §11.2 internal surface (MCP Server + Context Proxy, doc 15 §12.3).
+	// The MCP Server's knowledge_search / knowledge_context tools (YS-210) call
+	// these via moraclient; the Context Proxy (doc 15) calls /knowledge/context
+	// to assemble context for a model turn. Same AuthMiddleware as /api/v1 — a
+	// caller presents INTERNAL_SERVICE_TOKEN (service identity) + a delegated
+	// JWT carrying AgentID + WorkspaceID. The handler pulls the principal from
+	// the resolved AuthState, never a client header (§11.2).
+	internal.POST("/knowledge/search", contextH.Search)
+	internal.POST("/knowledge/context", contextH.Context)
 
 	// Phase 5-3 Agent 配装（Binding）management REST control plane (§6.1).
 	// Management operations (list/batch/patch/revoke) gated on `assign`; do
@@ -496,6 +556,18 @@ func main() {
 	authed.GET("/knowledge/assets/:id/codegraph/callees", codegraphH.Callees)
 	authed.GET("/knowledge/assets/:id/codegraph/impact", codegraphH.Impact)
 	authed.GET("/knowledge/codegraph/capabilities", codegraphH.Capabilities)
+
+	// Phase 6 Context Broker REST control plane (design-docs/19 §11.1, YS-209).
+	// POST /knowledge/search = typed search (no context assembly); POST
+	// /knowledge/context = the Broker (route + budget + cite); GET/PUT
+	// /knowledge/policies = authority policy governance (PM §2.2). Existence
+	// never leaks (§8.2): the three-state response maps authorized-empty +
+	// no-results to a 200 empty list; only IsProviderDown surfaces 503 so a
+	// fault is never confused with "no knowledge" (§11.5).
+	authed.POST("/workspaces/:workspace_id/knowledge/search", contextH.Search)
+	authed.POST("/workspaces/:workspace_id/knowledge/context", contextH.Context)
+	authed.GET("/workspaces/:workspace_id/knowledge/policies", contextH.ListPolicies)
+	authed.PUT("/workspaces/:workspace_id/knowledge/policies/:intent", contextH.UpdatePolicy)
 
 	// Wiki maintenance REST control plane (design-docs/16 §7.1 / api/wiki.yaml).
 	// Wiki Space CRUD + maintenance-run trigger/list + lint + proposals review.
