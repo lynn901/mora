@@ -280,9 +280,11 @@ func (s *ContextBrokerSuite) TestBroker_TenStepEndToEnd() {
 	assert.Equal(s.T(), int64(7), resp.AuthzRevision, "authz_revision should come from workspace_authz_revisions")
 
 	// Step 10 audit summary carries policy_version + authz_revision + the
-	// selected count (§9.3).
-	assert.Equal(s.T(), 1, resp.PolicyVersion, audit.PolicyVersion)
-	assert.Equal(s.T(), int64(7), audit.AuthzRevision)
+	// selected count (§9.3). The policy_version + authz_revision on the
+	// response are asserted above; these pin the same values on the audit
+	// summary so a regression that drops them from the step-10 record is caught.
+	assert.Equal(s.T(), 1, audit.PolicyVersion, "audit summary should carry the seeded policy_version")
+	assert.Equal(s.T(), int64(7), audit.AuthzRevision, "audit summary should carry the workspace authz_revision")
 	assert.Equal(s.T(), 1, audit.SelectedCount)
 	assert.Equal(s.T(), ctxmod.IntentSpec, audit.Intent)
 }
