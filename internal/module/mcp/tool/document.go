@@ -11,6 +11,13 @@ import (
 
 // GetDocumentTool implements get_document (design doc 06 §5.2.2). Read-only.
 // No read permission → empty success result (existence-leak prevention, §6.4).
+//
+// Deprecated (design-docs/19 §11.4 compatibility window): retained as an alias
+// during the upstream-Agent migration window. tools/list marks it deprecated;
+// tools/call keeps the original permission semantics. The converged body-read
+// path is the type tool a knowledge_context truncation report names
+// (continue_tools); new integrations should assemble context via
+// knowledge_context and progressive-read via the named type tool.
 type GetDocumentTool struct{ base }
 
 // NewGetDocumentTool builds a get_document tool.
@@ -22,7 +29,8 @@ func NewGetDocumentTool(client moraclient.MoraClient) *GetDocumentTool {
 func (t *GetDocumentTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "get_document",
-		Description: "读取文档正文（Block JSON 或 Markdown）。无权限时返回空结果而非错误，防止存在性泄露。",
+		Description: "[deprecated 别名] 读取文档正文（Block JSON 或 Markdown）。无权限时返回空结果而非错误，防止存在性泄露。新集成请改用 knowledge_context 组装上下文并按截断报告的 continue_tools 渐进读取正文。兼容期内权限语义不变。",
+		Deprecated:  true,
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"document_id"},

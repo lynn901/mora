@@ -36,8 +36,8 @@ type Mock struct {
 
 	// wiki store for wiki_status / wiki_page_propose (design doc 16 §7.3).
 	// Minimal in-memory model so the MCP tools are exercisable in mock mode.
-	wikiSpaces    map[string]*WikiSpaceStatus
-	wikiRuns      map[string]*WikiPageProposeResult // runID -> run
+	wikiSpaces map[string]*WikiSpaceStatus
+	wikiRuns   map[string]*WikiPageProposeResult // runID -> run
 
 	// codegraph store for the code_* tools (design-docs/17 §6.2). A codebase is
 	// a knowledge_assets row owned by a workspace; the mock models only the
@@ -64,15 +64,15 @@ type Mock struct {
 // skill_read / skill_resources are exercisable. DeliveryMode models the
 // agent's effective binding: tool/inline permit raw reads; summary does not.
 type mockSkill struct {
-	WorkspaceID   string
-	Header        map[string]any
-	DeliveryMode  string
-	ContentHash   string
-	Manifest      SkillManifest
+	WorkspaceID  string
+	Header       map[string]any
+	DeliveryMode string
+	ContentHash  string
+	Manifest     SkillManifest
 	// resource bytes keyed by manifest path (progressive read backing).
-	Resources     map[string][]byte
+	Resources map[string][]byte
 	// VersionNo + AssetVersionID for the skill_read envelope.
-	VersionNo     int64
+	VersionNo      int64
 	AssetVersionID string
 }
 
@@ -577,13 +577,13 @@ func (m *Mock) resolveCodebase(auth *AuthContext, codebaseID string) (*mockCodeb
 // and the manifest files (path + bytes + hash). A nil/empty header Name falls
 // back to id-derived so skill_list always carries a name.
 type MockSkill struct {
-	ID            string
-	WorkspaceID   string
-	Header        map[string]any
-	DeliveryMode  string
-	Manifest      []SkillFileEntry
-	Resources     map[string][]byte
-	VersionNo     int64
+	ID             string
+	WorkspaceID    string
+	Header         map[string]any
+	DeliveryMode   string
+	Manifest       []SkillFileEntry
+	Resources      map[string][]byte
+	VersionNo      int64
 	AssetVersionID string
 }
 
@@ -699,13 +699,13 @@ func (m *Mock) SkillRead(_ context.Context, auth *AuthContext, assetID, versionS
 	}
 	_ = versionSpec // mock has a single version per skill
 	res := &SkillReadResult{
-		AssetID:            assetID,
-		AssetVersionID:     sk.AssetVersionID,
-		VersionNo:          sk.VersionNo,
-		DeliveryMode:       sk.DeliveryMode,
-		Header:             sk.Header,
+		AssetID:             assetID,
+		AssetVersionID:      sk.AssetVersionID,
+		VersionNo:           sk.VersionNo,
+		DeliveryMode:        sk.DeliveryMode,
+		Header:              sk.Header,
 		CompatibilityReport: map[string]any{"status": "ok"},
-		ContentHash:        sk.ContentHash,
+		ContentHash:         sk.ContentHash,
 	}
 	switch sk.DeliveryMode {
 	case "summary":
@@ -793,10 +793,10 @@ func (m *Mock) CodeStatus(_ context.Context, auth *AuthContext, codebaseID strin
 	edges := len(cb.Edges)
 	files := len(cb.Files)
 	return &CodeGraphStatus{
-		Commit:         cb.Commit,
-		SourceTreeHash: cb.SourceTreeHash,
+		Commit:          cb.Commit,
+		SourceTreeHash:  cb.SourceTreeHash,
 		ProviderVersion: "mock-1.0",
-		Stats: CodeGraphBuildStats{Files: files, Symbols: symbols, Edges: edges},
+		Stats:           CodeGraphBuildStats{Files: files, Symbols: symbols, Edges: edges},
 	}, nil
 }
 
@@ -942,6 +942,247 @@ func (m *Mock) CodeImpact(_ context.Context, auth *AuthContext, codebaseID strin
 		frontier = next
 	}
 	return &CodeHits{Items: hits, Commit: cb.Commit}, nil
+}
+
+// --- Context Broker converged-retrieval mock surface (design-docs/19 §11.4,
+// Phase 6-5) ---
+// The mock approximates the Broker's converged retrieval so the knowledge_search
+// / knowledge_context MCP tools are exercisable in mock mode. It does NOT
+// re-implement the Broker's ten-step pipeline (intent routing, authority
+// policy scoring, budgeter, citation builder) — it folds the mock's seeded
+// documents / codebases / skills into unified KnowledgeCandidate shapes, gated
+// by the workspace read ACL (canRead), and keeps the three empty states
+// distinguishable (§7.3): no read grant → empty-authorized, no seeded match →
+// empty-no-results, never an error to the Agent (§8.2 no-leak). Type-specialized
+// tools are NOT flattened here — this is only the converged retrieval path.
+
+// knowledgeIntent guesses the §4.1 intent from the query for the mock's
+// candidate ordering. The real Broker routes via IntentRouter (§4.2); the mock
+// only needs a stable label so the response carries an intent.
+func knowledgeIntent(q string) string {
+	low := strings.ToLower(q)
+	switch {
+	case strings.Contains(low, "为什么") || strings.Contains(low, "决策") || strings.Contains(low, "why") || strings.Contains(low, "rationale"):
+		return "rationale"
+	case strings.Contains(low, "实现") || strings.Contains(low, "代码") || strings.Contains(low, "函数") || strings.Contains(low, "commit") || strings.Contains(low, "revision"):
+		return "revision"
+	case strings.Contains(low, "如何") || strings.Contains(low, "流程") || strings.Contains(low, "步骤") || strings.Contains(low, "how") || strings.Contains(low, "runbook"):
+		return "procedure"
+	default:
+		return "spec"
+	}
+}
+
+// knowledgeCandidates folds the mock's seeded documents (and codebases/skills
+// when their ids match the asset_types filter) into unified candidates. It is
+// the mock's stand-in for the Broker's parallel port fan-out + dedup. Caller
+// must hold the read lock. An empty filter set = all types (§4.2 rule 1).
+func (m *Mock) knowledgeCandidates(auth *AuthContext, req knowledgeCandidateQuery) []KnowledgeCandidate {
+	a := m.aclFor(auth.IdentityID)
+	q := strings.ToLower(req.Query)
+	wantType := map[string]bool{}
+	for _, t := range req.AssetTypes {
+		wantType[t] = true
+	}
+	out := make([]KnowledgeCandidate, 0)
+	// Documents → document candidates (version anchor = version_no-derived id).
+	for _, doc := range m.documents {
+		if req.WorkspaceID != "" && doc.WorkspaceID != req.WorkspaceID {
+			continue
+		}
+		if a == nil {
+			continue
+		}
+		if _, ok := a.read[doc.WorkspaceID]; !ok {
+			continue // RBAC hard filter: invisible docs never returned
+		}
+		if len(wantType) > 0 && !wantType["document"] {
+			continue
+		}
+		body := strings.ToLower(doc.content)
+		title := strings.ToLower(doc.Title)
+		if q != "" && !strings.Contains(body, q) && !strings.Contains(title, q) {
+			continue
+		}
+		score := 0.5
+		if q == "" || strings.Contains(title, q) {
+			score = 0.9
+		}
+		out = append(out, KnowledgeCandidate{
+			AssetID:   doc.ID,
+			AssetType: "document",
+			Title:     doc.Title,
+			Snippet:   makeSnippet(doc.content, q),
+			Score:     score,
+			Authority: 0.9,
+			Freshness: 0.8,
+			Citation: CandidateCitation{
+				VersionOrRevision: itoa(doc.VersionNo),
+				Locator:           map[string]any{"workspace_id": doc.WorkspaceID},
+			},
+		})
+	}
+	// Codebases → codebase candidates (version anchor = commit). A codebase is
+	// surfaced as one candidate per matching symbol; the mock folds the first
+	// symbol hit so code_intent queries return something in mock mode.
+	for id, cb := range m.codebases {
+		if req.WorkspaceID != "" && cb.WorkspaceID != req.WorkspaceID {
+			continue
+		}
+		if a == nil {
+			continue
+		}
+		if _, ok := a.read[cb.WorkspaceID]; !ok {
+			continue
+		}
+		if len(wantType) > 0 && !wantType["codebase"] {
+			continue
+		}
+		for _, s := range cb.Symbols {
+			hay := strings.ToLower(s.Signature + " " + s.Docstring + " " + s.Loc.Symbol)
+			if q == "" || strings.Contains(hay, q) {
+				out = append(out, KnowledgeCandidate{
+					AssetID:   id,
+					AssetType: "codebase",
+					Title:     s.Loc.Symbol,
+					Snippet:   s.Signature,
+					Score:     0.6,
+					Authority: 0.5,
+					Citation: CandidateCitation{
+						VersionOrRevision: cb.Commit,
+						Locator: map[string]any{
+							"file":       s.Loc.Path,
+							"start_line": s.Loc.StartLine,
+							"symbol":     s.Loc.Symbol,
+						},
+					},
+				})
+				break // one candidate per codebase in mock mode
+			}
+		}
+	}
+	// Skills → skill candidates (version anchor = package version).
+	for id, sk := range m.skills {
+		if req.WorkspaceID != "" && sk.WorkspaceID != req.WorkspaceID {
+			continue
+		}
+		if a == nil {
+			continue
+		}
+		if _, ok := a.read[sk.WorkspaceID]; !ok {
+			continue
+		}
+		if len(wantType) > 0 && !wantType["skill"] {
+			continue
+		}
+		name, _ := sk.Header["name"].(string)
+		if name == "" {
+			name = id
+		}
+		desc, _ := sk.Header["description"].(string)
+		hay := strings.ToLower(name + " " + desc)
+		if q != "" && !strings.Contains(hay, q) {
+			continue
+		}
+		out = append(out, KnowledgeCandidate{
+			AssetID:   id,
+			AssetType: "skill",
+			Title:     name,
+			Snippet:   desc,
+			Score:     0.5,
+			Authority: 0.3,
+			Citation: CandidateCitation{
+				VersionOrRevision: sk.AssetVersionID,
+			},
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	if req.MaxItems > 0 && len(out) > req.MaxItems {
+		out = out[:req.MaxItems]
+	}
+	return out
+}
+
+// knowledgeCandidateQuery is the narrowed scope the mock fan-out reads.
+type knowledgeCandidateQuery struct {
+	Query       string
+	WorkspaceID string
+	AssetTypes  []string
+	MaxItems    int
+}
+
+// KnowledgeSearch (knowledge_search). Folds seeded assets into converged
+// candidates, gated by the workspace read ACL. No read grant / no match →
+// empty result (the three states are indistinguishable at the mock layer but
+// never an error to the Agent — §8.2 no-leak). Intent is guessed for the
+// response label; policy_version/authz_revision are mock placeholders.
+func (m *Mock) KnowledgeSearch(_ context.Context, auth *AuthContext, req KnowledgeSearchRequest) (*KnowledgeSearchResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if auth == nil {
+		return &KnowledgeSearchResult{Candidates: []KnowledgeCandidate{}, Intent: knowledgeIntent(req.Query)}, nil
+	}
+	cands := m.knowledgeCandidates(auth, knowledgeCandidateQuery{
+		Query:       req.Query,
+		WorkspaceID: req.WorkspaceID,
+		AssetTypes:  req.AssetTypes,
+		MaxItems:    req.MaxItems,
+	})
+	return &KnowledgeSearchResult{
+		Intent:        knowledgeIntent(req.Query),
+		PolicyVersion: 1,
+		AuthzRevision: 1,
+		Candidates:    cands,
+	}, nil
+}
+
+// KnowledgeContext (knowledge_context). Same converged fan-out as
+// KnowledgeSearch, plus a mock truncation report when the candidate count
+// exceeds max_items (naming the type continue-tools — §6.2 never silently
+// truncates). include_content is honored by omitting the snippet body when
+// false (directory + citation only — the body is a progressive read, §6.2).
+func (m *Mock) KnowledgeContext(_ context.Context, auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if auth == nil {
+		return &KnowledgeContextResult{Candidates: []KnowledgeCandidate{}, Intent: knowledgeIntent(req.Query)}, nil
+	}
+	maxItems := req.MaxItems
+	cands := m.knowledgeCandidates(auth, knowledgeCandidateQuery{
+		Query:       req.Query,
+		WorkspaceID: req.WorkspaceID,
+		AssetTypes:  req.AssetTypes,
+		MaxItems:    0, // fetch all, then truncate so the report names the dropped ids
+	})
+	var trunc TruncationReport
+	if maxItems > 0 && len(cands) > maxItems {
+		dropped := cands[maxItems:]
+		ids := make([]string, 0, len(dropped))
+		for _, c := range dropped {
+			ids = append(ids, c.AssetID)
+		}
+		trunc = TruncationReport{
+			Reason:            "budget_full",
+			TruncatedAssetIDs: ids,
+			ContinueTools:     []string{"get_document", "code_node", "skill_resources"},
+		}
+		cands = cands[:maxItems]
+	}
+	// include_content=false → directory + citation only (§6.2): drop the snippet
+	// body so the agent gets the catalog, then progressive-reads the body via
+	// the type tool.
+	if !req.IncludeContent {
+		for i := range cands {
+			cands[i].Snippet = ""
+		}
+	}
+	return &KnowledgeContextResult{
+		Intent:        knowledgeIntent(req.Query),
+		PolicyVersion: 1,
+		AuthzRevision: 1,
+		Candidates:    cands,
+		Truncation:    trunc,
+	}, nil
 }
 
 // trimHits caps a hit slice at limit (0 = unlimited).

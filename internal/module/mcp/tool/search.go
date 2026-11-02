@@ -12,6 +12,12 @@ import (
 // hybrid retrieval (Dense+BM25+Rerank) via the RAG service, RBAC-filtered
 // upstream. Read-only: no-permission results are simply absent from the result
 // set (the RAG service hard-filters invisible docs).
+//
+// Deprecated (design-docs/19 §11.4 compatibility window): retained as an alias
+// for knowledge_search during the upstream-Agent migration window. tools/list
+// marks it deprecated; tools/call keeps the original permission semantics —
+// new integrations should call knowledge_search. Not removed until upstream
+// Agents have migrated.
 type SearchTool struct{ base }
 
 // NewSearchTool builds a search_knowledge_base tool.
@@ -23,7 +29,8 @@ func NewSearchTool(client moraclient.MoraClient) *SearchTool {
 func (t *SearchTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "search_knowledge_base",
-		Description: "在 Mora 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。",
+		Description: "[deprecated 别名] 在 Mora 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。新集成请改用 knowledge_search（收敛检索，支持跨类型路由+冲突保留）。兼容期内权限语义不变。",
+		Deprecated:  true,
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"query"},

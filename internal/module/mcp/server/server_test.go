@@ -110,6 +110,9 @@ func newTestEnv(t *testing.T, rateRead, rateWrite int) *testEnv {
 	srv.RegisterTool(tool.NewCodeCallersTool(mock))
 	srv.RegisterTool(tool.NewCodeCalleesTool(mock))
 	srv.RegisterTool(tool.NewCodeImpactTool(mock))
+	// Context Broker converged-retrieval tools (design-docs/19 §11.4, Phase 6-5).
+	srv.RegisterTool(tool.NewKnowledgeSearchTool(mock))
+	srv.RegisterTool(tool.NewKnowledgeContextTool(mock))
 	env.srv = srv
 
 	gin.SetMode(gin.TestMode)
@@ -209,6 +212,25 @@ func TestToolsList(t *testing.T) {
 	assert.Contains(t, names, "get_document")
 	assert.Contains(t, names, "create_draft")
 	assert.Contains(t, names, "update_document")
+	// Phase 6-5 converged-retrieval tools are advertised (design-docs/19 §11.4).
+	assert.Contains(t, names, "knowledge_search")
+	assert.Contains(t, names, "knowledge_context")
+	// §11.4 compatibility window: the legacy aliases are marked deprecated;
+	// the new converged tools are NOT deprecated. Type-specialized tools are
+	// NOT flattened — they remain independent (D12).
+	byName := map[string]server.ToolDef{}
+	for _, d := range res.Tools {
+		byName[d.Name] = d
+	}
+	assert.True(t, byName["search_knowledge_base"].Deprecated, "search_knowledge_base must be deprecated")
+	assert.True(t, byName["get_document"].Deprecated, "get_document must be deprecated")
+	assert.True(t, byName["list_documents"].Deprecated, "list_documents must be deprecated")
+	assert.False(t, byName["knowledge_search"].Deprecated, "knowledge_search must NOT be deprecated")
+	assert.False(t, byName["knowledge_context"].Deprecated, "knowledge_context must NOT be deprecated")
+	// Type-specialized tools are not flattened: code_callers/code_impact remain
+	// independent, non-deprecated tools (D12).
+	assert.False(t, byName["code_callers"].Deprecated)
+	assert.False(t, byName["code_impact"].Deprecated)
 }
 
 // AC-16: search_knowledge_base returns structured results.

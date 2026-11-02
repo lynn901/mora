@@ -125,6 +125,17 @@ func main() {
 	srv.RegisterTool(tool.NewSkillReadTool(moraClient))
 	srv.RegisterTool(tool.NewSkillResourcesTool(moraClient))
 	srv.RegisterTool(tool.NewSkillProposeTool(moraClient))
+	// Context Broker converged-retrieval tools (design-docs/19 §11.4, Phase
+	// 6-5): knowledge_search / knowledge_context call the Broker's internal API
+	// via moraclient (§3.2 — mcp never imports knowledge/context). RBAC is the
+	// Broker's hard two-pass constraint; the tool layer only propagates the
+	// caller identity. The legacy search_knowledge_base / get_document /
+	// list_documents remain registered as deprecated aliases (§11.4 compat
+	// window) — tools/list marks them deprecated; permission semantics unchanged.
+	// Type-specialized tools (code_*/skill_*/memory_evidence_read) are NOT
+	// flattened by these converged tools (D12).
+	srv.RegisterTool(tool.NewKnowledgeSearchTool(moraClient))
+	srv.RegisterTool(tool.NewKnowledgeContextTool(moraClient))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -210,8 +221,8 @@ func buildMock() (moraclient.MoraClient, auth.TokenStore, *auth.TokenRecord) {
 	mock.AddWikiSpace(moraclient.WikiSpaceStatus{
 		WikiSpaceID: "wiki-eng-0001",
 		WorkspaceID: wsEng,
-		Name:         "工程 Wiki",
-		Status:       "active",
+		Name:        "工程 Wiki",
+		Status:      "active",
 		Pages: []moraclient.WikiPageSummary{
 			{PageKey: "api-conventions", PageKind: "managed"},
 			{PageKey: "onboarding", PageKind: "manual"},

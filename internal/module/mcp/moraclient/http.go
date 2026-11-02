@@ -560,6 +560,50 @@ func (c *HTTPClient) CodeImpact(ctx context.Context, auth *AuthContext, codebase
 	return &hits, nil
 }
 
+// --- Context Broker converged-retrieval surface (design-docs/19 §11.2/§11.4,
+// Phase 6-5) ---
+// knowledge_search / knowledge_context POST the Broker's internal API. The
+// upstream Broker enforces the two-pass authz (§0 D10) + the existence-leak
+// rule (§8.2): an unauthorized / empty-authorized / no-result caller gets a
+// 200 with an empty candidate slice (the three states distinguishable on the
+// response shape), never a 403/404 to the Agent. A 503 capability_unavailable
+// (a typed port Provider down) is itself a 200 with degraded_sources populated
+// (§7.3) — only a transport/structural fault surfaces as an error here.
+
+// KnowledgeSearch calls POST /internal/v1/knowledge/search (knowledge_search).
+// A no-permission / no-result upstream returns an empty result, not an error
+// (§8.2 no-leak); the three empty states stay distinguishable on the result.
+func (c *HTTPClient) KnowledgeSearch(ctx context.Context, auth *AuthContext, req KnowledgeSearchRequest) (*KnowledgeSearchResult, error) {
+	var resp KnowledgeSearchResult
+	if err := c.post(ctx, auth, "/internal/v1/knowledge/search", req, &resp); err != nil {
+		if isNotExist(err) {
+			return &KnowledgeSearchResult{Candidates: []KnowledgeCandidate{}}, nil
+		}
+		return nil, err
+	}
+	if resp.Candidates == nil {
+		resp.Candidates = []KnowledgeCandidate{}
+	}
+	return &resp, nil
+}
+
+// KnowledgeContext calls POST /internal/v1/knowledge/context (knowledge_context).
+// Same existence-leak rule as KnowledgeSearch; additionally carries the
+// truncation report naming continue-tools for progressive reads (§6.2).
+func (c *HTTPClient) KnowledgeContext(ctx context.Context, auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResult, error) {
+	var resp KnowledgeContextResult
+	if err := c.post(ctx, auth, "/internal/v1/knowledge/context", req, &resp); err != nil {
+		if isNotExist(err) {
+			return &KnowledgeContextResult{Candidates: []KnowledgeCandidate{}}, nil
+		}
+		return nil, err
+	}
+	if resp.Candidates == nil {
+		resp.Candidates = []KnowledgeCandidate{}
+	}
+	return &resp, nil
+}
+
 // --- Skill read + propose surface (design-docs/19 §6.2, Phase 5-4) ---
 // All skill_* methods call the internal API (§6.2) under
 // /internal/v1/skills/... with the delegated agent context propagated via

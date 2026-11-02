@@ -155,33 +155,33 @@ type DraftResult struct {
 // upstream so an unauthorized caller gets an empty result, not an error
 // (existence-leak prevention, §8.2).
 type WikiSpaceStatus struct {
-	WikiSpaceID   string            `json:"wiki_space_id"`
-	WorkspaceID   string            `json:"workspace_id"`
-	Name          string            `json:"name"`
-	Status        string            `json:"status"`
-	Pages         []WikiPageSummary `json:"pages"`
-	LastRun       *MaintenanceRun   `json:"last_run,omitempty"`
-	Proposals     []PageProposal    `json:"proposals"`
+	WikiSpaceID string            `json:"wiki_space_id"`
+	WorkspaceID string            `json:"workspace_id"`
+	Name        string            `json:"name"`
+	Status      string            `json:"status"`
+	Pages       []WikiPageSummary `json:"pages"`
+	LastRun     *MaintenanceRun   `json:"last_run,omitempty"`
+	Proposals   []PageProposal    `json:"proposals"`
 }
 
 // WikiPageSummary is one page in the wiki_status directory listing.
 type WikiPageSummary struct {
-	PageKey       string `json:"page_key"`
-	PageKind      string `json:"page_kind"`
-	StaleReason   string `json:"stale_reason,omitempty"`
+	PageKey        string `json:"page_key"`
+	PageKind       string `json:"page_kind"`
+	StaleReason    string `json:"stale_reason,omitempty"`
 	LastMaintained string `json:"last_maintained,omitempty"`
 }
 
 // MaintenanceRun is the projection of a wiki_maintenance_runs row surfaced
 // by wiki_status (design doc 16 §2.4).
 type MaintenanceRun struct {
-	ID           string         `json:"id"`
-	TriggerType  string         `json:"trigger_type"`
-	Status       string         `json:"status"`
-	InputSetHash string         `json:"input_set_hash,omitempty"`
-	StartedAt    string         `json:"started_at,omitempty"`
-	FinishedAt   string         `json:"finished_at,omitempty"`
-	ErrorCode    string         `json:"error_code,omitempty"`
+	ID           string `json:"id"`
+	TriggerType  string `json:"trigger_type"`
+	Status       string `json:"status"`
+	InputSetHash string `json:"input_set_hash,omitempty"`
+	StartedAt    string `json:"started_at,omitempty"`
+	FinishedAt   string `json:"finished_at,omitempty"`
+	ErrorCode    string `json:"error_code,omitempty"`
 }
 
 // PageProposal is one pending/recent proposal surfaced by wiki_status (§2.4).
@@ -210,9 +210,9 @@ type WikiPageProposeRequest struct {
 // lands asynchronously via the wiki_maintain job; the caller polls
 // wiki_status.
 type WikiPageProposeResult struct {
-	RunID    string `json:"run_id"`
-	Status   string `json:"status"`
-	PageKey  string `json:"page_key,omitempty"`
+	RunID   string `json:"run_id"`
+	Status  string `json:"status"`
+	PageKey string `json:"page_key,omitempty"`
 }
 
 // --- Skill read + propose DTOs (design-docs/19 §6.3 / §6.2, Phase 5-4) ---
@@ -245,17 +245,17 @@ type SkillListResult struct {
 
 // SkillReadResult is the skill_read response (delivery_mode-trimmed). Header is
 // always the SKILL.md frontmatter; Manifest is nil in summary mode; Capability
-//Summary is set in summary mode only. CompatibilityReport is always present.
+// Summary is set in summary mode only. CompatibilityReport is always present.
 type SkillReadResult struct {
-	AssetID             string            `json:"asset_id"`
-	AssetVersionID      string            `json:"asset_version_id"`
-	VersionNo           int64             `json:"version_no,omitempty"`
-	DeliveryMode        string            `json:"delivery_mode"`
-	Header              map[string]any    `json:"header"`
-	Manifest            *SkillManifest    `json:"manifest,omitempty"`
-	CapabilitySummary   map[string]any    `json:"capability_summary,omitempty"`
-	CompatibilityReport map[string]any    `json:"compatibility_report"`
-	ContentHash         string            `json:"content_hash,omitempty"`
+	AssetID             string         `json:"asset_id"`
+	AssetVersionID      string         `json:"asset_version_id"`
+	VersionNo           int64          `json:"version_no,omitempty"`
+	DeliveryMode        string         `json:"delivery_mode"`
+	Header              map[string]any `json:"header"`
+	Manifest            *SkillManifest `json:"manifest,omitempty"`
+	CapabilitySummary   map[string]any `json:"capability_summary,omitempty"`
+	CompatibilityReport map[string]any `json:"compatibility_report"`
+	ContentHash         string         `json:"content_hash,omitempty"`
 }
 
 // SkillManifest is the trimmed file inventory (mirrors domain.SkillManifest).
@@ -294,12 +294,12 @@ type SkillResourceContent struct {
 // candidate (AC-4); upstream the delegated context's workspace is the real
 // gate, but the field lets the mock + tool layer pass it explicitly.
 type SkillProposeRequest struct {
-	WorkspaceID string          `json:"workspace_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Version     string          `json:"version,omitempty"`
-	DraftBody   string          `json:"draft_body"`
-	SourceRef   map[string]any  `json:"source_ref,omitempty"`
+	WorkspaceID string         `json:"workspace_id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Version     string         `json:"version,omitempty"`
+	DraftBody   string         `json:"draft_body"`
+	SourceRef   map[string]any `json:"source_ref,omitempty"`
 }
 
 // SkillProposeResult is the skill_propose response: the candidate + review
@@ -369,19 +369,19 @@ type CodeFileNode struct {
 
 // CodeFileTree is the files listing (code_files).
 type CodeFileTree struct {
-	Path  string          `json:"path"`
-	Files []CodeFileNode  `json:"files,omitempty"`
-	Dirs  []CodeFileTree  `json:"dirs,omitempty"`
+	Path  string         `json:"path"`
+	Files []CodeFileNode `json:"files,omitempty"`
+	Dirs  []CodeFileTree `json:"dirs,omitempty"`
 }
 
 // CodeGraphStatus is the code_status result: active graph version metadata.
 type CodeGraphStatus struct {
-	Commit             string                 `json:"commit"`
-	SourceTreeHash     string                 `json:"source_tree_hash"`
-	ProviderVersion    string                 `json:"provider_version"`
-	IndexSchemaVersion string                 `json:"index_schema_version,omitempty"`
-	Stats             CodeGraphBuildStats     `json:"stats,omitempty"`
-	Stale             bool                   `json:"stale,omitempty"`
+	Commit             string              `json:"commit"`
+	SourceTreeHash     string              `json:"source_tree_hash"`
+	ProviderVersion    string              `json:"provider_version"`
+	IndexSchemaVersion string              `json:"index_schema_version,omitempty"`
+	Stats              CodeGraphBuildStats `json:"stats,omitempty"`
+	Stale              bool                `json:"stale,omitempty"`
 }
 
 // CodeGraphBuildStats are build-time counts surfaced in CodeGraphStatus.
@@ -408,9 +408,9 @@ type CodeExploreQuery struct {
 
 // CodeExploreResult is the code_explore outcome.
 type CodeExploreResult struct {
-	Hits   []CodeHit    `json:"hits,omitempty"`
+	Hits   []CodeHit     `json:"hits,omitempty"`
 	Nodes  []CodeNodeDef `json:"nodes,omitempty"`
-	Commit string       `json:"commit"`
+	Commit string        `json:"commit"`
 }
 
 // CodeSymbolQuery names a symbol to resolve (code_node / code_callers /
@@ -433,6 +433,125 @@ type CodeImpactQuery struct {
 type CodeHits struct {
 	Items  []CodeHit `json:"items"`
 	Commit string    `json:"commit,omitempty"`
+}
+
+// --- Context Broker DTOs (design-docs/19 §11.3, Phase 6-5) ---
+// These are the client-facing shapes the knowledge_search / knowledge_context
+// MCP tools return. They mirror the Broker's internal API response (POST
+// /internal/v1/knowledge/search · /internal/v1/knowledge/context, §11.2) so the
+// MCP module stays self-contained: the tool layer calls moraclient and never
+// imports the knowledge/context package (§3.2 — mcp only depends on the
+// internal API Client). RBAC is the Broker's hard constraint (§0 D10 two-pass
+// authz); the tool layer only propagates the caller identity + translates
+// no-permission / no-result into the existence-leak-safe empty shape (§8.2).
+
+// KnowledgeSearchRequest is the input to the converged knowledge_search tool
+// (§11.4). It is the direct-typed retrieval path (no context assembly): the
+// Broker routes by intent, fans out to the typed query ports under a shared
+// deadline, dedups keeping conflicts, and returns ranked candidates — but does
+// NOT apply the budgeter/citation builder the context path does.
+type KnowledgeSearchRequest struct {
+	Query       string   `json:"query"`
+	WorkspaceID string   `json:"workspace_id,omitempty"`
+	AgentID     string   `json:"agent_id,omitempty"`
+	AssetTypes  []string `json:"asset_types,omitempty"` // empty = IntentRouter picks (§4.2)
+	DirectoryID string   `json:"directory_id,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	MaxItems    int      `json:"max_items,omitempty"`
+	TimeoutMs   int      `json:"timeout_ms,omitempty"`
+}
+
+// KnowledgeCandidate is one converged retrieval result (doc 12 §9.3, §11.3
+// response item). The unified cross-type shape the Broker ranks/dedups/cites.
+// Field names align with the §11.3 response example so the tool output round-
+// trips the Broker response verbatim.
+type KnowledgeCandidate struct {
+	AssetID      string              `json:"asset_id"`
+	AssetVersion string              `json:"asset_version_id,omitempty"`
+	AssetType    string              `json:"asset_type"`
+	Title        string              `json:"title"`
+	Snippet      string              `json:"snippet"`
+	Score        float64             `json:"score"`
+	Authority    float64             `json:"authority,omitempty"`
+	Freshness    float64             `json:"freshness,omitempty"`
+	Confidence   *float64            `json:"confidence,omitempty"`
+	ConflictTags []string            `json:"conflict_tags,omitempty"`
+	Relations    []CandidateRelation `json:"relations,omitempty"`
+	Citation     CandidateCitation   `json:"citation"`
+}
+
+// CandidateRelation is one side of a conflict relation a candidate participates
+// in (§7.2 — contradicts/supersedes kept side-by-side, not silently chosen).
+type CandidateRelation struct {
+	RelationType string `json:"relation_type"`
+	TargetID     string `json:"target_id"`
+	TargetTitle  string `json:"target_title,omitempty"`
+}
+
+// CandidateCitation is the traceable reference on a candidate (§8.1 / §11.3).
+type CandidateCitation struct {
+	VersionOrRevision string         `json:"version_or_revision,omitempty"`
+	Locator           map[string]any `json:"locator,omitempty"`
+}
+
+// KnowledgeSearchResult is the knowledge_search response (§11.4). The three
+// empty states are distinguishable so a Provider fault is never misreported as
+// "no knowledge" (§7.3 / §11.5): HasResults / IsEmptyAuthorized /
+// IsEmptyNoResults / IsProviderDown.
+type KnowledgeSearchResult struct {
+	Intent          string               `json:"intent,omitempty"`
+	PolicyVersion   int                  `json:"policy_version,omitempty"`
+	AuthzRevision   int64                `json:"authz_revision,omitempty"`
+	DecisionID      string               `json:"decision_id,omitempty"`
+	Candidates      []KnowledgeCandidate `json:"candidates"`
+	DegradedSources []DegradedSource     `json:"degraded_sources,omitempty"`
+}
+
+// KnowledgeContextRequest is the input to the context-assembling
+// knowledge_context tool (§11.3 request). Defaults: include_content=false
+// (directory + summary + citation only — the body is a progressive read via
+// the type tool, §6.2); max_tokens/max_items from the workspace default when 0.
+type KnowledgeContextRequest struct {
+	Query          string   `json:"query"`
+	WorkspaceID    string   `json:"workspace_id,omitempty"`
+	AgentID        string   `json:"agent_id,omitempty"`
+	AssetTypes     []string `json:"asset_types,omitempty"`
+	DirectoryID    string   `json:"directory_id,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	MaxTokens      int      `json:"max_tokens,omitempty"`
+	MaxItems       int      `json:"max_items,omitempty"`
+	TimeoutMs      int      `json:"timeout_ms,omitempty"`
+	IncludeContent bool     `json:"include_content,omitempty"`
+}
+
+// KnowledgeContextResult is the knowledge_context response (§11.3 response).
+// It carries the budgeted candidates + a truncation report that names the
+// continue-tools for progressive reads (§6.2 — never silently truncates a
+// citation).
+type KnowledgeContextResult struct {
+	Intent          string               `json:"intent,omitempty"`
+	PolicyVersion   int                  `json:"policy_version,omitempty"`
+	AuthzRevision   int64                `json:"authz_revision,omitempty"`
+	DecisionID      string               `json:"decision_id,omitempty"`
+	Candidates      []KnowledgeCandidate `json:"candidates"`
+	DegradedSources []DegradedSource     `json:"degraded_sources,omitempty"`
+	Truncation      TruncationReport     `json:"truncation,omitempty"`
+}
+
+// DegradedSource records a typed query port that failed/timed out (§7.3 / §8).
+// Detail is a redacted summary — never body/credentials.
+type DegradedSource struct {
+	AssetType string `json:"asset_type,omitempty"`
+	Reason    string `json:"reason"` // provider_timeout|provider_error|qdrant_unavailable|fts_fallback|rerank_unavailable
+	Detail    string `json:"detail,omitempty"`
+}
+
+// TruncationReport explains why candidates were dropped from the budget and how
+// to read the rest (§6.2 — never silently truncates a citation).
+type TruncationReport struct {
+	Reason            string   `json:"reason,omitempty"` // single_asset_capped|quota_exhausted|budget_full|deadline
+	TruncatedAssetIDs []string `json:"truncated_asset_ids,omitempty"`
+	ContinueTools     []string `json:"continue_tools,omitempty"`
 }
 
 // CodeEdges wraps an edge slice for the callers/callees tools' empty-safe shape.
@@ -540,6 +659,31 @@ type MoraClient interface {
 	CodeCallees(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeEdges, error)
 	// CodeImpact computes the change-impact set (code_impact). symbol required.
 	CodeImpact(ctx context.Context, auth *AuthContext, codebaseID string, req CodeImpactQuery) (*CodeHits, error)
+
+	// --- Context Broker converged-retrieval surface (design-docs/19 §11.2/§11.4,
+	// Phase 6-5) ---
+	// knowledge_search / knowledge_context call the Broker's internal API
+	// (POST /internal/v1/knowledge/search · /internal/v1/knowledge/context). The
+	// Broker is the backend orchestration layer (D12): it routes by intent,
+	// fans out to the typed query ports under a shared deadline, dedups keeping
+	// conflicts, and (context path) budgets + cites. RBAC is the Broker's hard
+	// two-pass constraint (§0 D10); these methods only propagate the caller
+	// identity + the service token. INTERNAL_SERVICE_TOKEN alone never authorizes
+	// the end-user scope — a delegated context is resolved upstream (§11.2).
+	// Existence never leaks (§8.2): an unauthorized / empty-authorized /
+	// no-result caller gets an empty result (the three states stay
+	// distinguishable on the response shape, §7.3), never an error to the Agent.
+	// Type-specialized tools (code_callers/impact, memory_evidence_read,
+	// skill_resources) are NOT flattened — they remain independent tools (D12).
+
+	// KnowledgeSearch runs converged retrieval without context assembly
+	// (knowledge_search). Returns ranked candidates + degraded_sources; the
+	// three empty states are distinguishable on the result shape (§7.3).
+	KnowledgeSearch(ctx context.Context, auth *AuthContext, req KnowledgeSearchRequest) (*KnowledgeSearchResult, error)
+	// KnowledgeContext assembles a budgeted context with citations
+	// (knowledge_context). Returns candidates + truncation report naming the
+	// continue-tools for progressive reads (§6.2 — never silently truncates).
+	KnowledgeContext(ctx context.Context, auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResult, error)
 }
 
 // ErrNotExist is returned by read methods when the resource is absent or the

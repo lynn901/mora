@@ -12,6 +12,12 @@ import (
 // ListDocumentsTool implements list_documents (design doc 06 §5.1). Read-only:
 // lists documents under a workspace/directory, RBAC-filtered upstream. No
 // permission on the workspace returns an empty list (not an error).
+//
+// Deprecated (design-docs/19 §11.4 compatibility window): retained as an alias
+// during the upstream-Agent migration window. tools/list marks it deprecated;
+// tools/call keeps the original permission semantics. The converged catalog
+// path is knowledge_context (directory + summary + citation); new integrations
+// should assemble context via knowledge_context.
 type ListDocumentsTool struct{ base }
 
 // NewListDocumentsTool builds a list_documents tool.
@@ -23,7 +29,8 @@ func NewListDocumentsTool(client moraclient.MoraClient) *ListDocumentsTool {
 func (t *ListDocumentsTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "list_documents",
-		Description: "列出工作区/目录下的文档（受权限过滤）。无权限工作区返回空列表。",
+		Description: "[deprecated 别名] 列出工作区/目录下的文档（受权限过滤）。无权限工作区返回空列表。新集成请改用 knowledge_context 组装资产目录+摘要+引用。兼容期内权限语义不变。",
+		Deprecated:  true,
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"workspace_id"},
