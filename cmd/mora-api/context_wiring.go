@@ -93,6 +93,9 @@ func newContextBroker(
 	policyLoader := knowledgectx.DefaultPolicyLoader(policyRepo)
 	opts := []knowledgectx.BrokerOption{
 		knowledgectx.WithDocumentPort(docPort),
+		// §9.2: wire the Prometheus instrumentation so the live Broker emits
+		// the seven knowledge_context_* + knowledge_authz_denied_total metrics.
+		knowledgectx.WithMetrics(knowledgectx.DefaultMetrics()),
 	}
 	if auditSink != nil {
 		opts = append(opts, knowledgectx.WithAuditSink(auditSink))
