@@ -342,14 +342,22 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 	return resp, nil
 }
 
-// authorizeWorkspace is §7.1 step 2: authz.Authorize at workspace scope. The
-// Broker authorizes the principal's ActionUse on the workspace so the
-// AllowedAssetIDs is the server-resolved visible set pushed down as the hard
-// pre-filter (§3.2). The AuthzContext carries DecisionID + AuthzRevision for
-// the response + audit. A deny at workspace scope means the principal has no
-// use on the workspace at all → the response is empty-authorized (the
-// fan-out still runs against an empty AllowedAssetIDs, returning no
-// candidates; the three-state method reports IsEmptyAuthorized).
+// authorizeWorkspace is §7.1 step 2: authz.Authorize at workspace scope. It is
+// the workspace-membership gate — "may this principal access this workspace at
+// all" — producing the AuthzContext (DecisionID + AuthzRevision) the response +
+// audit carry. The per-asset use decision is NOT made here; it is the post-check
+// (step 5, VisibleAssets), which calls Authorize(TargetType=asset, Action=use)
+// per candidate. Keeping the two concerns separate is the §3.2 two-pass shape:
+// step 2 is the coarse workspace gate (read/membership), step 5 is the precise
+// per-asset use gate.
+//
+// A workspace-scope DENY is NOT a pipeline error: it means the principal is not
+// a member of the workspace → the response is empty-authorized (the fan-out
+// still runs against an empty AllowedAssetIDs, returning no candidates; the
+// three-state method reports IsEmptyAuthorized). So an authz.ErrNotFound at this
+// gate is converted to Allowed=false with no error — leak-safe (§8.2: a
+// non-member never learns whether assets exist). Only a genuine authz
+// infrastructure error (e.g. the revisions read failed) aborts the pipeline.
 func (b *Broker) authorizeWorkspace(ctx context.Context, workspaceID uuid.UUID, p Principal) (AuthzContext, error) {
 	req := authz.AuthzRequest{
 		WorkspaceID:   workspaceID,
@@ -358,11 +366,27 @@ func (b *Broker) authorizeWorkspace(ctx context.Context, workspaceID uuid.UUID, 
 		GroupIDs:      p.GroupIDs,
 		ActingUserID:  p.ActingUserID,
 		AgentID:       p.AgentID,
-		TargetType:    domain.TargetAsset, // asset-scope use; the workspace is the scoping parent
-		TargetID:      workspaceID,        // workspace-scoped: the workspace is the target node
-		Action:        domain.ActionUse,
+		TargetType:    domain.TargetWorkspace, // workspace-scope membership gate
+		TargetID:      workspaceID,
+		Action:        domain.ActionRead, // "may this principal see this workspace"
 	}
-	return b.authz.Authorize(ctx, req)
+	ac, err := b.authz.Authorize(ctx, req)
+	if err != nil {
+		// A not-found / denied target at workspace scope is a membership denial,
+		// not a pipeline error (§8.2 leak-safe: empty-authorized, never a 403).
+		// Surface it as Allowed=false so the fan-out proceeds against an empty
+		// AllowedAssetIDs and the three-state method reports IsEmptyAuthorized.
+		if errors.Is(err, authz.ErrTargetNotFound) {
+			ac.WorkspaceID = workspaceID
+			ac.AuthzRevision = 0
+			ac.PrincipalType = req.PrincipalType
+			ac.PrincipalID = req.PrincipalID
+			ac.Allowed = false
+			return ac, nil
+		}
+		return ac, err
+	}
+	return ac, nil
 }
 
 // sharedDeadline is min(q.Timeout, default.Timeout, 2s) (§7.1 step 4). A
