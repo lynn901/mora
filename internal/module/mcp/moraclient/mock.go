@@ -56,6 +56,12 @@ type Mock struct {
 	// land a candidate in-memory (never published).
 	skills    map[string]*mockSkill
 	proposals map[string]*SkillProposeResult
+
+	// knowledgeFaults maps workspaceID -> reason for the knowledge_* mock
+	// surface (Phase 6-5): a set workspace makes KnowledgeSearch/KnowledgeContext
+	// return ErrProviderDown (§11.5 provider_down state) so the tool layer's
+	// three-state diagnostic is exercisable. Empty/absent = no fault.
+	knowledgeFaults map[string]string
 }
 
 // mockSkill is the in-memory model the skill_* tools query. It binds a skill
@@ -114,6 +120,7 @@ func NewMock() *Mock {
 		codebases:   make(map[string]*mockCodebase),
 		skills:      make(map[string]*mockSkill),
 		proposals:   make(map[string]*SkillProposeResult),
+		knowledgeFaults: make(map[string]string),
 	}
 }
 
@@ -779,6 +786,147 @@ func (m *Mock) SkillPropose(_ context.Context, auth *AuthContext, req SkillPropo
 	}
 	m.proposals[assetID] = res
 	return res, nil
+}
+
+// --- Knowledge Context Broker mock surface (design-docs/19 §11.2, Phase 6-5) ---
+// The mock models the Broker's leak-safe contract, not the ten-step pipeline:
+// a caller without read on the query workspace gets an EMPTY response (no leak
+// — §8.2), a workspace with no matching docs gets an empty candidate list
+// (authorized-empty / no-results — indistinguishable, both 200-empty), and a
+// seeded provider-fault flag yields ErrProviderDown so the tool layer's
+// three-state diagnostic is exercisable (§11.5). The intent/policy_version
+// fields are filled deterministically.
+
+// knowledgeFaults maps workspaceID -> fault reason. When set, KnowledgeSearch /
+// KnowledgeContext return ErrProviderDown for that workspace (simulating a
+// Broker provider fault — §11.5 provider_down state). Set/inspect via
+// SetKnowledgeProviderDown / KnowledgeProviderDownFor in tests.
+//
+// Stored on the Mock struct (added by the field below) so the fault is sticky
+// across calls until cleared.
+
+// SetKnowledgeProviderDown seeds (reason != "") or clears (reason == "") a
+// provider-fault state for a workspace. When set, knowledge_* calls on that
+// workspace return ErrProviderDown (§11.5 provider_down) — the three Broker
+// states stay distinguishable in tests.
+func (m *Mock) SetKnowledgeProviderDown(workspaceID, reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.knowledgeFaults == nil {
+		m.knowledgeFaults = make(map[string]string)
+	}
+	if reason == "" {
+		delete(m.knowledgeFaults, workspaceID)
+		return
+	}
+	m.knowledgeFaults[workspaceID] = reason
+}
+
+// KnowledgeProviderDownFor reports the seeded provider-fault reason for a
+// workspace ("" = none). Test helper.
+func (m *Mock) KnowledgeProviderDownFor(workspaceID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.knowledgeFaults == nil {
+		return ""
+	}
+	return m.knowledgeFaults[workspaceID]
+}
+
+// knowledgeBrokerQuery is the shared mock for KnowledgeSearch / KnowledgeContext.
+// The two routes differ only in the documented intent (typed search vs. full
+// context); the mock returns the same shape. Read-gated; empty on no matches
+// (authorized-empty / no-results); ErrProviderDown on a seeded fault.
+func (m *Mock) knowledgeBrokerQuery(auth *AuthContext, req KnowledgeQueryRequest) (*KnowledgeContextResponse, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if reason := m.knowledgeFaultsFor(req.WorkspaceID); reason != "" {
+		// Provider fault is distinct from authorized-empty (§11.5).
+		_ = reason
+		return nil, ErrProviderDown
+	}
+	resp := &KnowledgeContextResponse{
+		Intent:        "rationale",
+		PolicyVersion: 0, // built-in default (§5.3)
+		AuthzRevision: 1,
+		Candidates:    []KnowledgeCandidateDTO{},
+	}
+	if !m.canRead(auth, req.WorkspaceID) {
+		// No-permission is indistinguishable from no-results: an empty 200
+		// (existence never leaks — §8.2).
+		return resp, nil
+	}
+	q := strings.ToLower(req.Query)
+	a := m.aclFor(auth.IdentityID)
+	for id, doc := range m.documents {
+		if doc.WorkspaceID != req.WorkspaceID {
+			continue
+		}
+		if a == nil {
+			continue
+		}
+		if _, ok := a.read[doc.WorkspaceID]; !ok {
+			continue // RBAC hard filter: invisible docs never become candidates
+		}
+		body := strings.ToLower(doc.content)
+		title := strings.ToLower(doc.Title)
+		if q != "" && !strings.Contains(body, q) && !strings.Contains(title, q) {
+			continue
+		}
+		score := 0.6
+		if q != "" && strings.Contains(title, q) {
+			score = 0.95
+		} else if q != "" && strings.Contains(body, q) {
+			score = 0.7
+		}
+		resp.Candidates = append(resp.Candidates, KnowledgeCandidateDTO{
+			AssetID:   id,
+			AssetType: "document",
+			Title:     doc.Title,
+			Snippet:   makeSnippet(doc.content, q),
+			Score:     score,
+			Authority: 0.9,
+			Citation: KnowledgeCitationDTO{
+				AssetID:    id,
+				AssetType:  "document",
+				SourceRef:  "/workspaces/" + doc.WorkspaceID + "/documents/" + id,
+				UpdatedAt:  doc.UpdatedAt,
+				Authority:  0.9,
+			},
+		})
+	}
+	sort.Slice(resp.Candidates, func(i, j int) bool {
+		return resp.Candidates[i].Score > resp.Candidates[j].Score
+	})
+	// Honor max_items when set (Budgeter analogue — cap the candidate count).
+	if req.MaxItems > 0 && len(resp.Candidates) > req.MaxItems {
+		resp.Truncation = KnowledgeTruncationDTO{
+			Reason:        "max_items",
+			ContinueTools: []string{"get_document"},
+		}
+		resp.Candidates = resp.Candidates[:req.MaxItems]
+	}
+	return resp, nil
+}
+
+// knowledgeFaultsFor is the read-locked accessor for the fault map.
+func (m *Mock) knowledgeFaultsFor(workspaceID string) string {
+	if m.knowledgeFaults == nil {
+		return ""
+	}
+	return m.knowledgeFaults[workspaceID]
+}
+
+// KnowledgeSearch (knowledge_search). Mock typed-search route — same shape as
+// KnowledgeContext. Read-gated; empty on no matches; ErrProviderDown on fault.
+func (m *Mock) KnowledgeSearch(_ context.Context, auth *AuthContext, req KnowledgeQueryRequest) (*KnowledgeContextResponse, error) {
+	return m.knowledgeBrokerQuery(auth, req)
+}
+
+// KnowledgeContext (knowledge_context). Mock full-Broker route — same shape as
+// KnowledgeSearch. Read-gated; empty on no matches; ErrProviderDown on fault.
+func (m *Mock) KnowledgeContext(_ context.Context, auth *AuthContext, req KnowledgeQueryRequest) (*KnowledgeContextResponse, error) {
+	return m.knowledgeBrokerQuery(auth, req)
 }
 
 // CodeStatus (code_status). Read-gated; missing/no-perm → ErrNotExist.

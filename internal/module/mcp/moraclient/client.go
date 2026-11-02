@@ -18,6 +18,7 @@ package moraclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	domainerr "github.com/lynn901/mora/internal/pkg/errors"
@@ -440,6 +441,103 @@ type CodeEdges struct {
 	Items []CodeEdge `json:"items"`
 }
 
+// --- Knowledge Context Broker DTOs (design-docs/19 §11.3, Phase 6-5) ---
+// These mirror the mora-api context_broker handler's wire shapes
+// (internal/module/mora/handler/context_broker.go) so the MCP
+// knowledge_search / knowledge_context tools can round-trip the Broker's
+// request/response without importing the context package (D12 — the MCP
+// layer depends only on the moraclient internal API client, never on the
+// Broker implementation package). Field names + json tags match the
+// handler's contextRequest / contextResponse exactly.
+
+// KnowledgeQueryRequest is the POST /internal/v1/knowledge/{search,context}
+// body (§11.3 request). WorkspaceID is required: the internal routes have
+// no :workspace_id path param, so it travels in the body (the handler's
+// runBroker falls back to body.WorkspaceID for internal callers).
+type KnowledgeQueryRequest struct {
+	Query          string         `json:"query"`
+	WorkspaceID    string         `json:"workspace_id"`
+	AgentID        string         `json:"agent_id,omitempty"`
+	AssetTypes     []string       `json:"asset_types,omitempty"`
+	Filters        map[string]any `json:"filters,omitempty"`
+	MaxTokens      int            `json:"max_tokens,omitempty"`
+	MaxItems       int            `json:"max_items,omitempty"`
+	TimeoutMS      int            `json:"timeout_ms,omitempty"`
+	IncludeContent bool           `json:"include_content,omitempty"`
+}
+
+// KnowledgeCitationDTO is one candidate's citation anchor (§11.3 response).
+type KnowledgeCitationDTO struct {
+	AssetID           string         `json:"asset_id"`
+	AssetType         string         `json:"asset_type"`
+	SourceRef         string         `json:"source_ref,omitempty"`
+	VersionOrRevision string         `json:"version_or_revision,omitempty"`
+	UpdatedAt         string         `json:"updated_at,omitempty"`
+	Authority         float64        `json:"authority"`
+	Confidence        *float64       `json:"confidence,omitempty"`
+	Locator           map[string]any `json:"locator,omitempty"`
+}
+
+// KnowledgeRelationDTO is one cross-candidate relation (conflict / contradicts /
+// supersedes) the Broker preserves instead of merging (D7).
+type KnowledgeRelationDTO struct {
+	RelationType string `json:"relation_type"`
+	TargetID     string `json:"target_id"`
+	TargetTitle  string `json:"target_title,omitempty"`
+}
+
+// KnowledgeCandidateDTO is one Broker candidate (§11.3 response). Mirrors the
+// handler's candidateResponse; ConflictTags + Relations carry the
+// conflict-preservation surface (D7).
+type KnowledgeCandidateDTO struct {
+	AssetID      string                 `json:"asset_id"`
+	AssetType    string                 `json:"asset_type"`
+	Title        string                 `json:"title"`
+	Snippet      string                 `json:"snippet"`
+	Score        float64                `json:"score"`
+	Authority    float64                `json:"authority"`
+	Freshness    float64                `json:"freshness,omitempty"`
+	Confidence   *float64               `json:"confidence,omitempty"`
+	ConflictTags []string               `json:"conflict_tags,omitempty"`
+	Relations    []KnowledgeRelationDTO `json:"relations,omitempty"`
+	Citation     KnowledgeCitationDTO   `json:"citation"`
+}
+
+// KnowledgeDegradedSourceDTO reports a typed provider that could not contribute
+// (D8 partial response). The Agent sees WHICH type degraded and why, not that
+// "there is no knowledge".
+type KnowledgeDegradedSourceDTO struct {
+	AssetType string `json:"asset_type"`
+	Reason    string `json:"reason"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+// KnowledgeTruncationDTO carries the Budgeter's truncation reason + the
+// continue-tools the Agent can call to read more (D6 — never silently truncate
+// citations).
+type KnowledgeTruncationDTO struct {
+	Reason            string   `json:"reason,omitempty"`
+	TruncatedAssetIDs []string `json:"truncated_asset_ids,omitempty"`
+	ContinueTools     []string `json:"continue_tools,omitempty"`
+}
+
+// KnowledgeContextResponse is the §11.3 success body for both
+// /knowledge/search and /knowledge/context. The Broker's three-state
+// (provider-down / authorized-empty / no-results) is signalled out-of-band via
+// the typed ErrProviderDown error from KnowledgeSearch/KnowledgeContext: when
+// the handler returns 503 the client maps it to ErrProviderDown so the tool
+// layer surfaces a diagnostic (§11.5), distinct from a 200 with an empty
+// candidate list (authorized-empty OR no-results — both leak-safe 200s).
+type KnowledgeContextResponse struct {
+	Intent          string                     `json:"intent"`
+	PolicyVersion   int                        `json:"policy_version"`
+	AuthzRevision   int64                      `json:"authz_revision"`
+	DecisionID      string                     `json:"decision_id,omitempty"`
+	Candidates      []KnowledgeCandidateDTO    `json:"candidates"`
+	DegradedSources []KnowledgeDegradedSourceDTO `json:"degraded_sources,omitempty"`
+	Truncation      KnowledgeTruncationDTO     `json:"truncation,omitempty"`
+}
+
 // MoraClient is the upstream Mora + RAG capability surface used by MCP tools
 // and resources. All methods receive the caller AuthContext so RBAC is applied
 // server-side by the real Mora/RAG services.
@@ -540,6 +638,31 @@ type MoraClient interface {
 	CodeCallees(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeEdges, error)
 	// CodeImpact computes the change-impact set (code_impact). symbol required.
 	CodeImpact(ctx context.Context, auth *AuthContext, codebaseID string, req CodeImpactQuery) (*CodeHits, error)
+
+	// --- Knowledge Context Broker surface (design-docs/19 §11.2, Phase 6-5) ---
+	// knowledge_search / knowledge_context call the Context Broker's internal
+	// API via moraclient (D12 — the MCP layer never imports the context
+	// package). Both are read-only and propagate the caller's delegated
+	// identity (AgentID + WorkspaceID, §11.2) so the Broker's two-pass authz
+	// runs as the end user, not the service token alone. Existence never
+	// leaks (§8.2): an authorized-empty / no-results path returns a 200 with
+	// an empty candidate list (→ a non-nil response with empty Candidates).
+	// A provider fault surfaces as 503 → ErrProviderDown so the tool layer
+	// can distinguish the three Broker states (§11.5 / D7).
+
+	// KnowledgeSearch runs the Broker's typed-search internal route
+	// (POST /internal/v1/knowledge/search, §11.2) — the same ten-step
+	// pipeline as KnowledgeContext but documented as "direct typed search,
+	// no context assembly". Returns ErrProviderDown when the Broker reports a
+	// provider fault (503); a 200 with empty Candidates is a normal
+	// authorized-empty / no-results result (no leak — §8.2).
+	KnowledgeSearch(ctx context.Context, auth *AuthContext, req KnowledgeQueryRequest) (*KnowledgeContextResponse, error)
+	// KnowledgeContext runs the full Context Broker
+	// (POST /internal/v1/knowledge/context, §11.2): intent routing →
+	// two-pass authz → parallel typed query → dedup+conflict-preserving
+	// merge → budget → citation. Same three-state contract as
+	// KnowledgeSearch (ErrProviderDown on 503; empty 200 otherwise).
+	KnowledgeContext(ctx context.Context, auth *AuthContext, req KnowledgeQueryRequest) (*KnowledgeContextResponse, error)
 }
 
 // ErrNotExist is returned by read methods when the resource is absent or the
@@ -553,6 +676,14 @@ type MoraClient interface {
 // ErrNotExist returns the sentinel not-found/not-visible error. Callers compare
 // with errors.Is(err, domainerr.ErrNotFound).
 func ErrNotExist() error { return domainerr.ErrNotFound }
+
+// ErrProviderDown is returned by the knowledge_* methods when the Broker
+// surfaces a provider fault (HTTP 503 / envelope code 50300). It is distinct
+// from ErrNotExist so the tool layer can separate the three Broker states
+// (§11.5): provider-down → diagnostic note (a fault, not "no knowledge"),
+// while authorized-empty + no-results are indistinguishable 200 empties
+// (existence never leaks — §8.2). Callers compare with errors.Is.
+var ErrProviderDown = errors.New("knowledge provider unavailable")
 
 // nowFunc is overridable in tests via the mock; production uses time.Now.
 var nowFunc = func() time.Time { return time.Now().UTC() }

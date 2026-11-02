@@ -19,11 +19,15 @@ func NewSearchTool(client moraclient.MoraClient) *SearchTool {
 	return &SearchTool{base: base{client: client}}
 }
 
-// Definition returns the tool schema.
+// Definition returns the tool schema. Deprecated alias (§11.4): the converged
+// knowledge_search tool (Context Broker) supersedes this RAG-only search.
+// Kept for the compatibility migration window — deprecated:true in tools/list
+// signals upstream Agents to prefer knowledge_search. Permission semantics are
+// unchanged (RBAC + rate-limit gating identical).
 func (t *SearchTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "search_knowledge_base",
-		Description: "在 Mora 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。",
+		Description: "[deprecated 别名] 在 Mora 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。推荐改用 knowledge_search（Context Broker 收敛检索，跨类型+带引用）。兼容期保留，权限语义不变。",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"query"},
@@ -37,6 +41,7 @@ func (t *SearchTool) Definition() server.ToolDef {
 				"rerank":       map[string]any{"type": "boolean", "default": false, "description": "启用重排（P1）"},
 			},
 		},
+		Deprecated: true,
 	}
 }
 

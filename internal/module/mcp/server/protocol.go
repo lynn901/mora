@@ -94,10 +94,19 @@ type ServerInfo struct {
 // --- tools/list & tools/call types (design doc 06 §5) ---
 
 // ToolDef is one tool as advertised in tools/list.
+//
+// Deprecated marks a tool as a compatibility alias (design-docs/19 §11.4). The
+// MCP spec surfaces it as the standard `deprecated` hint in tools/list so
+// upstream Agents migrate off the alias during the compatibility window; it
+// does NOT change permission semantics (RBAC + rate-limit gating are
+// unchanged). New tools leave Deprecated false.
 type ToolDef struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	// Deprecated, when true, emits `"deprecated": true` in tools/list (§11.4).
+	// Omitted from the JSON when false so non-aliased tools are unchanged.
+	Deprecated bool `json:"deprecated,omitempty"`
 }
 
 // ToolsListResult is the tools/list response.
