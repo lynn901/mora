@@ -121,3 +121,21 @@ func (r ContextResponse) IsEmptyNoResults() bool {
 func (r ContextResponse) IsProviderDown() bool {
 	return len(r.Candidates) == 0 && len(r.DegradedSources) > 0
 }
+
+// NewAuthorizedEmptyResponse constructs the "authorization filtered to empty"
+// state (§7.3 / §11.5): candidates existed (preCheckCount > 0) but the post-
+// check denied every one, leaving zero selected. This is the shape the Broker
+// produces at step 5 when authz filters the fetched pool to nothing — leak-safe
+// (surfaced to the caller as an empty result, never a 403).
+//
+// preCheckCandidateCount is unexported on ContextResponse, so callers outside
+// this package (notably the eval runner's fake broker, §9.1) cannot construct
+// the authorized-empty shape by struct literal. This constructor is the only
+// way to build it from outside; it keeps the field write inside the package
+// that owns the three-state invariant.
+func NewAuthorizedEmptyResponse(intent Intent, preCheckCount int) ContextResponse {
+	return ContextResponse{
+		Intent:                 intent,
+		preCheckCandidateCount: preCheckCount,
+	}
+}
