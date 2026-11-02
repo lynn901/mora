@@ -20,10 +20,15 @@ func NewListDocumentsTool(client moraclient.MoraClient) *ListDocumentsTool {
 }
 
 // Definition returns the tool schema.
+//
+// Deprecated (design-docs/19 §11.4): superseded by knowledge_search for
+// convergence retrieval. Retained as a compatibility alias with unchanged
+// permission semantics; tools/list marks it deprecated.
 func (t *ListDocumentsTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "list_documents",
-		Description: "列出工作区/目录下的文档（受权限过滤）。无权限工作区返回空列表。",
+		Description: "列出工作区/目录下的文档（受权限过滤）。无权限工作区返回空列表。（已废弃，收敛检索请改用 knowledge_search）",
+		Deprecated:  true,
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"workspace_id"},

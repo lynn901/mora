@@ -99,6 +99,16 @@ func main() {
 	srv.RegisterTool(tool.NewGetDocumentTool(moraClient))
 	srv.RegisterTool(tool.NewListDocumentsTool(moraClient))
 	srv.RegisterTool(tool.NewGetTagsTool(moraClient))
+	// Phase 6-5 knowledge convergence tools (design-docs/19 §11.4): the Broker
+	// surface — knowledge_search (typed search) + knowledge_context (full
+	// pipeline: route+budget+cite). They call /internal/v1/knowledge/{search,
+	// context} via moraclient; the Broker enforces the §3.2 two-pass authz +
+	// runs the ten-step pipeline server-side. The legacy search_knowledge_base
+	// / get_document / list_documents above are retained as deprecated aliases
+	// (tools/list marks them deprecated, §11.4); type-specific tools (code_*,
+	// skill_*) are NOT flattened (D12). RBAC + rate limit unchanged.
+	srv.RegisterTool(tool.NewKnowledgeSearchTool(moraClient))
+	srv.RegisterTool(tool.NewKnowledgeContextTool(moraClient))
 	srv.RegisterTool(tool.NewCreateDraftTool(moraClient))
 	srv.RegisterTool(tool.NewUpdateDocumentTool(moraClient))
 	// Wiki maintenance tools (design doc 16 §7.3): read-only status + the

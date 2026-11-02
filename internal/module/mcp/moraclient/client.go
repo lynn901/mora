@@ -440,6 +440,95 @@ type CodeEdges struct {
 	Items []CodeEdge `json:"items"`
 }
 
+// --- Knowledge context surface (design-docs/19 §11.2/§11.4, Phase 6-5) ---
+// These mirror the Context Broker internal handler's wire shapes
+// (POST /internal/v1/knowledge/{search,context}) so the MCP knowledge_search /
+// knowledge_context tools delegate to the Broker via moraclient without the
+// MCP module importing the knowledge/context package (D12 / 12 §3.2: "mcp 只
+// 依赖内部 API Client"). The Broker enforces the §3.2 two-pass authz server-
+// side; the MCP tool layer only forwards the caller identity + query.
+
+// KnowledgeContextRequest is the body for POST /internal/v1/knowledge/{search,
+// context}. It mirrors the handler's contextRequest (string-typed IDs, the HTTP
+// wire shape) — the Broker parses uuids. AssetTypes is a string list (the same
+// wire shape the REST handler accepts: document/codebase/memory/skill).
+type KnowledgeContextRequest struct {
+	Query          string         `json:"query"`
+	WorkspaceID    string         `json:"workspace_id,omitempty"`
+	AgentID        string         `json:"agent_id,omitempty"`
+	AssetTypes     []string       `json:"asset_types,omitempty"`
+	Filters        map[string]any `json:"filters,omitempty"`
+	MaxTokens      int            `json:"max_tokens,omitempty"`
+	MaxItems       int            `json:"max_items,omitempty"`
+	TimeoutMS      int            `json:"timeout_ms,omitempty"`
+	IncludeContent bool           `json:"include_content,omitempty"`
+}
+
+// KnowledgeCandidateResponse is one Broker candidate (§11.3 response item).
+type KnowledgeCandidateResponse struct {
+	AssetID      string         `json:"asset_id"`
+	AssetType    string         `json:"asset_type"`
+	Title        string         `json:"title"`
+	Snippet      string         `json:"snippet"`
+	Score        float64        `json:"score"`
+	Authority    float64        `json:"authority"`
+	Freshness    float64        `json:"freshness,omitempty"`
+	Confidence   *float64       `json:"confidence,omitempty"`
+	ConflictTags []string       `json:"conflict_tags,omitempty"`
+	Relations    []KnowledgeRelationResponse `json:"relations,omitempty"`
+	Citation     KnowledgeCitationResponse   `json:"citation"`
+}
+
+// KnowledgeRelationResponse is one conflict/relation edge surfaced by the
+// Broker (§7.2 — conflicts are retained, not merged).
+type KnowledgeRelationResponse struct {
+	RelationType string `json:"relation_type"`
+	TargetID     string `json:"target_id"`
+	TargetTitle  string `json:"target_title,omitempty"`
+}
+
+// KnowledgeCitationResponse is the per-candidate citation anchor (§8).
+type KnowledgeCitationResponse struct {
+	AssetID           string         `json:"asset_id"`
+	AssetType         string         `json:"asset_type"`
+	SourceRef         string         `json:"source_ref,omitempty"`
+	VersionOrRevision string         `json:"version_or_revision,omitempty"`
+	UpdatedAt         string         `json:"updated_at,omitempty"`
+	Authority         float64        `json:"authority"`
+	Confidence        *float64       `json:"confidence,omitempty"`
+	Locator           map[string]any `json:"locator,omitempty"`
+}
+
+// KnowledgeDegradedSource is one degraded-type entry (§9.6 / §15).
+type KnowledgeDegradedSource struct {
+	AssetType string `json:"asset_type"`
+	Reason    string `json:"reason"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+// KnowledgeTruncation is the budget-truncation report (§6.2 / D6 — never a
+// silent truncation: carries the reason + continue tools).
+type KnowledgeTruncation struct {
+	Reason            string   `json:"reason,omitempty"`
+	TruncatedAssetIDs []string `json:"truncated_asset_ids,omitempty"`
+	ContinueTools     []string `json:"continue_tools,omitempty"`
+}
+
+// KnowledgeContextResponse is the §11.3 success body returned by the Broker.
+// The three-state distinction (§7.3) is implicit in the fields: a provider
+// fault surfaces as a typed error from the method (the handler maps it to 503,
+// §11.5); authorized-empty + no-results both return a 200 with an empty
+// candidate list (existence never leaks, §8.2).
+type KnowledgeContextResponse struct {
+	Intent          string                      `json:"intent"`
+	PolicyVersion   int                         `json:"policy_version"`
+	AuthzRevision   int64                       `json:"authz_revision"`
+	DecisionID      string                      `json:"decision_id,omitempty"`
+	Candidates      []KnowledgeCandidateResponse `json:"candidates"`
+	DegradedSources []KnowledgeDegradedSource    `json:"degraded_sources,omitempty"`
+	Truncation      KnowledgeTruncation          `json:"truncation,omitempty"`
+}
+
 // MoraClient is the upstream Mora + RAG capability surface used by MCP tools
 // and resources. All methods receive the caller AuthContext so RBAC is applied
 // server-side by the real Mora/RAG services.
@@ -540,6 +629,29 @@ type MoraClient interface {
 	CodeCallees(ctx context.Context, auth *AuthContext, codebaseID string, req CodeSymbolQuery) (*CodeEdges, error)
 	// CodeImpact computes the change-impact set (code_impact). symbol required.
 	CodeImpact(ctx context.Context, auth *AuthContext, codebaseID string, req CodeImpactQuery) (*CodeHits, error)
+
+	// --- Knowledge context surface (design-docs/19 §11.4, Phase 6-5) ---
+	// Both knowledge_* methods call the Context Broker internal API
+	// (POST /internal/v1/knowledge/{search,context}). The Broker runs the
+	// ten-step pipeline + the §3.2 two-pass authz server-side; the MCP tool
+	// layer only forwards the caller identity (the delegated agent context,
+	// §11.2 — the internal service token alone never authorizes). RBAC +
+	// rate-limit semantics are unchanged from the legacy tools (§11.4).
+	// Existence never leaks (§8.2): an authorized-empty or no-results outcome
+	// returns a 200 with an empty candidate list; a provider fault surfaces as
+	// a typed error (the tool layer maps it to an empty result + diagnostic,
+	// §11.5), never a 403/404 distinction.
+
+	// KnowledgeSearch runs the typed-search path (no context assembly) against
+	// the Broker (knowledge_search). Returns the same candidate list shape as
+	// KnowledgeContext; callers wanting the full context envelope use
+	// KnowledgeContext. A provider fault → typed error; authorized-empty /
+	// no-results → empty 200 (no leak — §8.2).
+	KnowledgeSearch(ctx context.Context, auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResponse, error)
+	// KnowledgeContext runs the full Context Broker pipeline (route + budget +
+	// citation) against the Broker (knowledge_context). Returns the §11.3
+	// context envelope. Same leak/fault semantics as KnowledgeSearch.
+	KnowledgeContext(ctx context.Context, auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResponse, error)
 }
 
 // ErrNotExist is returned by read methods when the resource is absent or the

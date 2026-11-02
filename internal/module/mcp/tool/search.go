@@ -20,10 +20,16 @@ func NewSearchTool(client moraclient.MoraClient) *SearchTool {
 }
 
 // Definition returns the tool schema.
+//
+// Deprecated (design-docs/19 §11.4): superseded by knowledge_search, which
+// runs the Context Broker convergence retrieval. Retained as a compatibility
+// alias with unchanged permission semantics; tools/list marks it deprecated so
+// an Agent prefers knowledge_search.
 func (t *SearchTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "search_knowledge_base",
-		Description: "在 Mora 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。",
+		Description: "在 Mora 知识库中进行语义混合检索（稠密向量+BM25+重排），结果严格遵循调用方权限。（已废弃，请改用 knowledge_search）",
+		Deprecated:  true,
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"query"},

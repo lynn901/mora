@@ -56,6 +56,16 @@ type Mock struct {
 	// land a candidate in-memory (never published).
 	skills    map[string]*mockSkill
 	proposals map[string]*SkillProposeResult
+
+	// knowledge store for the knowledge_search / knowledge_context tools
+	// (design-docs/19 §11.4, Phase 6-5). The mock models only what the MCP
+	// tools need to prove wiring + the RBAC gate: a workspace → canned Broker
+	// response. The §3.2 two-pass authz is approximated by the workspace read
+	// ACL (canRead) — an unauthorized caller gets an empty result, never an
+	// error, so existence never leaks (§8.2). A seeded provider-fault marker
+	// surfaces as a typed error so the tool layer's §11.5 diagnostic path is
+	// exercisable.
+	knowledge map[string]*MockKnowledgeResult
 }
 
 // mockSkill is the in-memory model the skill_* tools query. It binds a skill
@@ -114,6 +124,7 @@ func NewMock() *Mock {
 		codebases:   make(map[string]*mockCodebase),
 		skills:      make(map[string]*mockSkill),
 		proposals:   make(map[string]*SkillProposeResult),
+		knowledge:   make(map[string]*MockKnowledgeResult),
 	}
 }
 
@@ -779,6 +790,86 @@ func (m *Mock) SkillPropose(_ context.Context, auth *AuthContext, req SkillPropo
 	}
 	m.proposals[assetID] = res
 	return res, nil
+}
+
+// --- Knowledge context mock surface (design-docs/19 §11.4, Phase 6-5) ---
+
+// MockKnowledgeResult is the in-memory model the knowledge_search /
+// knowledge_context tools query. It binds a workspace id to a canned Broker
+// response (the §11.3 context envelope) so the MCP tools are exercisable in
+// mock mode. The workspace read ACL approximates the §3.2 two-pass authz — an
+// unauthorized caller gets an empty result, never an error (§8.2 no-leak).
+// ProviderFault=true surfaces a typed ServiceUnavailable error so the tool
+// layer's §11.5 diagnostic path is exercisable.
+type MockKnowledgeResult struct {
+	WorkspaceID    string
+	Response       KnowledgeContextResponse
+	ProviderFault  bool
+}
+
+// AddKnowledgeResult seeds a Broker response for a workspace (knowledge_search
+// / knowledge_context tools). The workspace id is the lookup key; the response
+// is returned verbatim to an authorized caller. Candidates defaults to an
+// empty non-nil slice so the empty-success envelope is consistent.
+func (m *Mock) AddKnowledgeResult(r MockKnowledgeResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r.Response.Candidates == nil {
+		r.Response.Candidates = []KnowledgeCandidateResponse{}
+	}
+	m.knowledge[r.WorkspaceID] = &r
+}
+
+// resolveKnowledge is the single RBAC chokepoint for the knowledge_* tools. A
+// missing workspace OR a caller without read access → (nil, false), which the
+// callers translate to an empty result (§8.2 no-leak — the Agent cannot tell
+// not-found from not-allowed). Caller must hold the read lock.
+func (m *Mock) resolveKnowledge(auth *AuthContext, workspaceID string) (*MockKnowledgeResult, bool) {
+	kr, ok := m.knowledge[workspaceID]
+	if !ok || !m.canRead(auth, workspaceID) {
+		return nil, false
+	}
+	return kr, true
+}
+
+// KnowledgeSearch (knowledge_search). Read-gated; missing/no-perm → an EMPTY
+// success result (no leak — §8.2). A seeded provider fault → typed
+// ServiceUnavailable error so the tool layer maps it to empty + diagnostic
+// (§11.5). The mock returns the same canned response for search + context
+// (the Broker's distinction is the route + intent, not a different shape).
+func (m *Mock) KnowledgeSearch(_ context.Context, auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResponse, error) {
+	return m.knowledgeExecute(auth, req)
+}
+
+// KnowledgeContext (knowledge_context). Same RBAC + fault semantics as
+// KnowledgeSearch; the Broker runs the full pipeline (route + budget + cite)
+// but the mock's canned response already carries the assembled envelope.
+func (m *Mock) KnowledgeContext(_ context.Context, auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResponse, error) {
+	return m.knowledgeExecute(auth, req)
+}
+
+// knowledgeExecute is the shared search/context path: RBAC gate → fault check
+// → canned response. The workspace id comes from the request body (the
+// internal route has no :workspace_id path param).
+func (m *Mock) knowledgeExecute(auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResponse, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	kr, ok := m.resolveKnowledge(auth, req.WorkspaceID)
+	if !ok {
+		// Authorized-empty: a 200 with an empty candidate list (§8.2 — the
+		// caller cannot infer whether the workspace has knowledge).
+		return &KnowledgeContextResponse{Candidates: []KnowledgeCandidateResponse{}}, nil
+	}
+	if kr.ProviderFault {
+		// Provider fault: a typed error so the tool layer maps it to empty +
+		// diagnostic (§11.5), never a faked result.
+		return nil, domainerr.ServiceUnavailable("knowledge provider unavailable")
+	}
+	resp := kr.Response
+	if resp.Candidates == nil {
+		resp.Candidates = []KnowledgeCandidateResponse{}
+	}
+	return &resp, nil
 }
 
 // CodeStatus (code_status). Read-gated; missing/no-perm → ErrNotExist.

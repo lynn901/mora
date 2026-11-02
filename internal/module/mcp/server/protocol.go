@@ -94,10 +94,16 @@ type ServerInfo struct {
 // --- tools/list & tools/call types (design doc 06 §5) ---
 
 // ToolDef is one tool as advertised in tools/list.
+//
+// Deprecated marks a tool as superseded but retained for compatibility (MCP
+// evolution, design-docs/19 §11.4). The field is emitted in tools/list so an
+// Agent can prefer the replacement; deprecated tools keep working with
+// unchanged permission semantics. Omitempty keeps it off non-deprecated tools.
 type ToolDef struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	Deprecated  bool           `json:"deprecated,omitempty"`
 }
 
 // ToolsListResult is the tools/list response.

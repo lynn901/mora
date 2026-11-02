@@ -19,10 +19,16 @@ func NewGetDocumentTool(client moraclient.MoraClient) *GetDocumentTool {
 }
 
 // Definition returns the tool schema.
+//
+// Deprecated (design-docs/19 §11.4): the convergence-retrieval path is
+// knowledge_search / knowledge_context; this single-document read remains a
+// valid type-specific surface but is marked deprecated in tools/list for the
+// legacy alias name. Retained with unchanged permission semantics.
 func (t *GetDocumentTool) Definition() server.ToolDef {
 	return server.ToolDef{
 		Name:        "get_document",
-		Description: "读取文档正文（Block JSON 或 Markdown）。无权限时返回空结果而非错误，防止存在性泄露。",
+		Description: "读取文档正文（Block JSON 或 Markdown）。无权限时返回空结果而非错误，防止存在性泄露。（已废弃，收敛检索请改用 knowledge_search）",
+		Deprecated:  true,
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"document_id"},

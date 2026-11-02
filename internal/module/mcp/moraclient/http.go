@@ -91,7 +91,10 @@ func (c *HTTPClient) identityHeaders(auth *AuthContext, h http.Header) {
 }
 
 // mapStatus translates Mora API HTTP status into a domain error for the
-// existence-leak / forbidden semantics (design doc 06 §6.4).
+// existence-leak / forbidden semantics (design doc 06 §6.4). A 503 maps to a
+// typed ServiceUnavailable error so the knowledge_* tools can distinguish a
+// Broker provider fault (§11.5) from a genuine empty result and surface it as
+// empty + diagnostic, never a faked result.
 func mapStatus(status int) error {
 	switch status {
 	case http.StatusOK, http.StatusCreated:
@@ -102,6 +105,8 @@ func mapStatus(status int) error {
 		return ErrNotExist()
 	case http.StatusUnauthorized:
 		return domainerr.ErrUnauthorized
+	case http.StatusServiceUnavailable:
+		return domainerr.ServiceUnavailable("upstream unavailable")
 	default:
 		return fmt.Errorf("upstream status %d", status)
 	}
@@ -662,6 +667,59 @@ func (c *HTTPClient) SkillPropose(ctx context.Context, auth *AuthContext, req Sk
 		return nil, err
 	}
 	return &res, nil
+}
+
+// --- Knowledge context surface (design-docs/19 §11.2/§11.4, Phase 6-5) ---
+// Both methods POST /internal/v1/knowledge/{search,context} on mora-api. The
+// Broker runs the ten-step pipeline + the §3.2 two-pass authz server-side; the
+// HTTP client only forwards the caller identity (INTERNAL_SERVICE_TOKEN for
+// service identity + identity headers carrying the delegated agent context,
+// §11.2). The handler derives the principal from the resolved AuthState, never
+// a client header.
+//
+// Leak-safe (§8.2 / §11.5): the Broker's three-state response maps
+// authorized-empty + no-results to a 200 empty candidate list; only
+// IsProviderDown surfaces a non-2xx (503). mapStatus maps 503 to a typed
+// *Error(CodeServiceUnavailable) so the tool layer can distinguish a provider
+// fault from a genuine empty result (§7.3) and surface it as empty + a
+// diagnostic note, never a faked result. 403/404 are not expected from the
+// Broker (it never distinguishes denied from not-found) but are mapped to
+// ErrNotExist defensively so existence never leaks.
+
+// KnowledgeSearch calls POST /internal/v1/knowledge/search (knowledge_search).
+func (c *HTTPClient) KnowledgeSearch(ctx context.Context, auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResponse, error) {
+	var resp KnowledgeContextResponse
+	if err := c.post(ctx, auth, "/internal/v1/knowledge/search", req, &resp); err != nil {
+		return knowledgeSearchMapErr(err)
+	}
+	return &resp, nil
+}
+
+// KnowledgeContext calls POST /internal/v1/knowledge/context (knowledge_context).
+func (c *HTTPClient) KnowledgeContext(ctx context.Context, auth *AuthContext, req KnowledgeContextRequest) (*KnowledgeContextResponse, error) {
+	var resp KnowledgeContextResponse
+	if err := c.post(ctx, auth, "/internal/v1/knowledge/context", req, &resp); err != nil {
+		return knowledgeSearchMapErr(err)
+	}
+	return &resp, nil
+}
+
+// knowledgeSearchMapErr translates upstream faults into the Broker's leak-safe
+// semantics. A 503 (provider fault) surfaces as a typed *Error so the tool
+// layer can emit an empty result + diagnostic (§11.5); 403/404 (not expected
+// from the Broker, but defensively handled) map to ErrNotExist so existence
+// never leaks.
+func knowledgeSearchMapErr(err error) (*KnowledgeContextResponse, error) {
+	if isNotExist(err) {
+		// Authorized-empty / not-found: empty 200, no leak (§8.2).
+		return &KnowledgeContextResponse{Candidates: []KnowledgeCandidateResponse{}}, nil
+	}
+	if pe := domainerr.As(err); pe != nil && pe.Status == http.StatusServiceUnavailable {
+		// Provider fault: propagate as a typed error so the tool layer maps it
+		// to empty + diagnostic (§11.5), not a faked result.
+		return nil, err
+	}
+	return nil, err
 }
 
 func max1(n int) int {

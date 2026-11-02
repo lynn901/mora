@@ -162,6 +162,10 @@ func TestToolWriteFlags(t *testing.T) {
 	assert.False(t, NewSkillReadTool(m).IsWrite())
 	assert.False(t, NewSkillResourcesTool(m).IsWrite())
 	assert.True(t, NewSkillProposeTool(m).IsWrite())
+	// Phase 6-5 knowledge convergence tools (design-docs/19 §11.4): both
+	// read-only — they run the Broker convergence retrieval, RBAC unchanged.
+	assert.False(t, NewKnowledgeSearchTool(m).IsWrite())
+	assert.False(t, NewKnowledgeContextTool(m).IsWrite())
 }
 
 // Tool definitions carry the expected names + input schemas.
@@ -180,6 +184,8 @@ func TestToolDefinitions(t *testing.T) {
 		"skill_read":            false,
 		"skill_resources":       false,
 		"skill_propose":         false,
+		"knowledge_search":      false,
+		"knowledge_context":     false,
 	}
 	// Each tool's Definition() returns a server.ToolDef whose .Name we check.
 	check := func(name string, got string) {
@@ -200,6 +206,8 @@ func TestToolDefinitions(t *testing.T) {
 	check("skill_read", NewSkillReadTool(m).Definition().Name)
 	check("skill_resources", NewSkillResourcesTool(m).Definition().Name)
 	check("skill_propose", NewSkillProposeTool(m).Definition().Name)
+	check("knowledge_search", NewKnowledgeSearchTool(m).Definition().Name)
+	check("knowledge_context", NewKnowledgeContextTool(m).Definition().Name)
 	for name, seen := range expected {
 		assert.True(t, seen, "tool %s not registered", name)
 	}
