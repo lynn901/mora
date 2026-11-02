@@ -103,17 +103,17 @@ type PolicyLoader func(ctx context.Context, workspaceID uuid.UUID, intent Intent
 // AuditSink; it carries IDs + counts + the redacted degraded/truncation
 // summary, NEVER the candidate bodies (§13.4 "不记录完整正文").
 type AuditSummary struct {
-	WorkspaceID    uuid.UUID
-	Intent         Intent
-	PolicyVersion  int
-	AuthzRevision  int64
-	DecisionID     *uuid.UUID
-	AssetTypes     []domain.AssetType
-	CandidateCount int // post-dedup, pre-budget (the pool that scored)
-	SelectedCount  int
-	TruncatedCount int
+	WorkspaceID     uuid.UUID
+	Intent          Intent
+	PolicyVersion   int
+	AuthzRevision   int64
+	DecisionID      *uuid.UUID
+	AssetTypes      []domain.AssetType
+	CandidateCount  int // post-dedup, pre-budget (the pool that scored)
+	SelectedCount   int
+	TruncatedCount  int
 	DegradedSources []DegradedSource
-	DurationMS     int64
+	DurationMS      int64
 }
 
 // AuditSink records the step-10 audit summary (§9.3). Best-effort: a sink
@@ -126,13 +126,14 @@ type AuditSink func(ctx context.Context, summary AuditSummary)
 // the authz service, the policy loader, and the audit sink.
 type Broker struct {
 	router   IntentRouter
-	ports    portSet        // the four typed query ports (nil = not wired)
-	authz    AuthzService   // pre-fetch + post-check gate (§3.2)
-	policies PolicyLoader   // step 7 policy load
+	ports    portSet      // the four typed query ports (nil = not wired)
+	authz    AuthzService // pre-fetch + post-check gate (§3.2)
+	policies PolicyLoader // step 7 policy load
 	budgeter Budgeter
 	cite     CitationBuilder
 	audit    AuditSink
 	defaults BudgetDefaults // workspace-default budget when the query omits it
+	metrics  *Metrics       // §9.2 Prometheus instrumentation (nil = no-op, the test path)
 }
 
 // portSet holds the four typed query ports. A nil port is not wired (the
@@ -166,9 +167,9 @@ type BudgetDefaults struct {
 // the slice of the 20-item total weighted by the type's typical density. The
 // Broker applies these when the query carries no explicit budget.
 var DefaultBudgetDefaults = BudgetDefaults{
-	MaxTokens: 4000,
-	MaxItems:  20,
-	Timeout:   2 * time.Second,
+	MaxTokens:          4000,
+	MaxItems:           20,
+	Timeout:            2 * time.Second,
 	PerAssetTokenShare: 0.30,
 	TypeQuota: map[domain.AssetType]Quota{
 		domain.AssetTypeDocument: {MaxItems: 8, TokenShare: 0.45},
@@ -200,6 +201,19 @@ func WithAuditSink(s AuditSink) BrokerOption { return func(b *Broker) { b.audit 
 // layer passes the PM-governed workspace config when present; otherwise the
 // DefaultBudgetDefaults baseline applies.
 func WithBudgetDefaults(d BudgetDefaults) BrokerOption { return func(b *Broker) { b.defaults = d } }
+
+// WithMetrics wires the §9.2 Prometheus instrumentation (§9.2). Pass
+// DefaultMetrics() in production; pass NilMetrics (or omit) in unit tests so
+// the broker test does not depend on the global Prometheus registry. A nil
+// metrics set is treated as no-op at every call site.
+func WithMetrics(m *Metrics) BrokerOption {
+	return func(b *Broker) {
+		if m == nil {
+			m = NilMetrics
+		}
+		b.metrics = m
+	}
+}
 
 // NewBroker builds a ContextBroker over the always-required MemoryQuery port +
 // the core components (router/authz/policy/budgeter/citation). The other typed
@@ -234,6 +248,7 @@ func NewBroker(
 		budgeter: budgeter,
 		cite:     cite,
 		defaults: defaults,
+		metrics:  NilMetrics, // default no-op; production wiring passes WithMetrics(DefaultMetrics())
 	}
 	for _, o := range opts {
 		o(b)
@@ -250,6 +265,10 @@ func NewBroker(
 // empty result (IsEmptyAuthorized), never a 403 distinction.
 func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Principal) (ContextResponse, error) {
 	start := time.Now()
+	m := b.metrics // nil-safe: NewBroker installs NilMetrics, but defend in depth.
+	if m == nil {
+		m = NilMetrics
+	}
 	if q.WorkspaceID == uuid.Nil {
 		return ContextResponse{}, ErrBrokerNoWorkspace
 	}
@@ -259,16 +278,19 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 
 	// step 3 (resolved early so the AuthzRequest can scope): route the intent
 	// + asset types. Routing does NOT decide authorization (§4.2).
+	intentStart := time.Now()
 	intent, assetTypes, err := b.router.Route(ctx, q)
 	if err != nil {
 		return ContextResponse{}, err
 	}
+	m.ObserveStage(stageIntent, time.Since(intentStart))
 
 	// steps 1-2: resolve principal + authz.Authorize → AuthzContext. The
 	// Broker authorizes at workspace scope (ActionUse on the workspace) so
 	// AllowedAssetIDs is the workspace-level visible set pushed down as the
 	// hard pre-filter (§3.2). A denial here is a caller error (leak-safe:
 	// surfaced downstream as empty-authorized, not a 403).
+	authzStart := time.Now()
 	ac, err := b.authorizeWorkspace(ctx, q.WorkspaceID, principal)
 	if err != nil {
 		return ContextResponse{}, err
@@ -278,13 +300,22 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 	// deadline = min(q.Timeout, default.Timeout, 2s) (§7.1). Each port fails
 	// independently; failures land in degradedSources.
 	timeout := b.sharedDeadline(q.Timeout)
+	parallelStart := time.Now()
 	candidates, degraded := b.fanOut(ctx, ac, q, assetTypes, timeout)
+	m.ObserveStage(stageParallel, time.Since(parallelStart))
 
 	// step 5: merge candidate IDs → authz batch post-check (VisibleAssets) →
 	// allowed subset only (§3.2 two-pass). Candidates NOT in the allowed
 	// subset are dropped (no leak — they never reach the response).
 	allowed, preCheckCount := b.postCheck(ctx, q.WorkspaceID, principal, candidates)
 	allowedCands := filterByAllowed(candidates, allowed)
+	// §9.2 candidates_total{disposition=denied}: each candidate that existed
+	// pre-check but was denied by the post-check is counted by its type. The
+	// action label is "use" (the per-asset use decision, §7.1 step 5).
+	if deniedCount := preCheckCount - len(allowedCands); deniedCount > 0 {
+		b.countDeniedByType(m, candidates, allowed, intent)
+	}
+	m.ObserveStage(stageAuthz, time.Since(authzStart))
 
 	// step 7 load: the current policy for the intent (built-in default when
 	// the repo has no row, §5.3). policy_version → audit (step 10).
@@ -292,11 +323,14 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 	if err != nil {
 		return ContextResponse{}, err
 	}
+	m.SetPolicyVersion(q.WorkspaceID.String(), intent, policyVersion)
 
 	// step 6: DedupAndKeepConflicts (§7.2). Runs BEFORE Score (the policy
 	// scores the deduped pool, §7.2). exclude_when drops deprecated/
 	// version_mismatch; conflict pairs are kept side-by-side.
+	dedupStart := time.Now()
 	deduped := DedupAndKeepConflicts(allowedCands, policy)
+	m.ObserveStage(stageDedup, time.Since(dedupStart))
 
 	// step 7: AuthorityPolicy.Score (§5.2). Blends authority/freshness/
 	// confidence with the policy weights; stable-sorted by blended score desc.
@@ -305,23 +339,31 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 	// step 8: Budgeter.Select (§6.2). Trims to the budget; returns the
 	// truncation report (reason + truncated asset_ids + continue tools).
 	budget := b.budgetFor(q, assetTypes)
+	budgetStart := time.Now()
 	selected, truncation := b.budgeter.Select(scored, budget)
+	m.ObserveStage(stageBudget, time.Since(budgetStart))
 
 	// step 9: CitationBuilder.Build (§8). Completes the citation AFTER the
 	// final authorization pass (§8.2 — the selected slice is post-check by
 	// construction).
+	citationStart := time.Now()
 	cited := b.cite.Build(ctx, selected)
+	m.ObserveStage(stageCitation, time.Since(citationStart))
 
 	resp := ContextResponse{
-		Candidates:            cited,
-		DegradedSources:       degraded,
-		Truncation:            truncation,
-		Intent:                intent,
-		PolicyVersion:         policyVersion,
-		AuthzRevision:         ac.AuthzRevision,
-		DecisionID:            ac.DecisionID,
+		Candidates:             cited,
+		DegradedSources:        degraded,
+		Truncation:             truncation,
+		Intent:                 intent,
+		PolicyVersion:          policyVersion,
+		AuthzRevision:          ac.AuthzRevision,
+		DecisionID:             ac.DecisionID,
 		preCheckCandidateCount: preCheckCount,
 	}
+
+	// §9.2 instrumentation of the response: tokens by type, candidate
+	// dispositions, degraded reasons, and the three empty-state counter.
+	b.recordResponseMetrics(m, resp, intent)
 
 	// step 10: audit summary (§9.3). Best-effort; never blocks the response.
 	if b.audit != nil {
@@ -339,6 +381,7 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 			DurationMS:      time.Since(start).Milliseconds(),
 		})
 	}
+	m.ObserveStage(stageTotal, time.Since(start))
 	return resp, nil
 }
 
@@ -427,8 +470,8 @@ func (b *Broker) fanOut(ctx context.Context, ac AuthzContext, q KnowledgeQuery, 
 	// Build the per-type port call list. Order is not significant (concurrent);
 	// a map keyed by type keeps the result attribution straight.
 	calls := make([]struct {
-		t      domain.AssetType
-		run    func() ([]KnowledgeCandidate, *DegradedSource)
+		t   domain.AssetType
+		run func() ([]KnowledgeCandidate, *DegradedSource)
 	}, 0, len(types))
 	for _, t := range types {
 		switch t {
@@ -597,6 +640,99 @@ func filterByAllowed(cands []KnowledgeCandidate, allowed map[uuid.UUID]bool) []K
 		}
 	}
 	return out
+}
+
+// countDeniedByType increments the §9.2 candidates_total{disposition=denied}
+// and authz_denied_total counters for each candidate the post-check denied,
+// grouped by asset type (the metrics are labeled by type so a spike on one
+// type is distinguishable). A candidate counted here never reaches the
+// response (leak-safe — the counter records the denial, not the asset id,
+// §13.4). The action label is "use" (the per-asset use decision, §7.1 step 5).
+func (b *Broker) countDeniedByType(m *Metrics, cands []KnowledgeCandidate, allowed map[uuid.UUID]bool, intent Intent) {
+	counted := make(map[domain.AssetType]int, 4)
+	for _, c := range cands {
+		if allowed[c.AssetID] {
+			continue
+		}
+		counted[c.AssetType]++
+	}
+	for t, n := range counted {
+		for i := 0; i < n; i++ {
+			m.IncCandidate(intent, t, dispositionDenied)
+		}
+		m.IncAuthzDenied(string(domain.ActionUse), t)
+	}
+}
+
+// recordResponseMetrics emits the §9.2 response-level metrics after the
+// pipeline completes: token spend by type (selected slice), candidate
+// dispositions (selected vs truncated), degraded-source reasons, and the
+// three-state empty counter. Called once per Execute; best-effort (the metrics
+// seam is nil-safe via the Broker's installed Metrics).
+func (b *Broker) recordResponseMetrics(m *Metrics, resp ContextResponse, intent Intent) {
+	// tokens by type: the selected slice's estimated token spend (§9.2). Uses
+	// the same estimateTokens the Budgeter uses so the metric reflects the
+	// budgeted spend, not the raw snippet length.
+	typeSpend := make(map[domain.AssetType]int, 4)
+	for _, c := range resp.Candidates {
+		typeSpend[c.AssetType] += estimateTokens(c.Snippet)
+	}
+	for t, tokens := range typeSpend {
+		m.ObserveTokens(t, tokens)
+	}
+
+	// candidates_total{disposition=selected}: one per surviving candidate.
+	for _, c := range resp.Candidates {
+		m.IncCandidate(intent, c.AssetType, dispositionSelected)
+	}
+	// candidates_total{disposition=truncated}: the truncated asset ids (the
+	// Budgeter cut them after scoring in). The type is not on the truncation
+	// report (it carries only asset_ids), so attribute to the intent's primary
+	// type when known; otherwise count under a neutral "unknown" bucket by
+	// omitting the type label. The truncation report carries asset_ids as
+	// strings, so we re-derive the type from the scored pool is not possible
+	// here without the scored slice — record by count against the primary type.
+	if n := len(resp.Truncation.TruncatedAssetIDs); n > 0 {
+		primary := primaryTypeForIntent(intent)
+		for i := 0; i < n; i++ {
+			m.IncCandidate(intent, primary, dispositionTruncated)
+		}
+	}
+
+	// degraded_total{reason}: one per degraded source (§7.3 / §9.2).
+	for _, d := range resp.DegradedSources {
+		m.IncDegraded(d.Reason)
+	}
+
+	// empty_total{state}: exactly one of the three states per response (§7.3).
+	// IsProviderDown takes precedence (a fault is never "no knowledge").
+	switch {
+	case resp.IsProviderDown():
+		m.IncEmpty(emptyProviderDown)
+	case resp.IsEmptyAuthorized():
+		m.IncEmpty(emptyAuthorized)
+	case resp.IsEmptyNoResults():
+		m.IncEmpty(emptyNoResults)
+	}
+}
+
+// primaryTypeForIntent returns the §5.1 primary-basis type for an intent, used
+// to attribute truncated candidates (whose type the TruncationReport does not
+// carry) to a type bucket for the candidates_total{disposition=truncated}
+// metric. This is an attribution heuristic for the metric label only — the
+// truncation report itself carries the asset_ids for the Agent's continue-read.
+func primaryTypeForIntent(intent Intent) domain.AssetType {
+	switch intent {
+	case IntentSpec:
+		return domain.AssetTypeDocument
+	case IntentRevision:
+		return domain.AssetTypeCodebase
+	case IntentRationale:
+		return domain.AssetTypeDocument
+	case IntentProcedure:
+		return domain.AssetTypeSkill
+	}
+	return domain.AssetTypeDocument
 }
 
 // loadPolicy is §7.1 step 7 load: the current policy for the intent. Delegates

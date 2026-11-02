@@ -264,9 +264,9 @@ func (s *ContextBrokerSuite) TestBroker_TenStepEndToEnd() {
 	}, &audit)
 
 	resp, err := broker.Execute(ctx, ctxmod.KnowledgeQuery{
-		Query:      "规范",
+		Query:       "规范",
 		WorkspaceID: wsID,
-		AssetTypes: []domain.AssetType{domain.AssetTypeMemory},
+		AssetTypes:  []domain.AssetType{domain.AssetTypeMemory},
 	}, ctxmod.Principal{SubjectType: domain.SubjectUser, PrincipalID: owner})
 	require.NoError(s.T(), err)
 
@@ -280,9 +280,11 @@ func (s *ContextBrokerSuite) TestBroker_TenStepEndToEnd() {
 	assert.Equal(s.T(), int64(7), resp.AuthzRevision, "authz_revision should come from workspace_authz_revisions")
 
 	// Step 10 audit summary carries policy_version + authz_revision + the
-	// selected count (§9.3).
-	assert.Equal(s.T(), 1, resp.PolicyVersion, audit.PolicyVersion)
-	assert.Equal(s.T(), int64(7), audit.AuthzRevision)
+	// selected count (§9.3). The policy_version + authz_revision on the
+	// response are asserted above; these pin the same values on the audit
+	// summary so a regression that drops them from the step-10 record is caught.
+	assert.Equal(s.T(), 1, audit.PolicyVersion, "audit summary should carry the seeded policy_version")
+	assert.Equal(s.T(), int64(7), audit.AuthzRevision, "audit summary should carry the workspace authz_revision")
 	assert.Equal(s.T(), 1, audit.SelectedCount)
 	assert.Equal(s.T(), ctxmod.IntentSpec, audit.Intent)
 }
@@ -316,9 +318,9 @@ func (s *ContextBrokerSuite) TestBroker_Leak_NoWorkspaceMembership() {
 	}, &audit)
 
 	resp, err := broker.Execute(ctx, ctxmod.KnowledgeQuery{
-		Query:      "规范",
+		Query:       "规范",
 		WorkspaceID: wsID,
-		AssetTypes: []domain.AssetType{domain.AssetTypeMemory},
+		AssetTypes:  []domain.AssetType{domain.AssetTypeMemory},
 	}, ctxmod.Principal{SubjectType: domain.SubjectUser, PrincipalID: bob})
 
 	// No error — a membership denial is the empty-authorized state, not a fault.
@@ -365,9 +367,9 @@ func (s *ContextBrokerSuite) TestBroker_Leak_CrossWorkspace() {
 
 	// ownerB queries wsA (the workspace they are NOT a member of).
 	resp, err := broker.Execute(ctx, ctxmod.KnowledgeQuery{
-		Query:      "规范",
+		Query:       "规范",
 		WorkspaceID: wsA,
-		AssetTypes: []domain.AssetType{domain.AssetTypeMemory},
+		AssetTypes:  []domain.AssetType{domain.AssetTypeMemory},
 	}, ctxmod.Principal{SubjectType: domain.SubjectUser, PrincipalID: ownerB})
 
 	require.NoError(s.T(), err)
@@ -407,9 +409,9 @@ func (s *ContextBrokerSuite) TestBroker_PostCheck_PerAssetPrecision() {
 	}, nil)
 
 	resp, err := broker.Execute(ctx, ctxmod.KnowledgeQuery{
-		Query:      "规范",
+		Query:       "规范",
 		WorkspaceID: wsID,
-		AssetTypes: []domain.AssetType{domain.AssetTypeMemory},
+		AssetTypes:  []domain.AssetType{domain.AssetTypeMemory},
 	}, ctxmod.Principal{SubjectType: domain.SubjectUser, PrincipalID: owner})
 
 	require.NoError(s.T(), err)
