@@ -123,7 +123,9 @@ type AuditSink func(ctx context.Context, summary AuditSummary)
 
 // Broker is the ContextBroker (§7.1). Execute runs the ten-step pipeline.
 // Construct with NewBroker; the wiring layer (cmd/mora-api) injects the ports,
-// the authz service, the policy loader, and the audit sink.
+// the authz service, the policy loader, the audit sink, and the metrics
+// emitter. The metrics emitter (§9.2) is observation-only: it does NOT alter
+// the pipeline's control flow, order, or return values.
 type Broker struct {
 	router   IntentRouter
 	ports    portSet        // the four typed query ports (nil = not wired)
@@ -132,6 +134,7 @@ type Broker struct {
 	budgeter Budgeter
 	cite     CitationBuilder
 	audit    AuditSink
+	metricsEmitter MetricsEmitter // §9.2 online quality metrics (nil → no-op, test path)
 	defaults BudgetDefaults // workspace-default budget when the query omits it
 }
 
@@ -196,6 +199,12 @@ func WithSkillPort(p SkillQuery) BrokerOption { return func(b *Broker) { b.ports
 // WithAuditSink wires the step-10 audit sink (§9.3). Nil → no audit.
 func WithAuditSink(s AuditSink) BrokerOption { return func(b *Broker) { b.audit = s } }
 
+// WithMetrics wires the §9.2 online quality metrics emitter. Nil is treated
+// as a no-op (the test path runs metric-free). The emitter observes durations
+// + counts at the §7.1 phase boundaries; it does NOT alter pipeline control
+// flow. The wiring layer (cmd/mora-api) installs NewPromMetricsEmitter().
+func WithMetrics(m MetricsEmitter) BrokerOption { return func(b *Broker) { b.metricsEmitter = m } }
+
 // WithBudgetDefaults overrides the workspace-default budget (§6.3). The wiring
 // layer passes the PM-governed workspace config when present; otherwise the
 // DefaultBudgetDefaults baseline applies.
@@ -241,6 +250,17 @@ func NewBroker(
 	return b
 }
 
+// metrics returns the wired §9.2 emitter, or a no-op when none is wired. The
+// Broker calls this at every emission site so a nil emitter (the unit-test
+// path, which constructs without WithMetrics) is metric-free without per-site
+// nil checks.
+func (b *Broker) metrics() MetricsEmitter {
+	if b.metricsEmitter == nil {
+		return noopMetricsEmitter{}
+	}
+	return b.metricsEmitter
+}
+
 // Execute runs the §7.1 ten-step pipeline and returns the ContextResponse
 // (§7.3). It never returns an error for a port failure — that is a
 // DegradedSource on the response. It returns an error only when the pipeline
@@ -250,6 +270,7 @@ func NewBroker(
 // empty result (IsEmptyAuthorized), never a 403 distinction.
 func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Principal) (ContextResponse, error) {
 	start := time.Now()
+	m := b.metrics() // no-op when unwired (§9.2 observation-only; test path)
 	if q.WorkspaceID == uuid.Nil {
 		return ContextResponse{}, ErrBrokerNoWorkspace
 	}
@@ -259,7 +280,9 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 
 	// step 3 (resolved early so the AuthzRequest can scope): route the intent
 	// + asset types. Routing does NOT decide authorization (§4.2).
+	routeStart := time.Now()
 	intent, assetTypes, err := b.router.Route(ctx, q)
+	m.ObservePhaseDuration(MetricsPhaseIntent, time.Since(routeStart))
 	if err != nil {
 		return ContextResponse{}, err
 	}
@@ -269,22 +292,44 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 	// AllowedAssetIDs is the workspace-level visible set pushed down as the
 	// hard pre-filter (§3.2). A denial here is a caller error (leak-safe:
 	// surfaced downstream as empty-authorized, not a 403).
+	authzStart := time.Now()
 	ac, err := b.authorizeWorkspace(ctx, q.WorkspaceID, principal)
+	m.ObservePhaseDuration(MetricsPhaseAuthz, time.Since(authzStart))
 	if err != nil {
 		return ContextResponse{}, err
+	}
+	// §9.2 knowledge_authz_denied_total: a workspace-scope denial (Allowed=
+	// false) is counted on the membership gate (read @ workspace). Leak-safe:
+	// counted only, never distinguished from "no knowledge" on the response.
+	if !ac.Allowed {
+		m.IncAuthzDenied(domain.ActionRead, domain.TargetWorkspace)
 	}
 
 	// step 4: concurrent fan-out to the routed typed ports under a shared
 	// deadline = min(q.Timeout, default.Timeout, 2s) (§7.1). Each port fails
 	// independently; failures land in degradedSources.
 	timeout := b.sharedDeadline(q.Timeout)
+	parallelStart := time.Now()
 	candidates, degraded := b.fanOut(ctx, ac, q, assetTypes, timeout)
+	m.ObservePhaseDuration(MetricsPhaseParallel, time.Since(parallelStart))
+	// §9.2 knowledge_context_degraded_total: one count per degraded source,
+	// labeled by the §7.3 reason vocabulary. Spikes here trigger alerts.
+	for _, d := range degraded {
+		m.IncDegraded(d.Reason)
+	}
 
 	// step 5: merge candidate IDs → authz batch post-check (VisibleAssets) →
 	// allowed subset only (§3.2 two-pass). Candidates NOT in the allowed
 	// subset are dropped (no leak — they never reach the response).
 	allowed, preCheckCount := b.postCheck(ctx, q.WorkspaceID, principal, candidates)
 	allowedCands := filterByAllowed(candidates, allowed)
+	// §9.2 knowledge_context_candidates_total{disposition=denied}: candidates
+	// that existed pre-check but were denied by the post-check. Labeled per
+	// intent + type (§9.2); the denied count is the pre-check minus the
+	// allowed survivor count, attributed per type so a weak type is visible.
+	if denied := preCheckCount - len(allowedCands); denied > 0 {
+		b.emitDeniedCandidates(m, intent, candidates, allowed)
+	}
 
 	// step 7 load: the current policy for the intent (built-in default when
 	// the repo has no row, §5.3). policy_version → audit (step 10).
@@ -292,11 +337,16 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 	if err != nil {
 		return ContextResponse{}, err
 	}
+	// §9.2 knowledge_context_policy_version (gauge): track the applied policy
+	// version across the fleet. 0 = built-in default (§5.3).
+	m.SetPolicyVersion(policyVersion)
 
 	// step 6: DedupAndKeepConflicts (§7.2). Runs BEFORE Score (the policy
 	// scores the deduped pool, §7.2). exclude_when drops deprecated/
 	// version_mismatch; conflict pairs are kept side-by-side.
+	dedupStart := time.Now()
 	deduped := DedupAndKeepConflicts(allowedCands, policy)
+	m.ObservePhaseDuration(MetricsPhaseDedup, time.Since(dedupStart))
 
 	// step 7: AuthorityPolicy.Score (§5.2). Blends authority/freshness/
 	// confidence with the policy weights; stable-sorted by blended score desc.
@@ -305,12 +355,20 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 	// step 8: Budgeter.Select (§6.2). Trims to the budget; returns the
 	// truncation report (reason + truncated asset_ids + continue tools).
 	budget := b.budgetFor(q, assetTypes)
+	budgetStart := time.Now()
 	selected, truncation := b.budgeter.Select(scored, budget)
+	m.ObservePhaseDuration(MetricsPhaseBudget, time.Since(budgetStart))
+	// §9.2 candidates_total{disposition=selected|truncated}: per intent + type,
+	// NOT aggregated into one number (§9.1 — a weak type must not be masked).
+	// tokens{type}: realized per-type spend, observed from the selected slice.
+	b.emitSelectedTruncated(m, intent, scored, selected, truncation)
 
 	// step 9: CitationBuilder.Build (§8). Completes the citation AFTER the
 	// final authorization pass (§8.2 — the selected slice is post-check by
 	// construction).
+	citeStart := time.Now()
 	cited := b.cite.Build(ctx, selected)
+	m.ObservePhaseDuration(MetricsPhaseCitation, time.Since(citeStart))
 
 	resp := ContextResponse{
 		Candidates:            cited,
@@ -321,6 +379,21 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 		AuthzRevision:         ac.AuthzRevision,
 		DecisionID:            ac.DecisionID,
 		preCheckCandidateCount: preCheckCount,
+	}
+
+	// §9.2 knowledge_context_empty_total{state}: the §7.3 three-state, observable
+	// so a fault is never confused with "no knowledge" (§0 D7/D8, §11.4). Only
+	// counted when the response carries no candidates (the three states are
+	// mutually exclusive on an empty result).
+	if len(cited) == 0 {
+		switch {
+		case resp.IsProviderDown():
+			m.IncEmptyState(MetricsEmptyProviderDown)
+		case resp.IsEmptyAuthorized():
+			m.IncEmptyState(MetricsEmptyAuthorized)
+		case resp.IsEmptyNoResults():
+			m.IncEmptyState(MetricsEmptyNoResults)
+		}
 	}
 
 	// step 10: audit summary (§9.3). Best-effort; never blocks the response.
@@ -340,6 +413,68 @@ func (b *Broker) Execute(ctx context.Context, q KnowledgeQuery, principal Princi
 		})
 	}
 	return resp, nil
+}
+
+// emitSelectedTruncated emits the §9.2 candidates_total{disposition=selected|
+// truncated} counts + the tokens{type} realized spend. Per intent + type, NOT
+// aggregated into one number (§9.1 — a weak type must not be masked by a strong
+// one's mean). The truncated set is identified by asset id (the Budgeter drops
+// scored candidates whose id is not in the selected slice).
+func (b *Broker) emitSelectedTruncated(m MetricsEmitter, intent Intent, scored []ScoredCandidate, selected []KnowledgeCandidate, trunc TruncationReport) {
+	if len(scored) == 0 {
+		return
+	}
+	selectedByID := make(map[uuid.UUID]bool, len(selected))
+	for _, c := range selected {
+		selectedByID[c.AssetID] = true
+	}
+	truncByID := make(map[uuid.UUID]bool, len(trunc.TruncatedAssetIDs))
+	for _, id := range trunc.TruncatedAssetIDs {
+		if u, err := uuid.Parse(id); err == nil {
+			truncByID[u] = true
+		}
+	}
+	// Per-type selected + truncated counts + realized token spend (§9.2). The
+	// token estimate reuses the Budgeter's char→token ratio (§6.2) so the
+	// observed spend is consistent with the guard that produced it.
+	typeTokens := make(map[domain.AssetType]int)
+	for _, sc := range scored {
+		t := sc.Candidate.AssetType
+		switch {
+		case selectedByID[sc.Candidate.AssetID]:
+			m.IncCandidates(intent, t, MetricsDispSelected, 1)
+			typeTokens[t] += estimateTokens(sc.Candidate.Snippet)
+		case truncByID[sc.Candidate.AssetID]:
+			m.IncCandidates(intent, t, MetricsDispTruncated, 1)
+		}
+	}
+	for t, n := range typeTokens {
+		if n > 0 {
+			m.ObserveTokens(t, n)
+		}
+	}
+}
+
+// emitDeniedCandidates emits the §9.2 candidates_total{disposition=denied}
+// count per intent + type for candidates that existed pre-check but were
+// dropped by the §7.1 step-5 post-check authorization pass. The denied set is
+// the candidates whose AssetID is NOT in the allowed map.
+func (b *Broker) emitDeniedCandidates(m MetricsEmitter, intent Intent, cands []KnowledgeCandidate, allowed map[uuid.UUID]bool) {
+	if len(cands) == 0 {
+		return
+	}
+	// Collapse to distinct asset ids per type (a candidate may appear once;
+	// dedup guards against double-counting a repeated id).
+	seen := make(map[uuid.UUID]bool, len(cands))
+	for _, c := range cands {
+		if seen[c.AssetID] {
+			continue
+		}
+		seen[c.AssetID] = true
+		if !allowed[c.AssetID] {
+			m.IncCandidates(intent, c.AssetType, MetricsDispDenied, 1)
+		}
+	}
 }
 
 // authorizeWorkspace is §7.1 step 2: authz.Authorize at workspace scope. It is

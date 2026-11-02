@@ -93,6 +93,10 @@ func newContextBroker(
 	policyLoader := knowledgectx.DefaultPolicyLoader(policyRepo)
 	opts := []knowledgectx.BrokerOption{
 		knowledgectx.WithDocumentPort(docPort),
+		// §9.2 online quality metrics: emit against the centrally-registered
+		// observ collectors. The Broker treats nil as no-op; the production
+		// path installs the real emitter so the seven §9.2 metrics fire.
+		knowledgectx.WithMetrics(knowledgectx.NewPromMetricsEmitter()),
 	}
 	if auditSink != nil {
 		opts = append(opts, knowledgectx.WithAuditSink(auditSink))

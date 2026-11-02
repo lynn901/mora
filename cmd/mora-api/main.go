@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/lynn901/mora/internal/domain"
 	"github.com/lynn901/mora/internal/infra/codegraph"
 	"github.com/lynn901/mora/internal/infra/crypto"
@@ -604,6 +605,11 @@ func main() {
 
 	// health
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	// /metrics — Prometheus scrape endpoint (design-docs/07 §4, same as the
+	// MCP server). Public (no token): scrape is auth'd at the network edge.
+	// Exposes the §9.2 Context Broker online quality metrics (registered in
+	// internal/platform/observ via promauto, emitted by the Broker path).
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/ready", func(c *gin.Context) {
 		if err := pool.Ping(c.Request.Context()); err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready"})
