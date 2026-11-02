@@ -194,6 +194,75 @@ func NewDocumentAdapter(fts docFTSPort, hybrid docHybridPort) *DocumentAdapter {
 	return &DocumentAdapter{fts: fts, hybrid: hybrid}
 }
 
+// DocumentHybridHit is the exported narrow view of one hybrid-search hit the
+// wiring layer builds from the real rag/search.SearchHit (§3.3). The context
+// package maps it onto the unified candidate via CandidateFromDocument.
+// DocumentID is a string (the rag searcher emits a string; the adapter parses
+// it to uuid — a malformed id is skipped, no leak, §8.2).
+type DocumentHybridHit struct {
+	DocumentID  string
+	Title       string
+	ChunkText   string
+	ChunkIndex  int
+	SectionPath string
+	Score       float64
+}
+
+// DocumentHybridResult is the exported narrow view of a hybrid-search result.
+type DocumentHybridResult struct {
+	Items []DocumentHybridHit
+	Total int
+}
+
+// DocumentHybridSearchFunc is the exported hybrid-search port the wiring layer
+// implements over rag/search.HybridSearcher (or any document search engine).
+// It takes (query, workspaceID, topN) and returns the hits; the Broker's
+// DocumentAdapter maps them into the unified candidate. RBAC is the
+// AuthzContext.AllowedAssetIDs pushdown + the post-check (§3.2) — the func
+// does NOT accept a caller-supplied visible set.
+type DocumentHybridSearchFunc func(ctx context.Context, query, workspaceID string, topN int) (*DocumentHybridResult, error)
+
+// NewDocumentAdapterFromFunc wires a DocumentAdapter from an exported
+// DocumentHybridSearchFunc, so the wiring layer (cmd/mora-api) can compose the
+// adapter over rag/search.HybridSearcher without importing the context
+// package's unexported docHybridPort. The FTS path is nil (degraded when the
+// hybrid func is nil — the Broker records fts_fallback / provider_error).
+func NewDocumentAdapterFromFunc(fn DocumentHybridSearchFunc) *DocumentAdapter {
+	if fn == nil {
+		return &DocumentAdapter{}
+	}
+	return &DocumentAdapter{hybrid: docHybridFuncAdapter{fn: fn}}
+}
+
+// docHybridFuncAdapter bridges the exported DocumentHybridSearchFunc to the
+// internal docHybridPort (local interface). It translates the exported result
+// type into the adapter's local docHybridResult so Search() stays unchanged.
+type docHybridFuncAdapter struct {
+	fn DocumentHybridSearchFunc
+}
+
+func (a docHybridFuncAdapter) Search(ctx context.Context, req docHybridReq) (*docHybridResult, error) {
+	res, err := a.fn(ctx, req.Query, req.WorkspaceID, req.TopN)
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		return &docHybridResult{}, nil
+	}
+	out := &docHybridResult{Total: res.Total, Items: make([]docHybridHit, 0, len(res.Items))}
+	for _, h := range res.Items {
+		out.Items = append(out.Items, docHybridHit{
+			DocumentID:  h.DocumentID,
+			Title:       h.Title,
+			ChunkText:   h.ChunkText,
+			ChunkIndex:  h.ChunkIndex,
+			SectionPath: h.SectionPath,
+			Score:       h.Score,
+		})
+	}
+	return out, nil
+}
+
 // Search implements DocumentQuery.Search. First version runs the hybrid path
 // when available (RAG fuses dense + BM25 under RBAC, §05), falling back to the
 // FTS-only path. Each hit is mapped via CandidateFromDocument. version_id is

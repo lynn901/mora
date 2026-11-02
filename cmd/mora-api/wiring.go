@@ -36,7 +36,18 @@ func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo,
 	// Wire doc-family + asset/source/review target resolution through the
 	// unified ResourceLocator port. AsLocator adapts authz.ResourceLocator -> rbac.Locator
 	// so the engine can delegate without importing authz (which imports rbac).
-	comp := authz.NewCompositeLocator(struct {
+	eng.SetLocator(authz.AsLocator(newAuthzLocator(perms, dirs, docs, authzDB)))
+	return eng
+}
+
+// newAuthzLocator builds the CompositeLocator shared by the RBAC engine and
+// the Phase 6 authz.Service (§3.2 two-pass gate). Extracted from newRBACEngine
+// so the Broker's authz.Service resolves targets the same way the legacy
+// engine does — a missing/cross-workspace asset is ErrTargetNotFound,
+// indistinguishable from a denial (existence never leaks, §8.2).
+func newAuthzLocator(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo, docs *postgres.DocumentRepo, authzDB *postgres.DB) *authz.CompositeLocator {
+	repo := postgres.NewRBACAdapter(perms, dirs, docs)
+	return authz.NewCompositeLocator(struct {
 		Type authz.TargetType
 		Loc  authz.ResourceLocator
 	}{Type: domain.TargetWorkspace, Loc: authz.NewDocLocator(repo)},
@@ -65,8 +76,6 @@ func newRBACEngine(perms *postgres.PermissionRepo, dirs *postgres.DirectoryRepo,
 			Loc  authz.ResourceLocator
 		}{Type: domain.TargetEvidence, Loc: authz.NewEvidenceLocator(postgres.NewAuthzEvidenceRepo(authzDB))},
 	)
-	eng.SetLocator(authz.AsLocator(comp))
-	return eng
 }
 
 var collabUpgrader = websocket.Upgrader{
