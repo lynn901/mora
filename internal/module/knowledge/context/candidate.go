@@ -71,6 +71,16 @@ type KnowledgeCandidate struct {
 	// Broker keeps them side-by-side instead of picking one (D7, §7.2). The
 	// policy's ConflictsToSurface decides which survive budgeting.
 	Relations []RelationSummary `json:"relations,omitempty"`
+	// ConflictTags carries the candidate's OWN semantic conflict labels
+	// (old_spec / impl_drift / doc_inconsistency / low_confidence /
+	// superseded_memory / version_mismatch / missing_permission, §7.2). These
+	// are candidate-self attributes with NO counterpart asset — unlike
+	// Relations, which are directed edges to another asset (TargetID) and
+	// reuse the Phase 1 relation_type enum (locked by migration 014's CHECK,
+	// so the extended labels CANNOT go there). DedupAndKeepConflicts matches
+	// policy.ConflictsToSurface() against the UNION of Relations[i].
+	// RelationType and ConflictTags (§7.2).
+	ConflictTags []string `json:"conflict_tags,omitempty"`
 	// Citation is the traceable reference (D9, §8.1). The type adapter pre-fills
 	// what the source engine already carries; the Broker's CitationBuilder does
 	// the final authorized field completion (§8.2 — does not re-parse).
